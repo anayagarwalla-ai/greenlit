@@ -24,6 +24,13 @@ The repository contains a complete judge-first vertical slice for the Blueprint 
 
 The demo is intentionally self-contained. It remains fully usable before cloud credentials are attached and clearly labels itself as seeded demo data.
 
+### Hosted build
+
+- **Product:** [milestoneproof.vercel.app](https://milestoneproof.vercel.app)
+- **Runner health:** [milestoneproof-runner.anay-agarwalla-581.workers.dev/health](https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health)
+
+The production build is connected to a Cloudflare Queue and Browser Run worker with signed HMAC callbacks. The deployed smoke path has been verified through dispatch, queue lease, browser execution, and completion callback. The Supabase production schema and row-level-security policies are also applied; the guided demo remains available if any optional cloud integration is unavailable.
+
 ## Local setup
 
 ```bash
@@ -55,4 +62,3 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries and [docs/
 ## Data policy
 
 The free-tier build is for synthetic, demo, or explicitly non-confidential material only. Original PDFs are designed to be deleted after client-side extraction; retained source spans, evidence, and approval records expire after seven days unless the owner deletes them sooner. MilestoneProof is not a legal e-signature, payment guarantee, invoice, or WCAG certification.
-

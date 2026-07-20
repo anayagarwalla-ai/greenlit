@@ -18,8 +18,7 @@ max_concurrency = 1
 max_retries = 1
 
 [vars]
-WEB_APP_URL = "https://milestoneproof.app"
+WEB_APP_URL = "https://milestoneproof.vercel.app"
 
 # Secrets set with `wrangler secret put`:
 # RUNNER_HMAC_SECRET
-
