@@ -39,8 +39,7 @@ export function AuthPanel({ nextPath = "/dashboard" }: { nextPath?: "/dashboard"
         {sent ? <>
           <span className="auth-mark"><CheckCircle2 size={30} /></span>
           <h1>Check your email</h1>
-          <p>We sent a secure sign-in link to <strong>{email}</strong>. It returns you to {nextPath === "/workspace" ? "your workspace" : "your agency dashboard"}.</p>
-          <button className="text-action" onClick={() => setSent(false)}>Use a different email</button>
+          <p role="status">We sent a secure sign-in link to <strong>{email}</strong>. It returns you to {nextPath === "/workspace" ? "your workspace" : "your agency dashboard"}.</p>
         </> : <>
           <span className="auth-mark"><ShieldCheck size={30} /></span>
           <div className="legal-kicker">Invite-only agency beta</div>
@@ -54,7 +53,10 @@ export function AuthPanel({ nextPath = "/dashboard" }: { nextPath?: "/dashboard"
           </form>
           <small>Use only a pre-approved business email you control; signing in does not request an invitation. The beta currently accepts redacted or expressly non-confidential SOW sections.</small>
         </>}
-        <Link href="/">Back to MilestoneProof</Link>
+        <div className="auth-actions">
+          {sent && <button type="button" className="text-action" onClick={() => setSent(false)}>Use a different email</button>}
+          <Link href="/">Back to MilestoneProof</Link>
+        </div>
       </section>
     </main>
   );
