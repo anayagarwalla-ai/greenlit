@@ -3,7 +3,10 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function formatTimestamp(value = new Date("2026-07-19T21:42:00-07:00")): string {
+export function formatTimestamp(
+  value = new Date("2026-07-19T21:42:00-07:00"),
+  timeZone?: string,
+): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -11,6 +14,6 @@ export function formatTimestamp(value = new Date("2026-07-19T21:42:00-07:00")): 
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
+    ...(timeZone ? { timeZone } : {}),
   }).format(value);
 }
-

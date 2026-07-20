@@ -12,4 +12,9 @@ describe("record formatting", () => {
     expect(rendered).toMatch(/Jul 20, 2026/);
     expect(rendered).toMatch(/(UTC|GMT|PDT|PST|EDT|EST|CDT|CST|MDT|MST)/);
   });
+
+  it("renders deterministic demo timestamps in Pacific time", () => {
+    const rendered = formatTimestamp(new Date("2026-07-20T17:00:00.000Z"), "America/Los_Angeles");
+    expect(rendered).toBe("Jul 20, 2026, 10:00 AM PDT");
+  });
 });

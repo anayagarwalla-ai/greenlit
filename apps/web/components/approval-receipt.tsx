@@ -23,7 +23,6 @@ type ReceiptPacket = {
 };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
-const dateTime = (value: string) => formatTimestamp(new Date(value));
 
 type DemoReviewer = { reviewerName: string; reviewerEmail: string; reviewerNote: string; decidedAt: string };
 
@@ -54,6 +53,13 @@ function demoReceipt(reviewer: DemoReviewer = { reviewerName: "Sample Client", r
 }
 
 export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; demo?: boolean }) {
+  const dateTime = (value: string) => formatTimestamp(new Date(value), demo ? "America/Los_Angeles" : undefined);
+  const dateStamp = (value: string) => new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...(demo ? { timeZone: "America/Los_Angeles" } : {}),
+  }).format(new Date(value)).toUpperCase();
   const [packet, setPacket] = useState<ReceiptPacket | null>(() => demo ? demoReceipt() : null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -88,7 +94,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
       <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions"><Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Save PDF</button></div></div>
       <article className="receipt-page" aria-label="Milestone approval record">
         {demo && <div className="analysis-notice"><FileWarning size={15} /><div><strong>Synthetic sample — not a retained approval record</strong><span>This printable page illustrates the final format. It has no evidence hashes, audit chain, server-side decision, or legal-record status.</span></div></div>}
-        <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{new Date(packet.decidedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</span></div></header>
+        <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{dateStamp(packet.decidedAt)}</span></div></header>
         <section className="receipt-facts"><div><span>Agency</span><strong>{snapshot.agencyName}</strong></div><div><span>Client</span><strong>{snapshot.clientName}</strong></div><div><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></section>
         <span className="receipt-section-title">Approved scope · revision {snapshot.revision}</span>
         <div className="receipt-criteria">{snapshot.criteria.map((criterion) => <div className="receipt-criterion" key={criterion.id}><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><small>{results[criterion.id]?.observed ?? "Recorded result"}</small></div><span className="status-badge status-badge--pass"><Check size={10} /> Passed</span></div>)}</div>

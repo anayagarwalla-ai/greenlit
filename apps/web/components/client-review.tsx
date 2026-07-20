@@ -29,7 +29,6 @@ type ReviewSnapshot = {
 type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
-const dateTime = (value: string) => formatTimestamp(new Date(value));
 
 function demoPacket(): PacketResponse {
   const completedAt = "2026-07-20T17:00:00.000Z";
@@ -58,6 +57,7 @@ function demoPacket(): PacketResponse {
 }
 
 export function ClientReview({ packetId, demo = false }: { packetId: string; demo?: boolean }) {
+  const dateTime = (value: string) => formatTimestamp(new Date(value), demo ? "America/Los_Angeles" : undefined);
   const [packet, setPacket] = useState<PacketResponse | null>(() => demo ? demoPacket() : null);
   const [loading, setLoading] = useState(!demo);
   const [error, setError] = useState("");
