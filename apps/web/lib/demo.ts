@@ -40,6 +40,22 @@ export const sowExcerpt = [
   { line: 24, text: "The mobile navigation must fit a 390px viewport without horizontal scrolling." },
 ];
 
+export const demoSowText = `STATEMENT OF WORK
+Acme Outdoors / Northstar Studio
+
+Project: Spring launch website
+Milestone 3: Production-ready marketing site
+
+Acceptance criteria — Spring launch milestone
+The homepage hero headline and primary ‘Plan my trip’ call-to-action must be visible on load.
+The primary call-to-action must take visitors to the contact page.
+The services section must present three distinct trip-planning packages.
+Submitting the contact form must create a lead and show a success confirmation.
+Required-field errors must be programmatically associated with their fields.
+The mobile navigation must fit a 390px viewport without horizontal scrolling.
+
+This is a synthetic demonstration document. It contains no client-confidential information.`;
+
 export const demoCriteria: DemoCriterion[] = [
   {
     id: "AC-01",
@@ -98,4 +114,3 @@ export const demoCriteria: DemoCriterion[] = [
 ];
 
 export const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-

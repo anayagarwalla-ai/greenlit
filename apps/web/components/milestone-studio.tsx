@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Bot,
@@ -14,27 +15,63 @@ import {
   ExternalLink,
   FileCheck2,
   FileText,
+  FileUp,
   Globe2,
   LoaderCircle,
   LockKeyhole,
+  PencilLine,
   Play,
+  Quote,
   RefreshCw,
   ScanSearch,
   Send,
   ShieldCheck,
   Sparkles,
+  WandSparkles,
   X,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { demoCriteria, demoMilestone, money, sowExcerpt } from "@/lib/demo";
+import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
+import { demoCriteria, demoMilestone, demoSowText, sowExcerpt } from "@/lib/demo";
 import { formatDuration } from "@/lib/format";
 
-type Phase = "criteria" | "running1" | "run1" | "running2" | "run2" | "shared";
+type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
+type SourceMode = "live" | "demo";
 
-const phaseOrder: Record<Phase, number> = { criteria: 1, running1: 2, run1: 2, running2: 2, run2: 2, shared: 3 };
+type AnalysisResponse = {
+  sourceName: string;
+  sourceText: string;
+  criteria: Omit<AnalysisCriterion, "id">[];
+  model?: string;
+  error?: string;
+};
+
+const phaseOrder: Record<Phase, number> = { intake: 1, analyzing: 1, criteria: 1, handoff: 2, running1: 2, run1: 2, running2: 2, run2: 2, shared: 3 };
+const checkLabels: Record<CheckType, string> = {
+  element_state: "Element state",
+  link_destination: "Link destination",
+  form_submission: "Form submission",
+  viewport_layout: "Viewport layout",
+  axe_scan: "Accessibility scan",
+  manual: "Human review",
+};
+
+function fixtureCompatible(source: string) {
+  const normalizedSource = normalizeWhitespace(source);
+  return demoCriteria.every((item) => normalizedSource.includes(normalizeWhitespace(item.source)));
+}
+
+function fixtureCriteriaCompatible(source: string, criteria: AnalysisCriterion[]) {
+  return fixtureCompatible(source)
+    && criteria.length === demoCriteria.length
+    && demoCriteria.every((demoItem) => criteria.some((item) => normalizeWhitespace(item.sourceQuote) === normalizeWhitespace(demoItem.source)));
+}
 
 function phaseStatus(phase: Phase) {
+  if (phase === "intake") return { text: "Awaiting SOW", className: "status-badge--neutral" };
+  if (phase === "analyzing") return { text: "Gemini analyzing", className: "status-badge--neutral" };
   if (phase === "criteria") return { text: "Needs confirmation", className: "" };
+  if (phase === "handoff") return { text: "Scope frozen", className: "status-badge--pass" };
   if (phase.startsWith("running")) return { text: "Verifying", className: "status-badge--neutral" };
   if (phase === "run1") return { text: "Needs work", className: "status-badge--fail" };
   if (phase === "run2") return { text: "Ready for review", className: "status-badge--pass" };
@@ -42,13 +79,23 @@ function phaseStatus(phase: Phase) {
 }
 
 export function MilestoneStudio() {
-  const [phase, setPhase] = useState<Phase>("criteria");
+  const [phase, setPhase] = useState<Phase>("intake");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("live");
+  const [sourceText, setSourceText] = useState("");
+  const [sourceName, setSourceName] = useState("Pasted SOW");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [attested, setAttested] = useState(false);
+  const [criteria, setCriteria] = useState<AnalysisCriterion[]>([]);
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
+  const [analysisError, setAnalysisError] = useState("");
+  const [model, setModel] = useState("Gemini");
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase);
-  const confirmedCount = Object.values(confirmed).filter(Boolean).length;
+  const isFixtureSource = fixtureCompatible(sourceText);
+  const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
+  const visibleCount = sourceMode === "demo" ? demoCriteria.length : criteria.length;
 
   useEffect(() => {
     if (!toast) return;
@@ -57,16 +104,81 @@ export function MilestoneStudio() {
   }, [toast]);
 
   const reset = () => {
-    setPhase("criteria");
+    setPhase("intake");
+    setSourceMode("live");
+    setSourceText("");
+    setSourceName("Pasted SOW");
+    setSelectedFile(null);
+    setAttested(false);
+    setCriteria([]);
     setConfirmed({});
+    setAnalysisError("");
     setCopied(false);
-    setToast("Demo reset to the signed SOW");
+    setToast("Ready for a new SOW");
+  };
+
+  const launchDemo = () => {
+    setSourceMode("demo");
+    setSourceText(demoSowText);
+    setSourceName("Acme × Northstar — SOW.pdf");
+    setCriteria([]);
+    setConfirmed({});
+    setAnalysisError("");
+    setPhase("criteria");
+    setToast("Guided demo loaded");
+  };
+
+  const analyze = async () => {
+    if (!attested) {
+      setAnalysisError("Confirm that this document is synthetic or non-confidential.");
+      return;
+    }
+    if (!selectedFile && sourceText.trim().length < 80) {
+      setAnalysisError("Paste at least 80 characters or choose a PDF, TXT, or Markdown file.");
+      return;
+    }
+
+    setPhase("analyzing");
+    setAnalysisError("");
+    try {
+      let response: Response;
+      if (selectedFile) {
+        const form = new FormData();
+        form.set("file", selectedFile);
+        form.set("syntheticDataAttested", "true");
+        response = await fetch("/api/analyze", { method: "POST", body: form });
+      } else {
+        response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true }),
+        });
+      }
+      const payload = (await response.json()) as AnalysisResponse;
+      if (!response.ok) throw new Error(payload.error || "Gemini could not analyze this SOW.");
+      setSourceText(payload.sourceText);
+      setSourceName(payload.sourceName);
+      setCriteria(payload.criteria.map((item, index) => ({ ...item, id: `AC-${String(index + 1).padStart(2, "0")}` })));
+      setConfirmed({});
+      setModel(payload.model ?? "Gemini");
+      setSourceMode("live");
+      setPhase("criteria");
+      setToast(`${payload.criteria.length} source-backed criteria drafted`);
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "Gemini could not analyze this SOW.");
+      setPhase("intake");
+    }
   };
 
   const startRun = (second = false) => {
-    setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
+    if (sourceMode === "demo") setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
     setPhase(second ? "running2" : "running1");
     window.setTimeout(() => setPhase(second ? "run2" : "run1"), 1850);
+  };
+
+  const continueFromCriteria = () => {
+    if (sourceMode === "live" && !canRunImportedFixture) setPhase("handoff");
+    else startRun(false);
   };
 
   const share = () => {
@@ -81,13 +193,24 @@ export function MilestoneStudio() {
     setToast("Review link copied");
   };
 
+  const projectLabel = sourceMode === "demo" || isFixtureSource ? demoMilestone.project : sourceText ? sourceName : "New milestone proof";
+  const workspaceTitle = phase === "intake" || phase === "analyzing"
+    ? "Import the promises worth proving"
+    : phase === "criteria"
+      ? "Confirm what “done” means"
+      : phase === "handoff"
+        ? "Connect the build to verify"
+        : phase === "shared"
+          ? "Client review is ready"
+          : "Verification evidence";
+
   return (
     <main className="app-shell">
       <header className="app-topbar">
         <Brand inverse />
         <div className="app-topbar__right">
-          <span className="demo-badge">Guided demo</span>
-          <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> Reset</button>
+          <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
+          <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
           <span className="avatar" aria-label="Northstar Studio">NS</span>
         </div>
       </header>
@@ -97,29 +220,29 @@ export function MilestoneStudio() {
           <Link className="back-link" href="/"><ArrowLeft size={13} /> Back to overview</Link>
           <div className="project-card">
             <span>Project</span>
-            <strong>{demoMilestone.project}</strong>
-            <small>Milestone 3 of 4</small>
+            <strong>{projectLabel}</strong>
+            <small>{sourceText ? "Source loaded" : "Start with a SOW"}</small>
           </div>
           <div className="side-label">Proof flow</div>
           <nav className="side-nav">
-            <button className={phase === "criteria" ? "is-active" : ""} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span><span>6</span></button>
-            <button className={currentStep === 2 ? "is-active" : ""} disabled={currentStep < 2}><ScanSearch size={15} /><span>Verification run</span>{currentStep >= 2 && <span>{phase === "run1" ? "5/6" : "6/6"}</span>}</button>
+            <button className={currentStep === 1 ? "is-active" : ""} onClick={() => sourceText && setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
+            <button className={currentStep === 2 ? "is-active" : ""} disabled={currentStep < 2}><ScanSearch size={15} /><span>Verification run</span>{currentStep >= 2 && phase !== "handoff" && <span>{phase === "run1" ? "5/6" : "6/6"}</span>}</button>
             <button className={currentStep === 3 ? "is-active" : ""} disabled={currentStep < 3}><Send size={15} /><span>Client review</span></button>
             <button disabled><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
           <div className="side-facts">
-            <div><span>Client</span><strong>{demoMilestone.client}</strong></div>
-            <div><span>Milestone</span><strong>{money.format(demoMilestone.amountMinor / 100)}</strong></div>
-            <div><span>Revision</span><strong>v{demoMilestone.revision}</strong></div>
+            <div><span>AI</span><strong>{sourceMode === "demo" ? "Seeded fallback" : model}</strong></div>
+            <div><span>Source</span><strong>{sourceText ? "In memory" : "Not loaded"}</strong></div>
+            <div><span>Paid services</span><strong>None</strong></div>
           </div>
         </aside>
 
         <section className="app-main">
           <div className="workspace-head">
-            <div className="workspace-head__title"><span>Spring launch · Revision 3</span><h1>{phase === "criteria" ? "Confirm what “done” means" : phase === "shared" ? "Client review is ready" : "Verification evidence"}</h1></div>
+            <div className="workspace-head__title"><span>{sourceText ? sourceName : "New proof set · safe intake"}</span><h1>{workspaceTitle}</h1></div>
             <div className="workspace-head__meta">
-              <span className={`status-badge ${status.className}`}>{phase.startsWith("running") ? <LoaderCircle className="spin" size={12} /> : <CircleDot size={11} />}{status.text}</span>
-              <span className="status-badge status-badge--neutral"><Globe2 size={11} /> Staging verified</span>
+              <span className={`status-badge ${status.className}`}>{phase === "analyzing" || phase.startsWith("running") ? <LoaderCircle className="spin" size={12} /> : <CircleDot size={11} />}{status.text}</span>
+              {currentStep >= 2 && phase !== "handoff" && <span className="status-badge status-badge--neutral"><Globe2 size={11} /> Staging verified</span>}
             </div>
           </div>
 
@@ -130,9 +253,37 @@ export function MilestoneStudio() {
             })}
           </div>
 
-          {phase === "criteria" && (
-            <CriteriaReview confirmed={confirmed} setConfirmed={setConfirmed} confirmedCount={confirmedCount} onRun={() => startRun(false)} />
+          {(phase === "intake" || phase === "analyzing") && (
+            <SowIntake
+              sourceText={sourceText}
+              setSourceText={setSourceText}
+              selectedFile={selectedFile}
+              setSelectedFile={setSelectedFile}
+              attested={attested}
+              setAttested={setAttested}
+              error={analysisError}
+              analyzing={phase === "analyzing"}
+              onAnalyze={analyze}
+              onDemo={launchDemo}
+            />
           )}
+          {phase === "criteria" && sourceMode === "demo" && (
+            <DemoCriteriaReview confirmed={confirmed} setConfirmed={setConfirmed} onRun={() => startRun(false)} />
+          )}
+          {phase === "criteria" && sourceMode === "live" && (
+            <ExtractedCriteriaReview
+              sourceName={sourceName}
+              sourceText={sourceText}
+              criteria={criteria}
+              setCriteria={setCriteria}
+              confirmed={confirmed}
+              setConfirmed={setConfirmed}
+              model={model}
+              fixtureCompatible={canRunImportedFixture}
+              onContinue={continueFromCriteria}
+            />
+          )}
+          {phase === "handoff" && <VerificationHandoff criteria={criteria} sourceName={sourceName} onBack={() => setPhase("criteria")} onDemo={launchDemo} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} />}
           {phase === "run1" && <VerificationReport version="rc1" onRerun={() => startRun(true)} />}
           {phase === "run2" && <VerificationReport version="rc2" onShare={share} />}
@@ -144,12 +295,74 @@ export function MilestoneStudio() {
   );
 }
 
-function CriteriaReview({ confirmed, setConfirmed, confirmedCount, onRun }: {
+function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, error, analyzing, onAnalyze, onDemo }: {
+  sourceText: string;
+  setSourceText: (value: string) => void;
+  selectedFile: File | null;
+  setSelectedFile: (file: File | null) => void;
+  attested: boolean;
+  setAttested: (value: boolean) => void;
+  error: string;
+  analyzing: boolean;
+  onAnalyze: () => void;
+  onDemo: () => void;
+}) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const loadSample = () => {
+    setSelectedFile(null);
+    setSourceText(demoSowText);
+    setAttested(true);
+  };
+
+  return (
+    <div className="intake-grid">
+      <section className="panel intake-panel">
+        <div className="intake-kicker"><WandSparkles size={14} /> Gemini-powered SOW import</div>
+        <h2>Turn contract language into proof-ready checks.</h2>
+        <p className="intake-lede">Paste a scope or upload a selectable-text document. Gemini extracts measurable promises and cites the exact language behind each one.</p>
+
+        <div className="source-input-head"><label htmlFor="sow-text">Paste SOW text</label><button type="button" onClick={loadSample}>Use the synthetic sample</button></div>
+        <textarea id="sow-text" className="sow-textarea" value={sourceText} disabled={Boolean(selectedFile) || analyzing} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste the acceptance criteria, deliverables, or relevant SOW section here…" />
+        <div className="input-divider"><span>or upload</span></div>
+        <input ref={fileInput} className="sr-only" type="file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+        <button className={`upload-drop ${selectedFile ? "has-file" : ""}`} type="button" disabled={analyzing} onClick={() => fileInput.current?.click()}>
+          <span className="upload-icon"><FileUp size={20} /></span>
+          <span><strong>{selectedFile ? selectedFile.name : "Choose a PDF, TXT, or Markdown file"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(0)} KB · click to replace` : "Selectable text · 3 MB maximum"}</small></span>
+          {selectedFile && <CheckCircle2 size={18} />}
+        </button>
+        {selectedFile && <button className="clear-file" type="button" onClick={() => setSelectedFile(null)}>Remove file and use pasted text</button>}
+
+        <label className="attestation">
+          <input type="checkbox" checked={attested} disabled={analyzing} onChange={(event) => setAttested(event.target.checked)} />
+          <span><strong>This SOW is synthetic or non-confidential.</strong> I understand its text is sent to Gemini for analysis and is not written to MilestoneProof logs.</span>
+        </label>
+
+        {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
+        <div className="intake-actions">
+          <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Analyzing with Gemini…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+          <span>or</span>
+          <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
+        </div>
+      </section>
+
+      <aside className="intake-side">
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is processed in memory and never included in verification logs or evidence artifacts.</p></section>
+        <section className="panel trust-card">
+          <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
+          <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>
+          <span className="trust-card__number">03</span><strong>The browser proves</strong><p>Typed, allowlisted checks produce timestamped evidence—never arbitrary AI code.</p>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   confirmed: Record<string, boolean>;
   setConfirmed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  confirmedCount: number;
   onRun: () => void;
 }) {
+  const confirmedCount = Object.values(confirmed).filter(Boolean).length;
   const toggle = (id: string) => setConfirmed((current) => ({ ...current, [id]: !current[id] }));
   const allConfirmed = confirmedCount === demoCriteria.length;
   return (
@@ -165,7 +378,7 @@ function CriteriaReview({ confirmed, setConfirmed, confirmedCount, onRun }: {
 
       <section className="panel criteria-panel">
         <div className="panel-header">
-          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> AI drafted these checks. You decide what counts as done.</p></div>
+          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> Seeded fallback · every quote is source-matched.</p></div>
           <span className="status-badge status-badge--neutral">{confirmedCount}/6 confirmed</span>
         </div>
         <div className="criteria-list">
@@ -181,10 +394,112 @@ function CriteriaReview({ confirmed, setConfirmed, confirmedCount, onRun }: {
           ))}
         </div>
         <footer className="criteria-footer">
-          <p><LockKeyhole size={11} /> Checks can only use confirmed paths, accessible element labels, and typed assertions—never arbitrary scripts.</p>
+          <p><LockKeyhole size={11} /> The guided path uses a synthetic SOW and an isolated staging fixture.</p>
           <button className="button button--ink" onClick={onRun}>{allConfirmed ? "Run verified checks" : "Confirm all & run"} <ArrowRight size={16} /></button>
         </footer>
       </section>
+    </div>
+  );
+}
+
+function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, fixtureCompatible: canRunFixture, onContinue }: {
+  sourceName: string;
+  sourceText: string;
+  criteria: AnalysisCriterion[];
+  setCriteria: React.Dispatch<React.SetStateAction<AnalysisCriterion[]>>;
+  confirmed: Record<string, boolean>;
+  setConfirmed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  model: string;
+  fixtureCompatible: boolean;
+  onContinue: () => void;
+}) {
+  const citations = criteria.map((item) => item.sourceQuote);
+  const sourceLines = sourceText.split("\n");
+  const readyIds = criteria.filter((item) => isCriterionReady(sourceText, item)).map((item) => item.id);
+  const confirmedCount = criteria.filter((item) => confirmed[item.id]).length;
+  const allConfirmed = criteria.length > 0 && criteria.every((item) => confirmed[item.id] && isCriterionReady(sourceText, item));
+
+  const update = (id: string, patch: Partial<AnalysisCriterion>) => {
+    setCriteria((current) => current.map((item) => item.id === id ? {
+      ...item,
+      ...patch,
+      grounded: patch.sourceQuote === undefined ? item.grounded : isGroundedQuote(sourceText, patch.sourceQuote),
+    } : item));
+    setConfirmed((current) => ({ ...current, [id]: false }));
+  };
+  const toggle = (item: AnalysisCriterion) => {
+    if (!isCriterionReady(sourceText, item)) return;
+    setConfirmed((current) => ({ ...current, [item.id]: !current[item.id] }));
+  };
+  const confirmReady = () => setConfirmed(Object.fromEntries(readyIds.map((id) => [id, true])));
+
+  return (
+    <div className="criteria-layout live-criteria-layout">
+      <section className="panel source-sheet live-source" aria-label="Imported source document">
+        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div></div>
+        <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by Gemini. Every citation is checked against this extracted source.</span></div>
+        <div className="document-page live-document">
+          <div className="document-page__head"><span>Extracted source</span><span>{sourceLines.length} lines</span></div>
+          {sourceLines.map((line, index) => line.trim() ? <div className={`document-line ${lineContainsCitation(line, citations) ? "is-cited" : ""}`} key={`${index}-${line.slice(0, 12)}`}><span>{index + 1}</span><div>{line}</div></div> : <div className="document-spacer" key={index} />)}
+        </div>
+      </section>
+
+      <section className="panel criteria-panel live-criteria-panel">
+        <div className="panel-header">
+          <div><h2>{criteria.length} AI-drafted criteria</h2><p><Sparkles size={10} /> {model} drafted; human confirmation is required.</p></div>
+          <div className="panel-header__actions"><span className="status-badge status-badge--neutral">{confirmedCount}/{criteria.length} confirmed</span><button className="mini-action" onClick={confirmReady}>Confirm grounded</button></div>
+        </div>
+        <div className="criteria-list">
+          {criteria.map((item) => {
+            const ready = isCriterionReady(sourceText, item);
+            return (
+              <article className={`criterion-card live-criterion ${confirmed[item.id] ? "is-confirmed" : ""} ${!ready ? "has-warning" : ""}`} key={item.id}>
+                <div className="criterion-card__top">
+                  <span className="criterion-id">{item.id}</span>
+                  <div className="criterion-edit-fields">
+                    <label>Measurable outcome<input value={item.title} onChange={(event) => update(item.id, { title: event.target.value })} /></label>
+                    <label>Exact source quote<textarea value={item.sourceQuote} onChange={(event) => update(item.id, { sourceQuote: event.target.value })} /></label>
+                  </div>
+                  <button disabled={!ready} className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
+                </div>
+                <div className="criterion-metadata">
+                  <label>Evidence type<select value={item.checkType} onChange={(event) => {
+                    const checkType = event.target.value as CheckType;
+                    update(item.id, { checkType, supported: checkType !== "manual" });
+                  }}>{checkTypes.map((type) => <option value={type} key={type}>{checkLabels[type]}</option>)}</select></label>
+                  <label>Evidence rationale<input value={item.rationale} onChange={(event) => update(item.id, { rationale: event.target.value })} /></label>
+                </div>
+                <div className="criterion-validation">
+                  <span className={ready ? "is-valid" : "is-invalid"}>{ready ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}{ready ? "Exact source match" : "Quote must match the source"}</span>
+                  <span className={item.supported ? "is-valid" : "is-manual"}>{item.supported ? <Code2 size={12} /> : <PencilLine size={12} />}{item.supported ? "Safe browser evidence" : "Human review required"}</span>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <footer className="criteria-footer">
+          <p><LockKeyhole size={11} /> Editing a criterion clears its confirmation. Ungrounded quotes cannot be frozen.</p>
+          <button className="button button--ink" disabled={!allConfirmed} onClick={onContinue}>{canRunFixture ? "Run on included staging fixture" : "Continue to verification setup"} <ArrowRight size={16} /></button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function VerificationHandoff({ criteria, sourceName, onBack, onDemo }: { criteria: AnalysisCriterion[]; sourceName: string; onBack: () => void; onDemo: () => void }) {
+  const automated = criteria.filter((item) => item.supported && item.checkType !== "manual").length;
+  return (
+    <div className="handoff-grid">
+      <section className="panel handoff-card">
+        <span className="handoff-mark"><ShieldCheck size={28} /></span>
+        <div className="intake-kicker">Scope frozen · source-backed</div>
+        <h2>Your acceptance contract is ready.</h2>
+        <p>{criteria.length} confirmed promises from <strong>{sourceName}</strong> are ready to map to a client-owned staging target.</p>
+        <div className="handoff-stats"><div><strong>{criteria.length}</strong><span>confirmed</span></div><div><strong>{automated}</strong><span>safe to automate</span></div><div><strong>{criteria.length - automated}</strong><span>human review</span></div></div>
+        <div className="boundary-callout"><LockKeyhole size={16} /><div><strong>No pretend verification.</strong><p>A custom SOW needs a verified staging origin and typed check mappings before evidence can be claimed. The hackathon demo includes a safe fixture so you can see that complete workflow now.</p></div></div>
+        <div className="handoff-actions"><button className="button button--lime" onClick={onDemo}>Open guided verification demo <Play size={15} /></button><button className="button button--outline" onClick={onBack}>Back to criteria</button></div>
+      </section>
+      <aside className="panel handoff-checklist"><h3>Production connection checklist</h3><div><CheckCircle2 size={15} /><span><strong>1. Verify origin ownership</strong>Serve MilestoneProof’s one-time token from the staging hostname.</span></div><div><CircleDot size={15} /><span><strong>2. Map typed checks</strong>Choose accessible labels, same-origin paths, and explicit assertions.</span></div><div><CircleDot size={15} /><span><strong>3. Run in isolation</strong>The Cloudflare runner captures timestamped, hashed evidence.</span></div></aside>
     </div>
   );
 }
@@ -243,7 +558,7 @@ function VerificationReport({ version, onRerun, onShare }: { version: "rc1" | "r
       <div className="action-banner">
         <div><h3>{isPass ? "Give the client proof, not a test report." : "A polished UI hid a broken handoff."}</h3><p>{isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
-          {!isPass && <a className="button button--outline" href="https://example.com" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
+          {!isPass && <a className="button button--outline" href="/fixture/rc1" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
           <button className="button button--lime" onClick={isPass ? onShare : onRerun}>{isPass ? <>Create client review <Send size={15} /></> : <>Verify fixed build <Play size={15} /></>}</button>
         </div>
       </div>

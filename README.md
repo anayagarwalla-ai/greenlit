@@ -5,6 +5,8 @@
 The repository contains a complete judge-first vertical slice for the Blueprint Hackathon:
 
 - a polished agency workspace and guided demo;
+- a live Gemini SOW import with paste and PDF/TXT/Markdown upload;
+- editable, independently source-grounded criteria with human confirmation gates;
 - six source-grounded, typed acceptance checks;
 - two real staging fixtures, including a deceptive UI-success/API-failure bug;
 - a client review and approval flow;
@@ -16,13 +18,13 @@ The repository contains a complete judge-first vertical slice for the Blueprint 
 
 ## Demo
 
-1. Open `/workspace`.
-2. Confirm the six AI-drafted checks and run `launch-rc1`.
+1. Open `/workspace`, load the synthetic sample, and generate live criteria with Gemini.
+2. Review the exact citations, click **Confirm grounded**, and run the matching staging fixture.
 3. Inspect AC-04: the page claims success, but `POST /api/leads` returned 500.
 4. Verify the fixed `launch-rc2` build; all six checks pass.
 5. Create the client review, approve as Mara Chen, and open the invoice-ready record.
 
-The demo is intentionally self-contained. It remains fully usable before cloud credentials are attached and clearly labels itself as seeded demo data.
+If Gemini is unavailable, click **Launch the reliable guided demo**. The fallback is intentionally self-contained and clearly labels itself as seeded demo data. Custom imported SOWs stop at the staging-configuration handoff until their own verified origin and typed checks are connected; they never inherit the synthetic fixture’s results.
 
 ### Hosted build
 
@@ -39,7 +41,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open `http://localhost:3000`. The Gemini key is only needed for `POST /api/analyze`; the guided demo does not require it.
+Open `http://localhost:3000/workspace`. The Gemini key is only needed for `POST /api/analyze`; the guided demo does not require it. Use synthetic or explicitly non-confidential source material only.
 
 ## Validation
 
@@ -57,8 +59,8 @@ pnpm build
 - **Runner:** create the queue with `wrangler queues create milestoneproof-jobs`, set `RUNNER_HMAC_SECRET`, then run `pnpm runner:deploy`.
 - **AI:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in Vercel. Free-tier use is gated behind the synthetic/non-confidential data attestation.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries and [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the two-minute presentation script.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough.
 
 ## Data policy
 
-The free-tier build is for synthetic, demo, or explicitly non-confidential material only. Original PDFs are designed to be deleted after client-side extraction; retained source spans, evidence, and approval records expire after seven days unless the owner deletes them sooner. MilestoneProof is not a legal e-signature, payment guarantee, invoice, or WCAG certification.
+The free-tier build is for synthetic, demo, or explicitly non-confidential material only. Uploaded documents are extracted in memory and are not persisted by the analysis route; document text is excluded from verification logs. Evidence and approval records include seven-day expiry fields. MilestoneProof is not a legal e-signature, payment guarantee, invoice, or WCAG certification.
