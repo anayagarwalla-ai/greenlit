@@ -44,7 +44,7 @@ export function ClientReview() {
             </section>
             <div className="review-footer">
               <p><ShieldCheck size={12} /> Your decision is timestamped and attached to this exact evidence snapshot. MilestoneProof is not a legal e-signature or payment guarantee.</p>
-              <div className="review-footer__actions"><button className="button button--outline" onClick={() => { setDecisionNotice(""); setDialog("changes"); }}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={() => { setDecisionNotice(""); setDialog("approve"); }}><Check size={15} /> Approve milestone</button></div>
+              <div className="review-footer__actions"><button className="button button--outline" onClick={() => { setDecisionNotice(""); setNote(""); setDialog("changes"); }}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={() => { setDecisionNotice(""); setNote(""); setDialog("approve"); }}><Check size={15} /> Approve milestone</button></div>
             </div>
           </>
         ) : (
