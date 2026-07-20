@@ -17,7 +17,7 @@ export default function Home() {
         <div className="hero-grid">
           <div className="hero-copy">
             <div className="eyebrow"><span className="eyebrow-dot" /> Acceptance-to-invoice proof</div>
-            <h1>Turn your SOW<br />into <em>proof.</em></h1>
+            <h1>Turn your SOW{" "}<br />into <em>proof.</em></h1>
             <p className="hero-lede">MilestoneProof turns fuzzy acceptance criteria into verified browser evidence, a one-click client approval, and an invoice-ready record.</p>
             <div className="hero-actions">
               <Link className="button button--lime" href="/workspace">Try the guided demo <ArrowRight size={18} /></Link>
@@ -70,7 +70,7 @@ export default function Home() {
       <section className="problem-section" id="how-it-works">
         <div className="section-kicker">The last mile problem</div>
         <div className="problem-heading">
-          <h2>Finished work should not sit<br />in <em>approval limbo.</em></h2>
+          <h2>Finished work should not sit{" "}<br />in <em>approval limbo.</em></h2>
           <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. MilestoneProof makes “done” concrete, reviewable, and auditable.</p>
         </div>
         <div className="steps-grid">
@@ -81,7 +81,7 @@ export default function Home() {
       </section>
 
       <section className="cta-strip">
-        <div><span>Closed agency beta</span><h2>One milestone. Clear promises.<br />Proof before the invoice.</h2></div>
+        <div><span>Closed agency beta</span><h2>One milestone. Clear promises.{" "}<br />Proof before the invoice.</h2></div>
         <Link className="button button--lime" href="/workspace">Run the proof flow <ArrowRight size={18} /></Link>
       </section>
     </main>
