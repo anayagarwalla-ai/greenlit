@@ -55,6 +55,7 @@ const checkLabels: Record<CheckType, string> = {
   axe_scan: "Accessibility scan",
   manual: "Human review",
 };
+const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
 
 function fixtureCompatible(source: string) {
   const normalizedSource = normalizeWhitespace(source);
@@ -64,7 +65,26 @@ function fixtureCompatible(source: string) {
 function fixtureCriteriaCompatible(source: string, criteria: AnalysisCriterion[]) {
   return fixtureCompatible(source)
     && criteria.length === demoCriteria.length
-    && demoCriteria.every((demoItem) => criteria.some((item) => normalizeWhitespace(item.sourceQuote) === normalizeWhitespace(demoItem.source)));
+    && demoCriteria.every((demoItem, index) => criteria.some((item) =>
+      normalizeWhitespace(item.sourceQuote) === normalizeWhitespace(demoItem.source)
+      && item.checkType === fixtureCheckTypes[index]!
+      && item.supported,
+    ));
+}
+
+function applyFixtureMappings(source: string, criteria: AnalysisCriterion[]) {
+  if (!fixtureCompatible(source) || criteria.length !== demoCriteria.length) return criteria;
+  return criteria.map((item) => {
+    const index = demoCriteria.findIndex((demoItem) => normalizeWhitespace(demoItem.source) === normalizeWhitespace(item.sourceQuote));
+    if (index < 0) return item;
+    const demoItem = demoCriteria[index]!;
+    return {
+      ...item,
+      supported: true,
+      checkType: fixtureCheckTypes[index]!,
+      rationale: `Included staging mapping: ${demoItem.check}`,
+    };
+  });
 }
 
 function phaseStatus(phase: Phase) {
@@ -164,7 +184,8 @@ export function MilestoneStudio() {
       if (!response.ok) throw new Error(payload.error || "Gemini could not analyze this SOW.");
       setSourceText(payload.sourceText);
       setSourceName(payload.sourceName);
-      setCriteria(payload.criteria.map((item, index) => ({ ...item, id: `AC-${String(index + 1).padStart(2, "0")}` })));
+      const drafted = payload.criteria.map((item, index) => ({ ...item, id: `AC-${String(index + 1).padStart(2, "0")}` }));
+      setCriteria(applyFixtureMappings(payload.sourceText, drafted));
       setConfirmed({});
       setModel(payload.model ?? "Gemini");
       setSourceMode("live");
@@ -452,7 +473,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
 
       <section className="panel criteria-panel live-criteria-panel">
         <div className="panel-header">
-          <div><h2>{criteria.length} AI-drafted criteria</h2><p><Sparkles size={10} /> {model} drafted; human confirmation is required.</p></div>
+          <div><h2>{criteria.length} AI-drafted criteria</h2><p><Sparkles size={10} /> {model} drafted; {canRunFixture ? "trusted fixture mappings applied" : "human confirmation required"}.</p></div>
           <div className="panel-header__actions"><span className="status-badge status-badge--neutral">{confirmedCount}/{criteria.length} confirmed</span><button className="mini-action" onClick={confirmReady}>Confirm grounded</button></div>
         </div>
         <div className="criteria-list">
