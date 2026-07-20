@@ -8,6 +8,7 @@ describe("SOW analysis grounding", () => {
 
   it("accepts an exact quote with PDF line-break differences", () => {
     expect(isGroundedQuote("The mobile navigation must fit a 390px\nviewport.", "The mobile navigation must fit a 390px viewport.")).toBe(true);
+    expect(isGroundedQuote("show a success confirmatio\nn.", "show a success confirmation.")).toBe(true);
   });
 
   it("rejects an invented or empty quote", () => {

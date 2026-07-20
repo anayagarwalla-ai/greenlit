@@ -32,7 +32,13 @@ export function normalizeWhitespace(value: string) {
 
 export function isGroundedQuote(source: string, quote: string) {
   const normalizedQuote = normalizeWhitespace(quote);
-  return normalizedQuote.length >= 3 && normalizeWhitespace(source).includes(normalizedQuote);
+  if (normalizedQuote.length < 3) return false;
+  const normalizedSource = normalizeWhitespace(source);
+  if (normalizedSource.includes(normalizedQuote)) return true;
+
+  // PDF text layers sometimes insert a hard line break in the middle of a word.
+  // Ignoring layout whitespace still requires the exact same character sequence.
+  return normalizedSource.replace(/\s/g, "").includes(normalizedQuote.replace(/\s/g, ""));
 }
 
 export function isCriterionReady(source: string, criterion: Pick<AnalysisCriterion, "title" | "sourceQuote">) {
@@ -47,4 +53,3 @@ export function lineContainsCitation(line: string, citations: string[]) {
     return normalizedCitation.includes(normalizedLine) || normalizedLine.includes(normalizedCitation);
   });
 }
-

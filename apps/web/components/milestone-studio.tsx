@@ -58,8 +58,7 @@ const checkLabels: Record<CheckType, string> = {
 const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
 
 function fixtureCompatible(source: string) {
-  const normalizedSource = normalizeWhitespace(source);
-  return demoCriteria.every((item) => normalizedSource.includes(normalizeWhitespace(item.source)));
+  return demoCriteria.every((item) => isGroundedQuote(source, item.source));
 }
 
 function fixtureCriteriaCompatible(source: string, criteria: AnalysisCriterion[]) {

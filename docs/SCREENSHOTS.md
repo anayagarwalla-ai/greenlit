@@ -1,6 +1,6 @@
 # Submission screenshot checklist
 
-Final PNGs live in `docs/screenshots/`. Capture at 1440×900 or a similar 16:10 desktop viewport, with no browser chrome if possible. Do not show cloud dashboards or secrets.
+Final production PNGs live in `docs/screenshots/` and were captured at 1512×772 with no browser chrome. Do not show cloud dashboards or secrets.
 
 | File | Moment | Devpost caption |
 |---|---|---|
@@ -18,4 +18,3 @@ Before upload, verify that every image:
 - avoids cursor hover states over important copy;
 - uses consistent viewport and zoom;
 - has no toasts obscuring important information.
-
