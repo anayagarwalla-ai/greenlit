@@ -7,7 +7,7 @@ This runbook is the minimum operating cadence for inviting web agencies. Assign 
 - Set `BETA_ALLOWED_EMAILS` to the exact business emails invited to use the retained workflow.
 - Set `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`.
 - Confirm the Supabase Site URL is `https://milestoneproof.vercel.app` and the `/auth/callback` redirect is allowed.
-- Keep `BETA_DAILY_RUN_LIMIT=20` and `BETA_DAILY_ANALYSIS_LIMIT=100` until actual usage demonstrates safe headroom.
+- Keep `BETA_DAILY_RUN_LIMIT=8` and `BETA_DAILY_ANALYSIS_LIMIT=100` until actual usage demonstrates safe headroom.
 - Test one magic-link sign-in, one custom staging ownership file, one passing run, one client decision from a separate browser, and receipt/export access from the agency dashboard.
 - Tell testers to use only redacted, synthetic, or expressly non-confidential SOW sections while Gemini remains on the unpaid tier.
 

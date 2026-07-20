@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     if (!owner.user || !betaAccessAllowed(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const quota = await consumeRateLimit(request, "verification-run-day", 8, 86_400, owner.userId);
     if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
-    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 20);
+    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
     const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "milestoneproof-global-browser-capacity");
     if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
     const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
