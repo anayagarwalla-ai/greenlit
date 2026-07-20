@@ -11,11 +11,18 @@ export function ClientReview() {
   const [approved, setApproved] = useState(false);
   const [name, setName] = useState("Mara Chen");
   const [note, setNote] = useState("");
+  const [decisionNotice, setDecisionNotice] = useState("");
 
   const submitApproval = () => {
     setDialog(null);
     setApproved(true);
+    setDecisionNotice("");
     try { window.sessionStorage.setItem("milestoneproof-approved", "true"); } catch { /* optional demo persistence */ }
+  };
+
+  const submitChangeRequest = () => {
+    setDialog(null);
+    setDecisionNotice("Change request captured for Northstar Studio.");
   };
 
   return (
@@ -37,7 +44,7 @@ export function ClientReview() {
             </section>
             <div className="review-footer">
               <p><ShieldCheck size={12} /> Your decision is timestamped and attached to this exact evidence snapshot. MilestoneProof is not a legal e-signature or payment guarantee.</p>
-              <div className="review-footer__actions"><button className="button button--outline" onClick={() => setDialog("changes")}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={() => setDialog("approve")}><Check size={15} /> Approve milestone</button></div>
+              <div className="review-footer__actions"><button className="button button--outline" onClick={() => { setDecisionNotice(""); setDialog("changes"); }}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={() => { setDecisionNotice(""); setDialog("approve"); }}><Check size={15} /> Approve milestone</button></div>
             </div>
           </>
         ) : (
@@ -61,11 +68,11 @@ export function ClientReview() {
             <p>{dialog === "approve" ? "This records your approval against revision 3 and the passing launch-rc2 evidence." : "Tell Northstar Studio what still needs attention. The current evidence remains unchanged."}</p>
             <div className="form-field"><label htmlFor="reviewer-name">Your name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus /></div>
             <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" placeholder={dialog === "approve" ? "Looks ready to launch." : "Describe the requested change…"} value={note} onChange={(event) => setNote(event.target.value)} /></div>
-            <div className="dialog-actions"><button className="button button--outline" onClick={() => setDialog(null)}>Cancel</button><button className={`button ${dialog === "approve" ? "button--ink" : "button--danger"}`} disabled={!name.trim() || (dialog === "changes" && !note.trim())} onClick={dialog === "approve" ? submitApproval : () => { setDialog(null); alert("Change request captured in this demo."); }}>Confirm {dialog === "approve" ? "approval" : "request"}</button></div>
+            <div className="dialog-actions"><button className="button button--outline" onClick={() => setDialog(null)}>Cancel</button><button className={`button ${dialog === "approve" ? "button--ink" : "button--danger"}`} disabled={!name.trim() || (dialog === "changes" && !note.trim())} onClick={dialog === "approve" ? submitApproval : submitChangeRequest}>Confirm {dialog === "approve" ? "approval" : "request"}</button></div>
           </section>
         </div>
       )}
+      {decisionNotice && <div className="toast" role="status"><MessageSquareText size={16} color="var(--lime)" /> {decisionNotice}</div>}
     </main>
   );
 }
-

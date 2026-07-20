@@ -37,6 +37,7 @@ import { formatDuration } from "@/lib/format";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
 type SourceMode = "live" | "demo";
+type VerificationPhase = "handoff" | "run1" | "run2";
 
 type AnalysisResponse = {
   sourceName: string;
@@ -114,6 +115,11 @@ export function MilestoneStudio() {
   const [model, setModel] = useState("Gemini");
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
+  const [lastVerificationPhase, setLastVerificationPhase] = useState<VerificationPhase | null>(null);
+  const [reviewCreated, setReviewCreated] = useState(false);
+  const [approvalRecorded, setApprovalRecorded] = useState(false);
+  const analysisController = useRef<AbortController | null>(null);
+  const runTimer = useRef<number | null>(null);
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase);
   const isFixtureSource = fixtureCompatible(sourceText);
@@ -126,7 +132,22 @@ export function MilestoneStudio() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    const approvalSyncTimer = window.setTimeout(() => {
+      try { setApprovalRecorded(window.sessionStorage.getItem("milestoneproof-approved") === "true"); } catch { /* optional demo persistence */ }
+    }, 0);
+    return () => {
+      window.clearTimeout(approvalSyncTimer);
+      analysisController.current?.abort("workspace-unmounted");
+      if (runTimer.current !== null) window.clearTimeout(runTimer.current);
+    };
+  }, []);
+
   const reset = () => {
+    analysisController.current?.abort("new-import");
+    analysisController.current = null;
+    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
+    runTimer.current = null;
     setPhase("intake");
     setSourceMode("live");
     setSourceText("");
@@ -138,10 +159,16 @@ export function MilestoneStudio() {
     setAnalysisError("");
     setAnalysisNotice("");
     setCopied(false);
+    setLastVerificationPhase(null);
+    setReviewCreated(false);
+    setApprovalRecorded(false);
+    try { window.sessionStorage.removeItem("milestoneproof-approved"); } catch { /* optional demo persistence */ }
     setToast("Ready for a new SOW");
   };
 
   const launchDemo = () => {
+    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
+    runTimer.current = null;
     setSourceMode("demo");
     setSourceText(demoSowText);
     setSourceName("Acme × Northstar — SOW.pdf");
@@ -149,6 +176,10 @@ export function MilestoneStudio() {
     setConfirmed({});
     setAnalysisError("");
     setAnalysisNotice("");
+    setLastVerificationPhase(null);
+    setReviewCreated(false);
+    setApprovalRecorded(false);
+    try { window.sessionStorage.removeItem("milestoneproof-approved"); } catch { /* optional demo persistence */ }
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
@@ -166,20 +197,23 @@ export function MilestoneStudio() {
     setPhase("analyzing");
     setAnalysisError("");
     setAnalysisNotice("");
+    const controller = new AbortController();
+    analysisController.current?.abort("replaced-analysis");
+    analysisController.current = controller;
+    const analysisTimeout = window.setTimeout(() => controller.abort(new DOMException("Analysis timed out", "TimeoutError")), 15_000);
     try {
       let response: Response;
-      const signal = AbortSignal.timeout(15_000);
       if (selectedFile) {
         const form = new FormData();
         form.set("file", selectedFile);
         form.set("syntheticDataAttested", "true");
-        response = await fetch("/api/analyze", { method: "POST", body: form, signal });
+        response = await fetch("/api/analyze", { method: "POST", body: form, signal: controller.signal });
       } else {
         response = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true }),
-          signal,
+          signal: controller.signal,
         });
       }
       const responseText = await response.text();
@@ -204,27 +238,41 @@ export function MilestoneStudio() {
         ? `${payload.criteria.length} criteria drafted locally${timing}`
         : `${payload.criteria.length} Gemini criteria drafted${timing}`);
     } catch (error) {
-      const message = error instanceof DOMException && error.name === "TimeoutError"
+      if (controller.signal.reason === "new-import" || controller.signal.reason === "workspace-unmounted" || controller.signal.reason === "replaced-analysis") return;
+      const message = controller.signal.reason instanceof DOMException && controller.signal.reason.name === "TimeoutError"
         ? "Analysis exceeded 15 seconds. Try again or launch the reliable guided demo."
         : error instanceof Error ? error.message : "The SOW could not be analyzed.";
       setAnalysisError(message);
       setPhase("intake");
+    } finally {
+      window.clearTimeout(analysisTimeout);
+      if (analysisController.current === controller) analysisController.current = null;
     }
   };
 
   const startRun = (second = false) => {
     if (sourceMode === "demo") setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
+    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
     setPhase(second ? "running2" : "running1");
-    window.setTimeout(() => setPhase(second ? "run2" : "run1"), 1850);
+    runTimer.current = window.setTimeout(() => {
+      const completedPhase = second ? "run2" : "run1";
+      setPhase(completedPhase);
+      setLastVerificationPhase(completedPhase);
+      runTimer.current = null;
+    }, 1850);
   };
 
   const continueFromCriteria = () => {
-    if (sourceMode === "live" && !canRunImportedFixture) setPhase("handoff");
+    if (sourceMode === "live" && !canRunImportedFixture) {
+      setLastVerificationPhase("handoff");
+      setPhase("handoff");
+    }
     else startRun(false);
   };
 
   const share = () => {
     setPhase("shared");
+    setReviewCreated(true);
     setToast("Secure client review created");
   };
 
@@ -267,10 +315,10 @@ export function MilestoneStudio() {
           </div>
           <div className="side-label">Proof flow</div>
           <nav className="side-nav">
-            <button className={currentStep === 1 ? "is-active" : ""} onClick={() => sourceText && setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
-            <button className={currentStep === 2 ? "is-active" : ""} disabled={currentStep < 2}><ScanSearch size={15} /><span>Verification run</span>{currentStep >= 2 && phase !== "handoff" && <span>{phase === "run1" ? "5/6" : "6/6"}</span>}</button>
-            <button className={currentStep === 3 ? "is-active" : ""} disabled={currentStep < 3}><Send size={15} /><span>Client review</span></button>
-            <button disabled><FileCheck2 size={15} /><span>Approval record</span></button>
+            <button className={currentStep === 1 ? "is-active" : ""} disabled={!sourceText} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
+            <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase === "run1" && <span>5/6</span>}{lastVerificationPhase === "run2" && <span>6/6</span>}</button>
+            <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={() => setPhase("shared")}><Send size={15} /><span>Client review</span></button>
+            <button disabled={!approvalRecorded} onClick={() => window.location.assign("/receipt/demo")}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
           <div className="side-facts">
             <div><span>AI</span><strong>{sourceMode === "demo" ? "Seeded fallback" : model}</strong></div>
@@ -351,6 +399,9 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   onDemo: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!selectedFile && fileInput.current) fileInput.current.value = "";
+  }, [selectedFile]);
   const loadSample = () => {
     setSelectedFile(null);
     setSourceText(demoSowText);
@@ -592,7 +643,7 @@ function VerificationReport({ version, onRerun, onShare }: { version: "rc1" | "r
         <aside className="run-side">
           <div className="panel evidence-card">
             <div className="evidence-preview">
-              <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<button>PLAN MY TRIP</button></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>
+              <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
             <div className="evidence-body"><strong>{isPass ? "Evidence captured" : "Failure evidence · AC-04"}</strong><p>{isPass ? "Six timestamped artifacts are attached to this immutable run." : "The visible confirmation contradicted the network response. MilestoneProof caught the false success."}</p></div>
