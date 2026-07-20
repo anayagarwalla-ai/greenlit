@@ -52,6 +52,21 @@ async function signature(secret: string, timestamp: string, body: string): Promi
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)));
 }
 
+async function launchWithBackoff(binding: BrowserWorker) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await launch(binding);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/429|rate limit/i.test(message) || attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2_000 * (2 ** attempt)));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Browser capacity is unavailable.");
+}
+
 function constantTimeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;
@@ -144,7 +159,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
   const leaseResponse = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/lease`, { attempt: message.attempt });
   if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
   const lease = leaseSchema.parse(await leaseResponse.json());
-  const browser = await launch(env.BROWSER);
+  const browser = await launchWithBackoff(env.BROWSER);
   const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   const results: CriterionResult[] = [];
@@ -166,7 +181,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
     attempt: message.attempt,
     buildLabel: lease.buildLabel,
     browserVersion,
-    runnerVersion: "0.2.0",
+    runnerVersion: "0.3.0",
     startedAt,
     completedAt: new Date().toISOString(),
     results,
