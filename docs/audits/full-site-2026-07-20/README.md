@@ -2,6 +2,8 @@
 
 Production was exercised as a guest at desktop (1440×1000) and mobile (390×844). Fixes were then verified against a production build on localhost before deployment.
 
+Release `7b270e9` was subsequently deployed and re-checked in production. Captures `29`–`31` show the final desktop landing page, mobile client-review header, and mobile legal-footer spacing.
+
 ## Journey health
 
 | Area | Result | Coverage |
