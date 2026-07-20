@@ -1,6 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
 import { z } from "zod";
 import { isGroundedQuote, normalizeSourceText } from "@/lib/analysis";
 
@@ -43,6 +42,8 @@ async function extractFileText(file: File) {
   const name = file.name.toLowerCase();
   const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
   if (isPdf) {
+    if (!("DOMMatrix" in globalThis)) await import("pdf-parse/worker");
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(await file.arrayBuffer()) });
     try {
       const result = await parser.getText();

@@ -154,7 +154,13 @@ export function MilestoneStudio() {
           body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true }),
         });
       }
-      const payload = (await response.json()) as AnalysisResponse;
+      const responseText = await response.text();
+      let payload: AnalysisResponse;
+      try {
+        payload = JSON.parse(responseText) as AnalysisResponse;
+      } catch {
+        throw new Error("The analysis service returned an unexpected response. Try again or use the guided demo.");
+      }
       if (!response.ok) throw new Error(payload.error || "Gemini could not analyze this SOW.");
       setSourceText(payload.sourceText);
       setSourceName(payload.sourceName);
