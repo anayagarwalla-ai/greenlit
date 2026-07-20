@@ -78,7 +78,9 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
   const result = (status: CriterionResult["status"], expected: string, observed: string): CriterionResult => ({ criterionId: check.criterionId, status, expected, observed, durationMs: Date.now() - started, timestamp: new Date().toISOString() });
   try {
     if (check.type === "axe_scan") await page.addInitScript({ content: axe.source });
-    await page.goto(new URL(check.path, origin).toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
+    const target = new URL(check.path, origin);
+    target.searchParams.set("__mp_check", check.id);
+    await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
     if (check.type === "element_state") {
       const locator = await resolveLocator(page, check.elementRef);
       if (check.assertion === "count") {
@@ -91,7 +93,7 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     if (check.type === "link_destination") {
       const locator = await resolveLocator(page, check.elementRef);
       const href = await locator.first().getAttribute("href");
-      const observed = href ? new URL(href, origin) : null;
+      const observed = href ? new URL(href, page.url()) : null;
       const passed = observed?.origin === origin && observed.pathname === check.expectedPath;
       return result(passed ? "PASS" : "FAIL", `Same-origin ${check.expectedPath}`, observed?.pathname ?? "No destination");
     }

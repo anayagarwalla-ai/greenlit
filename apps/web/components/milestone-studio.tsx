@@ -797,7 +797,9 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const failed = run.results.length - passed;
   const caughtFalseSuccess = run.results.some((result) => result.criterionId === "AC-04" && result.status === "FAIL" && /HTTP 500/.test(result.observed));
   const resultByCriterion = Object.fromEntries(run.results.map((result) => [result.criterionId, result]));
-  const evidence = run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true)) ?? run.artifacts.find((artifact) => artifact.url);
+  const evidence = (caughtFalseSuccess ? run.artifacts.find((artifact) => artifact.url && artifact.criterionId === "AC-04") : null)
+    ?? run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true))
+    ?? run.artifacts.find((artifact) => artifact.url);
   const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt)) : "Just now";
   return (
     <>
