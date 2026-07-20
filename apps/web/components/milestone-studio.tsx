@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -34,10 +35,40 @@ import { Brand } from "@/components/brand";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
 import { demoCriteria, demoMilestone, demoSowText, sowExcerpt } from "@/lib/demo";
 import { formatDuration } from "@/lib/format";
+import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
 type SourceMode = "live" | "demo";
 type VerificationPhase = "handoff" | "run1" | "run2";
+
+type BusinessDetails = {
+  agencyName: string;
+  clientName: string;
+  projectName: string;
+  milestoneTitle: string;
+  amountDollars: string;
+  currency: string;
+};
+
+type RunResult = { criterionId: string; status: "PASS" | "FAIL" | "ERROR" | "SKIPPED"; expected: string; observed: string; durationMs: number; timestamp: string };
+type RunArtifact = { criterionId: string; kind: string; sha256: string; url?: string | null };
+type RunResponse = {
+  runId: string;
+  recordId: string;
+  status: string;
+  outcome?: "READY_FOR_REVIEW" | "NEEDS_WORK" | null;
+  buildUrl: string;
+  buildLabel: string;
+  results: RunResult[];
+  artifacts: RunArtifact[];
+  browserVersion?: string | null;
+  runnerVersion?: string | null;
+  manifestSha256?: string | null;
+  error?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  record?: { public_id: string; revision: number; confirmed_criteria: Array<{ id: string; title: string; sourceQuote: string }> };
+};
 
 type AnalysisResponse = {
   sourceName: string;
@@ -101,6 +132,11 @@ function phaseStatus(phase: Phase) {
   return { text: "In review", className: "status-badge--pass" };
 }
 
+async function browserSha256(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function MilestoneStudio() {
   const [phase, setPhase] = useState<Phase>("intake");
   const [sourceMode, setSourceMode] = useState<SourceMode>("live");
@@ -108,6 +144,16 @@ export function MilestoneStudio() {
   const [sourceName, setSourceName] = useState("Pasted SOW");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [attested, setAttested] = useState(false);
+  const [aiDisclosureAccepted, setAiDisclosureAccepted] = useState(false);
+  const [adultBusinessUseAttested, setAdultBusinessUseAttested] = useState(false);
+  const [business, setBusiness] = useState<BusinessDetails>({
+    agencyName: demoMilestone.agency,
+    clientName: demoMilestone.client,
+    projectName: demoMilestone.project,
+    milestoneTitle: demoMilestone.milestone,
+    amountDollars: String(demoMilestone.amountMinor / 100),
+    currency: demoMilestone.currency,
+  });
   const [criteria, setCriteria] = useState<AnalysisCriterion[]>([]);
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const [analysisError, setAnalysisError] = useState("");
@@ -118,11 +164,17 @@ export function MilestoneStudio() {
   const [lastVerificationPhase, setLastVerificationPhase] = useState<VerificationPhase | null>(null);
   const [reviewCreated, setReviewCreated] = useState(false);
   const [approvalRecorded, setApprovalRecorded] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState("");
+  const [recordId, setRecordId] = useState<string | null>(null);
+  const [latestRun, setLatestRun] = useState<RunResponse | null>(null);
+  const [runError, setRunError] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewUrl, setReviewUrl] = useState("");
+  const [reviewPacketId, setReviewPacketId] = useState("");
   const analysisController = useRef<AbortController | null>(null);
-  const runTimer = useRef<number | null>(null);
+  const runController = useRef<AbortController | null>(null);
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase);
-  const isFixtureSource = fixtureCompatible(sourceText);
   const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
   const visibleCount = sourceMode === "demo" ? demoCriteria.length : criteria.length;
 
@@ -133,27 +185,38 @@ export function MilestoneStudio() {
   }, [toast]);
 
   useEffect(() => {
-    const approvalSyncTimer = window.setTimeout(() => {
-      try { setApprovalRecorded(window.sessionStorage.getItem("milestoneproof-approved") === "true"); } catch { /* optional demo persistence */ }
-    }, 0);
+    const syncApproval = () => {
+      try {
+        const stored = window.localStorage.getItem("milestoneproof-approved-url") ?? "";
+        setReceiptUrl(stored);
+        setApprovalRecorded(Boolean(stored));
+      } catch { /* optional workspace convenience */ }
+    };
+    const approvalSyncTimer = window.setTimeout(syncApproval, 0);
+    window.addEventListener("focus", syncApproval);
+    window.addEventListener("storage", syncApproval);
     return () => {
       window.clearTimeout(approvalSyncTimer);
+      window.removeEventListener("focus", syncApproval);
+      window.removeEventListener("storage", syncApproval);
       analysisController.current?.abort("workspace-unmounted");
-      if (runTimer.current !== null) window.clearTimeout(runTimer.current);
+      runController.current?.abort("workspace-unmounted");
     };
   }, []);
 
   const reset = () => {
     analysisController.current?.abort("new-import");
     analysisController.current = null;
-    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
-    runTimer.current = null;
+    runController.current?.abort("new-import");
+    runController.current = null;
     setPhase("intake");
     setSourceMode("live");
     setSourceText("");
     setSourceName("Pasted SOW");
     setSelectedFile(null);
     setAttested(false);
+    setAiDisclosureAccepted(false);
+    setAdultBusinessUseAttested(false);
     setCriteria([]);
     setConfirmed({});
     setAnalysisError("");
@@ -162,13 +225,19 @@ export function MilestoneStudio() {
     setLastVerificationPhase(null);
     setReviewCreated(false);
     setApprovalRecorded(false);
-    try { window.sessionStorage.removeItem("milestoneproof-approved"); } catch { /* optional demo persistence */ }
+    setReceiptUrl("");
+    setRecordId(null);
+    setLatestRun(null);
+    setRunError("");
+    setReviewUrl("");
+    setReviewPacketId("");
+    try { window.localStorage.removeItem("milestoneproof-approved-url"); } catch { /* optional workspace convenience */ }
     setToast("Ready for a new SOW");
   };
 
   const launchDemo = () => {
-    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
-    runTimer.current = null;
+    runController.current?.abort("guided-demo");
+    runController.current = null;
     setSourceMode("demo");
     setSourceText(demoSowText);
     setSourceName("Acme × Northstar — SOW.pdf");
@@ -179,14 +248,20 @@ export function MilestoneStudio() {
     setLastVerificationPhase(null);
     setReviewCreated(false);
     setApprovalRecorded(false);
-    try { window.sessionStorage.removeItem("milestoneproof-approved"); } catch { /* optional demo persistence */ }
+    setReceiptUrl("");
+    setRecordId(null);
+    setLatestRun(null);
+    setRunError("");
+    setReviewUrl("");
+    setReviewPacketId("");
+    try { window.localStorage.removeItem("milestoneproof-approved-url"); } catch { /* optional workspace convenience */ }
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
 
   const analyze = async () => {
-    if (!attested) {
-      setAnalysisError("Confirm that this document is synthetic or non-confidential.");
+    if (!attested || !aiDisclosureAccepted || !adultBusinessUseAttested) {
+      setAnalysisError("Complete all three data and business-use confirmations before analysis.");
       return;
     }
     if (!selectedFile && sourceText.trim().length < 80) {
@@ -207,12 +282,14 @@ export function MilestoneStudio() {
         const form = new FormData();
         form.set("file", selectedFile);
         form.set("syntheticDataAttested", "true");
+        form.set("unpaidAiDisclosureAccepted", "true");
+        form.set("adultBusinessUseAttested", "true");
         response = await fetch("/api/analyze", { method: "POST", body: form, signal: controller.signal });
       } else {
         response = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true }),
+          body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true, unpaidAiDisclosureAccepted: true, adultBusinessUseAttested: true }),
           signal: controller.signal,
         });
       }
@@ -250,16 +327,68 @@ export function MilestoneStudio() {
     }
   };
 
-  const startRun = (second = false) => {
+  const startRun = async (second = false) => {
     if (sourceMode === "demo") setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
-    if (runTimer.current !== null) window.clearTimeout(runTimer.current);
+    runController.current?.abort("replaced-run");
+    const controller = new AbortController();
+    runController.current = controller;
+    setRunError("");
     setPhase(second ? "running2" : "running1");
-    runTimer.current = window.setTimeout(() => {
-      const completedPhase = second ? "run2" : "run1";
-      setPhase(completedPhase);
-      setLastVerificationPhase(completedPhase);
-      runTimer.current = null;
-    }, 1850);
+    const frozenCriteria = sourceMode === "demo"
+      ? demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source }))
+      : criteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.sourceQuote }));
+    try {
+      const amountMinor = Math.round(Number(business.amountDollars) * 100);
+      if (!Number.isFinite(amountMinor) || amountMinor < 0) throw new Error("Enter a valid milestone value.");
+      const sourceSha256 = await browserSha256(sourceText);
+      const response = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          recordId: recordId ?? undefined,
+          version: second ? "rc2" : "rc1",
+          sourceMode,
+          sourceName,
+          sourceSha256,
+          agencyName: business.agencyName,
+          clientName: business.clientName,
+          projectName: business.projectName,
+          milestoneTitle: business.milestoneTitle,
+          amountMinor,
+          currency: business.currency.toUpperCase(),
+          criteria: frozenCriteria,
+          ownerTermsAccepted: true,
+          noticeVersion: RECORD_NOTICE_VERSION,
+        }),
+      });
+      const created = await response.json();
+      if (!response.ok) throw new Error(created.error ?? "The verification run could not be created.");
+      setRecordId(created.recordId);
+      const deadline = Date.now() + 90_000;
+      while (!controller.signal.aborted && Date.now() < deadline) {
+        const statusResponse = await fetch(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" });
+        const statusPayload = await statusResponse.json() as RunResponse & { error?: string };
+        if (!statusResponse.ok) throw new Error(statusPayload.error ?? "Verification status is unavailable.");
+        if (statusPayload.status === "COMPLETED") {
+          setLatestRun(statusPayload);
+          const completedPhase: Phase = statusPayload.outcome === "READY_FOR_REVIEW" ? "run2" : "run1";
+          setPhase(completedPhase);
+          setLastVerificationPhase(completedPhase);
+          setToast(`${statusPayload.results.filter((result) => result.status === "PASS").length} of ${statusPayload.results.length} checks passed`);
+          return;
+        }
+        if (statusPayload.status === "FAILED") throw new Error(statusPayload.error ?? "The verification runner failed.");
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+      }
+      if (!controller.signal.aborted) throw new Error("Verification is taking longer than expected. Retry the run; no approval was created.");
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setRunError(error instanceof Error ? error.message : "The verification run failed.");
+      setPhase(second && latestRun ? "run1" : "criteria");
+    } finally {
+      if (runController.current === controller) runController.current = null;
+    }
   };
 
   const continueFromCriteria = () => {
@@ -270,20 +399,31 @@ export function MilestoneStudio() {
     else startRun(false);
   };
 
-  const share = () => {
-    setPhase("shared");
-    setReviewCreated(true);
-    setToast("Secure client review created");
+  const share = async () => {
+    if (!recordId || !latestRun) return;
+    setReviewBusy(true);
+    setRunError("");
+    try {
+      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The client review could not be created.");
+      setReviewUrl(payload.reviewUrl);
+      setReviewPacketId(payload.packetId);
+      setPhase("shared");
+      setReviewCreated(true);
+      setToast("Secure client review created");
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : "The client review could not be created.");
+    } finally { setReviewBusy(false); }
   };
 
   const copyReview = async () => {
-    const url = `${window.location.origin}/review/demo#t=mp_demo_secure_token`;
-    try { await navigator.clipboard.writeText(url); } catch { /* Clipboard can be unavailable in preview. */ }
+    try { await navigator.clipboard.writeText(reviewUrl); } catch { /* Clipboard can be unavailable in preview. */ }
     setCopied(true);
     setToast("Review link copied");
   };
 
-  const projectLabel = sourceMode === "demo" || isFixtureSource ? demoMilestone.project : sourceText ? sourceName : "New milestone proof";
+  const projectLabel = sourceText ? business.projectName : "New milestone proof";
   const workspaceTitle = phase === "intake" || phase === "analyzing"
     ? "Import the promises worth proving"
     : phase === "criteria"
@@ -318,11 +458,11 @@ export function MilestoneStudio() {
             <button className={currentStep === 1 ? "is-active" : ""} disabled={!sourceText} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
             <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase === "run1" && <span>5/6</span>}{lastVerificationPhase === "run2" && <span>6/6</span>}</button>
             <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={() => setPhase("shared")}><Send size={15} /><span>Client review</span></button>
-            <button disabled={!approvalRecorded} onClick={() => window.location.assign("/receipt/demo")}><FileCheck2 size={15} /><span>Approval record</span></button>
+            <button disabled={!approvalRecorded || !receiptUrl} onClick={() => receiptUrl && window.location.assign(receiptUrl)}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
           <div className="side-facts">
-            <div><span>AI</span><strong>{sourceMode === "demo" ? "Seeded fallback" : model}</strong></div>
-            <div><span>Source</span><strong>{sourceText ? "In memory" : "Not loaded"}</strong></div>
+            <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
+            <div><span>Source</span><strong>{sourceText ? "Hashed, text discarded" : "Not loaded"}</strong></div>
             <div><span>Paid services</span><strong>None</strong></div>
           </div>
         </aside>
@@ -343,6 +483,8 @@ export function MilestoneStudio() {
             })}
           </div>
 
+          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span></div>}
+
           {(phase === "intake" || phase === "analyzing") && (
             <SowIntake
               sourceText={sourceText}
@@ -351,6 +493,12 @@ export function MilestoneStudio() {
               setSelectedFile={setSelectedFile}
               attested={attested}
               setAttested={setAttested}
+              aiDisclosureAccepted={aiDisclosureAccepted}
+              setAiDisclosureAccepted={setAiDisclosureAccepted}
+              adultBusinessUseAttested={adultBusinessUseAttested}
+              setAdultBusinessUseAttested={setAdultBusinessUseAttested}
+              business={business}
+              setBusiness={setBusiness}
               error={analysisError}
               analyzing={phase === "analyzing"}
               onAnalyze={analyze}
@@ -376,9 +524,9 @@ export function MilestoneStudio() {
           )}
           {phase === "handoff" && <VerificationHandoff criteria={criteria} sourceName={sourceName} onBack={() => setPhase("criteria")} onDemo={launchDemo} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} />}
-          {phase === "run1" && <VerificationReport version="rc1" onRerun={() => startRun(true)} />}
-          {phase === "run2" && <VerificationReport version="rc2" onShare={share} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} />}
+          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => void startRun(true)} />}
+          {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={latestRun?.results.length ?? 0} />}
         </section>
       </div>
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
@@ -386,13 +534,19 @@ export function MilestoneStudio() {
   );
 }
 
-function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, error, analyzing, onAnalyze, onDemo }: {
+function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo }: {
   sourceText: string;
   setSourceText: (value: string) => void;
   selectedFile: File | null;
   setSelectedFile: (file: File | null) => void;
   attested: boolean;
   setAttested: (value: boolean) => void;
+  aiDisclosureAccepted: boolean;
+  setAiDisclosureAccepted: (value: boolean) => void;
+  adultBusinessUseAttested: boolean;
+  setAdultBusinessUseAttested: (value: boolean) => void;
+  business: BusinessDetails;
+  setBusiness: React.Dispatch<React.SetStateAction<BusinessDetails>>;
   error: string;
   analyzing: boolean;
   onAnalyze: () => void;
@@ -407,6 +561,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
     setSourceText(demoSowText);
     setAttested(true);
   };
+  const updateBusiness = (field: keyof BusinessDetails, value: string) => setBusiness((current) => ({ ...current, [field]: value }));
 
   return (
     <div className="intake-grid">
@@ -414,6 +569,15 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-kicker"><WandSparkles size={14} /> Gemini-powered SOW import</div>
         <h2>Turn contract language into proof-ready checks.</h2>
         <p className="intake-lede">Paste a scope or upload a selectable-text document. Gemini gets a short deadline; if it is busy, a source-grounded fallback keeps you moving.</p>
+
+        <div className="intake-action-dock">
+          {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
+          <div className="intake-actions">
+            <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+            <span>or</span>
+            <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
+          </div>
+        </div>
 
         <div className="source-input-head"><label htmlFor="sow-text">Paste SOW text</label><button type="button" onClick={loadSample}>Use the synthetic sample</button></div>
         <textarea id="sow-text" className="sow-textarea" value={sourceText} disabled={Boolean(selectedFile) || analyzing} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste the acceptance criteria, deliverables, or relevant SOW section here…" />
@@ -426,17 +590,29 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         </button>
         {selectedFile && <button className="clear-file" type="button" onClick={() => setSelectedFile(null)}>Remove file and use pasted text</button>}
 
+        <fieldset className="business-details" disabled={analyzing}>
+          <legend>Business record details</legend>
+          <label>Agency or vendor<input value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required /></label>
+          <label>Client<input value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required /></label>
+          <label>Project<input value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required /></label>
+          <label>Milestone<input value={business.milestoneTitle} onChange={(event) => updateBusiness("milestoneTitle", event.target.value)} required /></label>
+          <label>Milestone value<input type="number" min="0" step="0.01" value={business.amountDollars} onChange={(event) => updateBusiness("amountDollars", event.target.value)} required /></label>
+          <label>Currency<select value={business.currency} onChange={(event) => updateBusiness("currency", event.target.value)}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
+        </fieldset>
+
         <label className="attestation">
           <input type="checkbox" checked={attested} disabled={analyzing} onChange={(event) => setAttested(event.target.checked)} />
-          <span><strong>This SOW is synthetic or non-confidential.</strong> I understand its text is sent to Gemini for analysis and is not written to MilestoneProof logs.</span>
+          <span><strong>This SOW is synthetic or non-confidential.</strong> I will not submit personal, sensitive, regulated, or client-confidential information.</span>
+        </label>
+        <label className="attestation">
+          <input type="checkbox" checked={aiDisclosureAccepted} disabled={analyzing} onChange={(event) => setAiDisclosureAccepted(event.target.checked)} />
+          <span><strong>I accept the Gemini unpaid-tier data notice.</strong> Google may use submitted content and responses to improve its products, and human reviewers may process it. <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Provider terms</a></span>
+        </label>
+        <label className="attestation">
+          <input type="checkbox" checked={adultBusinessUseAttested} disabled={analyzing} onChange={(event) => setAdultBusinessUseAttested(event.target.checked)} />
+          <span><strong>I am 18+, acting for a business, and accept the beta terms.</strong> I agree to the <Link href="/terms" target="_blank">Terms</Link>, <Link href="/privacy" target="_blank">Privacy Notice</Link>, and <Link href="/records" target="_blank">recordkeeping notice</Link>. The unpaid Gemini flow is a U.S.-only beta; restricted regions use the local fallback.</span>
         </label>
 
-        {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
-        <div className="intake-actions">
-          <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
-          <span>or</span>
-          <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
-        </div>
       </section>
 
       <aside className="intake-side">
@@ -466,13 +642,13 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
         <div className="document-page">
           <div className="document-page__head"><span>Statement of work</span><span>Page 4 / 7</span></div>
           {sowExcerpt.map((line, index) => <div className={`document-line ${index > 0 ? "is-cited" : ""}`} key={line.line}><span>{line.line}</span><div>{line.text}</div></div>)}
-          <div className="source-foot"><span>Acme Outdoors / Northstar Studio</span><span>CONFIDENTIAL · DEMO DOCUMENT</span></div>
+          <div className="source-foot"><span>Acme Outdoors / Northstar Studio</span><span>SYNTHETIC DEMO · NOT CONFIDENTIAL</span></div>
         </div>
       </section>
 
       <section className="panel criteria-panel">
         <div className="panel-header">
-          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> Seeded fallback · every quote is source-matched.</p></div>
+          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> Synthetic guided demo · every quote is source-matched.</p></div>
           <span className="status-badge status-badge--neutral">{confirmedCount}/6 confirmed</span>
         </div>
         <div className="criteria-list">
@@ -541,7 +717,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
 
       <section className="panel criteria-panel live-criteria-panel">
         <div className="panel-header">
-          <div><h2>{criteria.length} source-backed criteria</h2><p><Sparkles size={10} /> {model} drafted; {canRunFixture ? "trusted fixture mappings applied" : "human confirmation required"}.</p></div>
+          <div><h2>{criteria.length} source-backed criteria</h2><p><Sparkles size={10} /> {model} drafted; {canRunFixture ? "included safe-fixture mappings applied" : "human confirmation required"}.</p></div>
           <div className="panel-header__actions"><span className="status-badge status-badge--neutral">{confirmedCount}/{criteria.length} confirmed</span><button className="mini-action" onClick={confirmReady}>Confirm grounded</button></div>
         </div>
         {notice && <div className="analysis-notice"><RefreshCw size={15} /><div><strong>Fast fallback used</strong><span>{notice}</span></div></div>}
@@ -606,36 +782,37 @@ function RunLoading({ second }: { second: boolean }) {
       <div className="loading-content">
         <div className="scanner"><ShieldCheck size={28} /><span className="scanner-line" /></div>
         <h2>Verifying {second ? "launch-rc2" : "launch-rc1"}</h2>
-        <p>Running six confirmed checks in an isolated browser…</p>
+        <p>Queueing and running six confirmed checks in an isolated Cloudflare browser. This normally takes a few seconds.</p>
         <div className="loading-steps" aria-hidden="true"><i /><i /><i /></div>
       </div>
     </section>
   );
 }
 
-function VerificationReport({ version, onRerun, onShare }: { version: "rc1" | "rc2"; onRerun?: () => void; onShare?: () => void }) {
-  const isPass = version === "rc2";
-  const passed = isPass ? 6 : 5;
-  const runId = isPass ? "run_2048_rc2" : "run_2039_rc1";
-  const timestamp = isPass ? "Jul 19, 10:14 PM PDT" : "Jul 19, 9:42 PM PDT";
-  const totalDuration = useMemo(() => demoCriteria.reduce((sum, item) => sum + item.result.duration, 0), []);
+function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false }: { run: RunResponse; criteria: Array<{ id: string; title: string }>; onRerun?: () => void; onShare?: () => void; shareBusy?: boolean }) {
+  const isPass = run.outcome === "READY_FOR_REVIEW";
+  const passed = run.results.filter((result) => result.status === "PASS").length;
+  const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
+  const resultByCriterion = Object.fromEntries(run.results.map((result) => [result.criterionId, result]));
+  const evidence = run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true)) ?? run.artifacts.find((artifact) => artifact.url);
+  const completedAt = run.completedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZoneName: "short" }).format(new Date(run.completedAt)) : "Just now";
   return (
     <>
       <div className="report-grid">
         <section>
           <div className="panel report-summary">
             <div className="score-line">
-              <div className="score-ring" style={{ "--score": `${Math.round((passed / 6) * 100)}%` } as React.CSSProperties}><strong>{passed}/6</strong></div>
-              <div className="score-copy"><h2>{isPass ? "Every promise has evidence." : "One promise needs work."}</h2><p>{isPass ? "This milestone is ready to send to Acme Outdoors for approval." : "The interface says success, but the underlying lead request failed."}</p></div>
+              <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
+              <div className="score-copy"><h2>{isPass ? "Every promise has evidence." : "One promise needs work."}</h2><p>{isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : "The interface says success, but the underlying lead request failed."}</p></div>
             </div>
-            <div className="run-meta"><div><span>Build</span><strong>launch-{version}</strong></div><div><span>Verified</span><strong>{timestamp}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
+            <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
           </div>
           <div className="panel result-list">
-            <div className="panel-header"><div><h3>Acceptance evidence</h3><p>Run {runId} · Chromium 140 · MilestoneProof runner 0.1</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
-            {demoCriteria.map((item) => {
-              const result = item.result[version];
-              const observed = version === "rc1" ? item.result.observedRc1 : item.result.observedRc2;
-              return <div className={`result-row ${result === "FAIL" ? "is-fail" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>{item.type} · {item.path} · {formatDuration(item.result.duration)}</span></div><span className="result-observed">{observed}</span><span className={`result-icon ${result === "FAIL" ? "is-fail" : ""}`}>{result === "PASS" ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}</span></div>;
+            <div className="panel-header"><div><h3>Acceptance evidence</h3><p>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
+            {criteria.map((item) => {
+              const result = resultByCriterion[item.id];
+              const resultPassed = result?.status === "PASS";
+              return <div className={`result-row ${!resultPassed ? "is-fail" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>Expected: {result?.expected ?? "Recorded check"} · {formatDuration(result?.durationMs ?? 0)}</span></div><span className="result-observed">{result?.observed ?? "No result returned"}</span><span className={`result-icon ${!resultPassed ? "is-fail" : ""}`}>{resultPassed ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}</span></div>;
             })}
           </div>
         </section>
@@ -643,41 +820,41 @@ function VerificationReport({ version, onRerun, onShare }: { version: "rc1" | "r
         <aside className="run-side">
           <div className="panel evidence-card">
             <div className="evidence-preview">
-              <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>
+              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
-            <div className="evidence-body"><strong>{isPass ? "Evidence captured" : "Failure evidence · AC-04"}</strong><p>{isPass ? "Six timestamped artifacts are attached to this immutable run." : "The visible confirmation contradicted the network response. MilestoneProof caught the false success."}</p></div>
+            <div className="evidence-body"><strong>{isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : "The visible confirmation contradicted the network response. MilestoneProof caught the false success."}</p></div>
           </div>
-          <div className="panel audit-card"><h3>Run integrity</h3><div className="audit-item"><strong>Origin verified</strong>Ownership token matched the staging target.</div><div className="audit-item"><strong>Specs frozen</strong>Six human-confirmed checks, revision 3.</div><div className="audit-item"><strong>Artifacts hashed</strong>SHA-256 evidence manifest sealed.</div><div className="audit-item"><strong>No secrets recorded</strong>Form body and document text omitted from logs.</div></div>
+          <div className="panel audit-card"><h3>Run integrity</h3><div className="audit-item"><strong>Target allowlisted</strong>The runner received only the app-owned synthetic staging origin.</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>Artifacts hashed</strong>SHA-256 manifest {run.manifestSha256?.slice(0, 12) ?? "pending"}…</div><div className="audit-item"><strong>Source minimized</strong>Only a source hash and confirmed criteria enter the record.</div></div>
         </aside>
       </div>
       <div className="action-banner">
         <div><h3>{isPass ? "Give the client proof, not a test report." : "A polished UI hid a broken handoff."}</h3><p>{isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
           {!isPass && <a className="button button--outline" href="/fixture/rc1" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
-          <button className="button button--lime" onClick={isPass ? onShare : onRerun}>{isPass ? <>Create client review <Send size={15} /></> : <>Verify fixed build <Play size={15} /></>}</button>
+          <button className="button button--lime" disabled={shareBusy} onClick={isPass ? onShare : onRerun}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
         </div>
       </div>
     </>
   );
 }
 
-function SharedReview({ copied, onCopy }: { copied: boolean; onCopy: () => void }) {
+function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
         <div className="success-mark"><Send size={27} /></div>
         <h2>Review packet created.</h2>
-        <p>Acme Outdoors gets a clean, no-login page containing only the six confirmed promises and the latest passing evidence.</p>
+        <p>{clientName} gets a focused, no-account page containing only the {criteriaCount} confirmed promises and the latest passing evidence.</p>
         <div className="share-box">
-          <div><LockKeyhole size={13} /><span>milestoneproof.app/review/••••••••</span><small>Expires in 72 hours · one decision</small></div>
+          <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/••••••••</span><small>Expires in 72 hours · one final decision</small></div>
           <button className="button button--outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button>
         </div>
-        <Link className="button button--lime" href="/review/demo">Open as the client <ArrowRight size={16} /></Link>
-        <div className="receipt-id">PACKET MP-2048 · REV 3 · RUN run_2048_rc2</div>
+        <a className="button button--lime" href={reviewUrl}>Open as the client <ArrowRight size={16} /></a>
+        <div className="receipt-id">PACKET {packetId} · SECURE TOKEN KEPT IN URL FRAGMENT</div>
       </section>
       <aside className="run-side">
-        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>Six acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>Six passing results</strong>Observed outcome and timestamp for each.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
+        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{criteriaCount} passing results</strong>Observed outcome and timestamp for each.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
         <div className="panel evidence-body"><Bot size={19} /><strong>Trust boundary</strong><p>The AI drafted the criteria. A human confirmed the checks. The browser produced the evidence. The client owns the decision.</p></div>
       </aside>
     </div>

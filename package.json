@@ -10,7 +10,7 @@
     "test": "pnpm --filter @milestoneproof/contracts test && pnpm --filter @milestoneproof/web test",
     "lint": "pnpm --filter @milestoneproof/web lint",
     "runner:dev": "pnpm --filter @milestoneproof/runner dev",
-    "runner:deploy": "pnpm --filter @milestoneproof/runner deploy"
+    "runner:deploy": "pnpm --filter @milestoneproof/runner run deploy"
   },
   "devDependencies": {
     "next": "16.2.10"

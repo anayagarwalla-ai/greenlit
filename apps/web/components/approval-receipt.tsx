@@ -1,35 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowLeft, Check, Download, Printer } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Check, Download, FileJson2, FileWarning } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { demoCriteria, demoMilestone, money } from "@/lib/demo";
 
-export function ApprovalReceipt() {
+type Result = { criterionId: string; status: string; expected: string; observed: string };
+type Criterion = { id: string; title: string };
+type ReceiptPacket = {
+  packetId: string;
+  snapshot: { recordPublicId: string; agencyName: string; clientName: string; projectName: string; milestoneTitle: string; amountMinor: number; currency: string; revision: number; criteria: Criterion[]; run: { runId: string; buildLabel: string; buildUrl: string; results: Result[]; manifestSha256: string; browserVersion: string; runnerVersion: string; completedAt: string } };
+  snapshotSha256: string;
+  decision: "APPROVED" | "CHANGES_REQUESTED";
+  reviewerName: string;
+  reviewerEmail: string;
+  reviewerNote?: string | null;
+  decidedAt: string;
+  receiptSha256: string;
+  auditHead?: { sequence: number; eventHash: string; occurredAt: string } | null;
+};
+
+const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
+const dateTime = (value: string) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "long", timeZoneName: "short" }).format(new Date(value));
+
+export function ApprovalReceipt({ packetId }: { packetId: string }) {
+  const [packet, setPacket] = useState<ReceiptPacket | null>(null);
+  const [error, setError] = useState("");
   const [toast, setToast] = useState("");
-  const download = () => {
-    window.print();
-    setToast("Print dialog opened — choose Save as PDF");
-    window.setTimeout(() => setToast(""), 2800);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/reviews/${encodeURIComponent(packetId)}`).then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The approval record is unavailable.");
+      if (payload.decision !== "APPROVED") throw new Error("This packet does not have an approval record.");
+      if (!cancelled) setPacket(payload);
+    }).catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "The approval record is unavailable."); });
+    return () => { cancelled = true; };
+  }, [packetId]);
+
+  const savePdf = () => { setToast("Print dialog opened — choose Save as PDF"); window.print(); window.setTimeout(() => setToast(""), 2800); };
+  if (error) return <main className="receipt-shell"><section className="review-state"><FileWarning size={36} /><h1>Approval record unavailable</h1><p>{error}</p><Link className="button button--outline" href="/workspace">Return to workspace</Link></section></main>;
+  if (!packet) return <main className="receipt-shell"><section className="review-state"><div className="loader-orbit" /><h1>Opening approval record</h1><p>Verifying the decision and audit-chain head.</p></section></main>;
+
+  const snapshot = packet.snapshot;
+  const results = Object.fromEntries(snapshot.run.results.map((result) => [result.criterionId, result]));
   return (
     <main className="receipt-shell">
-      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions"><Link className="button button--small button--outline" href="/workspace"><ArrowLeft size={13} /> Workspace</Link><button className="button button--small button--ink" onClick={download}><Download size={13} /> Save PDF</button></div></div>
+      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions"><Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link><a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a><button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Save PDF</button></div></div>
       <article className="receipt-page" aria-label="Milestone approval record">
-        <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />JUL 19 2026</span></div></header>
-        <div className="receipt-facts"><div><span>Agency</span><strong>{demoMilestone.agency}</strong></div><div><span>Client</span><strong>{demoMilestone.client}</strong></div><div><span>Milestone value</span><strong>{money.format(demoMilestone.amountMinor / 100)} USD</strong></div></div>
-        <span className="receipt-section-title">Approved scope · SOW revision 3</span>
-        <section className="receipt-criteria">
-          {demoCriteria.map((item) => <div className="receipt-criterion" key={item.id}><span className="criterion-id">{item.id}</span><div><strong>{item.title}</strong><small>{item.result.observedRc2}</small></div><span className="status-badge status-badge--pass"><Check size={10} /> Passed</span></div>)}
-        </section>
-        <section className="receipt-approval"><div><span className="receipt-section-title">Client decision</span><h3>Approved for invoicing</h3><p>Mara Chen · Acme Outdoors · Jul 19, 2026 at 10:18 PM PDT</p></div><div className="receipt-sign">Mara Chen</div></section>
-        <section className="hash-block"><div><span className="receipt-section-title">Evidence snapshot</span><p>run_2048_rc2 · launch-rc2.acme-demo.test<br />Chromium 140 · 6 results · 6 artifacts<br />SHA-256: 9e60753140ac65ebdf…77e419</p></div><div><span className="receipt-section-title">Canonical record</span><p>MP-2048-APR · revision 3 · decision 1<br />Source SHA-256: 3f45b1d8e829a209…a209<br />Receipt SHA-256: d82c71a48fe619ef…19ef</p></div></section>
-        <p className="receipt-disclaimer">This record documents acceptance evidence and a client decision for the named project milestone. It is not an invoice, payment guarantee, legal e-signature, or certification of Web Content Accessibility Guidelines compliance. Evidence reflects the specified staging build at the recorded time.</p>
-        <footer className="receipt-page__foot"><span>Generated by MilestoneProof</span><span>Verify record · milestoneproof.app/v/MP-2048-APR</span><span>Page 1 of 1</span></footer>
+        <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{new Date(packet.decidedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</span></div></header>
+        <section className="receipt-facts"><div><span>Agency</span><strong>{snapshot.agencyName}</strong></div><div><span>Client</span><strong>{snapshot.clientName}</strong></div><div><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></section>
+        <span className="receipt-section-title">Approved scope · revision {snapshot.revision}</span>
+        <div className="receipt-criteria">{snapshot.criteria.map((criterion) => <div className="receipt-criterion" key={criterion.id}><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><small>{results[criterion.id]?.observed ?? "Recorded result"}</small></div><span className="status-badge status-badge--pass"><Check size={10} /> Passed</span></div>)}</div>
+        <section className="receipt-approval"><div><span className="receipt-section-title">Client decision</span><h3>Approved for invoicing</h3><p>{packet.reviewerName} · {packet.reviewerEmail} · {dateTime(packet.decidedAt)}</p>{packet.reviewerNote && <p>“{packet.reviewerNote}”</p>}</div><div className="receipt-sign">{packet.reviewerName}</div></section>
+        <section className="hash-block"><div><span className="receipt-section-title">Evidence snapshot</span><p>{snapshot.run.runId} · {snapshot.run.buildLabel}<br />{snapshot.run.browserVersion} · {snapshot.run.results.length} results<br />Manifest SHA-256: {snapshot.run.manifestSha256}</p></div><div><span className="receipt-section-title">Canonical record</span><p>{snapshot.recordPublicId} · revision {snapshot.revision}<br />Snapshot SHA-256: {packet.snapshotSha256}<br />Receipt SHA-256: {packet.receiptSha256}<br />Audit event {packet.auditHead?.sequence ?? "—"}: {packet.auditHead?.eventHash ?? "Unavailable"}</p></div></section>
+        <p className="receipt-disclaimer">This record documents acceptance evidence and a client business decision for the named project milestone. It is not an invoice, payment guarantee, notarization, legal e-signature, or certification of Web Content Accessibility Guidelines compliance. Evidence reflects only the specified build and checks at the recorded time. Retention and legal effect can vary by contract, industry, and jurisdiction.</p>
+        <footer className="receipt-page__foot"><span>Generated by MilestoneProof</span><span>{packet.packetId}</span><span>Page 1 of 1</span></footer>
       </article>
-      {toast && <div className="toast" role="status"><Printer size={16} color="var(--lime)" /> {toast}</div>}
+      {toast && <div className="toast" role="status"><Check size={15} /> {toast}</div>}
     </main>
   );
 }
-

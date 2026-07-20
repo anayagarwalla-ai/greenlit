@@ -12,10 +12,15 @@ const MAX_FILE_BYTES = 3_000_000;
 const MAX_CRITERIA = 8;
 const GEMINI_TIMEOUT_MS = 8_000;
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_UNPAID_RESTRICTED_COUNTRIES = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "LI", "LT", "LU", "LV", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "CH", "GB",
+]);
 
 const requestSchema = z.object({
   text: z.string().min(80).max(MAX_SOURCE_LENGTH),
   syntheticDataAttested: z.literal(true),
+  unpaidAiDisclosureAccepted: z.literal(true),
+  adultBusinessUseAttested: z.literal(true),
   sourceName: z.string().min(1).max(160).optional(),
 });
 
@@ -73,10 +78,13 @@ async function readInput(request: Request) {
     if (form.get("syntheticDataAttested") !== "true") {
       throw new InputError("Confirm the SOW is synthetic or non-confidential before analysis.", "ATTESTATION_REQUIRED");
     }
+    if (form.get("unpaidAiDisclosureAccepted") !== "true" || form.get("adultBusinessUseAttested") !== "true") {
+      throw new InputError("Accept the Gemini free-tier data notice and confirm adult business use before analysis.", "AI_NOTICE_REQUIRED");
+    }
     const file = form.get("file");
     if (!(file instanceof File)) throw new InputError("Choose a SOW file to analyze.", "FILE_REQUIRED");
     const text = await extractFileText(file);
-    return requestSchema.parse({ text, sourceName: file.name, syntheticDataAttested: true });
+    return requestSchema.parse({ text, sourceName: file.name, syntheticDataAttested: true, unpaidAiDisclosureAccepted: true, adultBusinessUseAttested: true });
   }
 
   const body = await request.json().catch(() => null);
@@ -125,7 +133,7 @@ function analysisResponse({
   });
 }
 
-function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured", startedAt: number, providerStartedAt?: number) {
+function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt?: number) {
   const criteria = buildFallbackCriteria(input.text);
   if (criteria.length === 0) {
     return NextResponse.json({
@@ -141,7 +149,9 @@ function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_con
     analysisMode: "fallback",
     notice: reason === "unavailable"
       ? "Gemini was unavailable or did not respond within 8 seconds, so MilestoneProof generated this source-grounded draft locally instead of making you wait. Review each item before continuing."
-      : "Gemini is not configured, so MilestoneProof generated this source-grounded draft locally. Review each item before continuing.",
+      : reason === "region_restricted"
+        ? "Gemini's unpaid API tier is not offered for this region. MilestoneProof kept the source local and generated a source-grounded draft without sending it to Google."
+        : "Gemini is not configured, so MilestoneProof generated this source-grounded draft locally. Review each item before continuing.",
     startedAt,
     providerStartedAt,
   });
@@ -160,6 +170,8 @@ export async function POST(request: Request) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return fallbackResponse(input, "not_configured", startedAt);
+  const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
+  if (country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt);
 
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;

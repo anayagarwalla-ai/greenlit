@@ -12,7 +12,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 ## 0:18–0:52 — Real Gemini import
 
-**Screen:** Click **Use the synthetic sample**, then **Generate acceptance criteria**. While Gemini runs, point out the non-confidential attestation. When the result appears, scroll just enough to show the source and criteria together.
+**Screen:** Click **Use the synthetic sample**, confirm the non-confidential, Gemini unpaid-tier, and 18+/business notices, then **Generate acceptance criteria**. When the result appears, scroll just enough to show the source and criteria together.
 
 **Narration:**
 
@@ -44,11 +44,11 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 ## 1:58–2:25 — Client decision and invoice-ready record
 
-**Screen:** Click **Create client review**, **Open as the client**, and **Approve milestone**. Enter `Mara Chen`, confirm, and open the approval record.
+**Screen:** Click **Create client review**, **Open as the client**, and **Approve milestone**. Enter `Mara Chen` and `mara@acme.example`, affirm authority/intent and electronic records, then open the approval record. Briefly point to **Export JSON**.
 
 **Narration:**
 
-“The client never sees CI jargon. They see the promises they signed, the outcome observed for each one, and one clear decision. Approval produces an invoice-ready record tying the SOW revision, build, evidence hashes, client, timestamp, and twelve-thousand-dollar milestone together.”
+“The client never sees CI jargon. They see the promises they signed, the outcome observed for each one, and one clear decision. Approval produces a printable and exportable business record tying the SOW revision, build, evidence hashes, client intent, timestamp, and twelve-thousand-dollar milestone together.”
 
 ## 2:25–2:45 — Technical credibility and close
 
@@ -64,4 +64,3 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 - If Gemini is slow or unavailable during the recording, click **Launch the reliable guided demo** and say, “The deterministic fallback keeps the judge path available; the live import is shown in the submitted screenshots.”
 - Do one dry run through the approval dialog before recording so the browser has no permission prompts.
 - Avoid opening Vercel, Supabase, or Cloudflare dashboards on camera; they may expose project metadata.
-

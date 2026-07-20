@@ -12,6 +12,14 @@ type Env = {
 
 type JobMessage = { jobId: string; attempt: number };
 
+type EvidenceArtifact = {
+  criterionId: string;
+  kind: "SCREENSHOT";
+  mimeType: "image/png";
+  base64: string;
+  sha256: string;
+};
+
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
 const leaseSchema = z.object({
   jobId: z.string(),
@@ -22,6 +30,21 @@ const leaseSchema = z.object({
 
 function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return hex(await crypto.subtle.digest("SHA-256", copy.buffer));
 }
 
 async function signature(secret: string, timestamp: string, body: string): Promise<string> {
@@ -108,17 +131,33 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
   if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
   const lease = leaseSchema.parse(await leaseResponse.json());
   const browser = await launch(env.BROWSER);
-  const context = await browser.newContext({ serviceWorkers: "block", permissions: [] });
+  const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   const results: CriterionResult[] = [];
+  const artifacts: EvidenceArtifact[] = [];
+  const startedAt = new Date().toISOString();
+  const browserVersion = browser.version();
   try {
     page.on("popup", (popup) => void popup.close());
-    for (const check of lease.checks) results.push(await executeCheck(page, lease.targetOrigin, check));
+    for (const check of lease.checks) {
+      results.push(await executeCheck(page, lease.targetOrigin, check));
+      const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
+      artifacts.push({ criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) });
+    }
   } finally {
     await context.close();
     await browser.close();
   }
-  const completion = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/complete`, { attempt: message.attempt, buildLabel: lease.buildLabel, results });
+  const completion = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/complete`, {
+    attempt: message.attempt,
+    buildLabel: lease.buildLabel,
+    browserVersion,
+    runnerVersion: "0.2.0",
+    startedAt,
+    completedAt: new Date().toISOString(),
+    results,
+    artifacts,
+  });
   if (!completion.ok) throw new Error(`Completion failed with ${completion.status}`);
 }
 
@@ -141,7 +180,12 @@ export default {
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try { await runJob(env, message.body); message.ack(); }
-      catch (error) { console.error("Runner job failed", message.body.jobId, error instanceof Error ? error.message : "unknown"); message.retry(); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : "unknown";
+        console.error("Runner job failed", message.body.jobId, reason);
+        try { await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.body.jobId)}/fail`, { attempt: message.body.attempt, error: reason.slice(0, 300) }); } catch { /* best effort failure record */ }
+        message.ack();
+      }
     }
   },
 };

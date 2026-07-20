@@ -31,7 +31,7 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 
 - TypeScript end to end, shared Zod contracts, small domain helpers, strict typed evidence families.
 - Gemini concerns, browser runner, persistence, UI, and fixtures are separate packages/routes.
-- Point judges to `apps/web/lib/analysis.ts`, `packages/contracts`, and `apps/runner`.
+- Point judges to `apps/web/lib/analysis.ts`, `packages/contracts`, and `workers/runner`.
 
 ### Documentation
 
@@ -116,4 +116,3 @@ Spend the final 20 seconds on the trust boundary and architecture. Name Gemini, 
 **What business value is measurable?**  The first production KPI would be median time from agency “ready” to client decision, with guardrails for change requests, false-positive verification, and value waiting for approval.
 
 **Did you enable paid services?**  No. The submission uses free-tier resources and the guided demo remains functional if an optional integration is unavailable.
-
