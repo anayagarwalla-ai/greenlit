@@ -2,11 +2,16 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isGroundedQuote, normalizeSourceText } from "@/lib/analysis";
+import { buildFallbackCriteria } from "@/lib/fallback-analysis";
 
 export const runtime = "nodejs";
+export const maxDuration = 20;
 
 const MAX_SOURCE_LENGTH = 45_000;
 const MAX_FILE_BYTES = 3_000_000;
+const MAX_CRITERIA = 8;
+const GEMINI_TIMEOUT_MS = 8_000;
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 const requestSchema = z.object({
   text: z.string().min(80).max(MAX_SOURCE_LENGTH),
@@ -22,7 +27,7 @@ const extractedCriterionSchema = z.object({
   rationale: z.string().min(3).max(500),
 });
 
-const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).min(1).max(30) });
+const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).min(1).max(MAX_CRITERIA) });
 
 class InputError extends Error {
   constructor(message: string, readonly code: string, readonly status = 422) {
@@ -80,8 +85,71 @@ async function readInput(request: Request) {
   return parsed.data;
 }
 
+type AnalysisInput = z.infer<typeof requestSchema>;
+
+function analysisResponse({
+  input,
+  criteria,
+  model,
+  analysisMode,
+  notice,
+  startedAt,
+  providerStartedAt,
+}: {
+  input: AnalysisInput;
+  criteria: ReturnType<typeof buildFallbackCriteria>;
+  model: string;
+  analysisMode: "gemini" | "fallback";
+  notice?: string;
+  startedAt: number;
+  providerStartedAt: number | undefined;
+}) {
+  const finishedAt = performance.now();
+  const totalDuration = Math.round(finishedAt - startedAt);
+  const providerTiming = providerStartedAt === undefined ? "" : `, gemini;dur=${Math.round(finishedAt - providerStartedAt)}`;
+  return NextResponse.json({
+    sourceName: input.sourceName ?? "Pasted SOW",
+    sourceText: input.text,
+    criteria,
+    requiresHumanConfirmation: true,
+    model,
+    analysisMode,
+    notice,
+    durationMs: totalDuration,
+  }, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Server-Timing": `total;dur=${totalDuration}${providerTiming}`,
+      "X-Analysis-Mode": analysisMode,
+    },
+  });
+}
+
+function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured", startedAt: number, providerStartedAt?: number) {
+  const criteria = buildFallbackCriteria(input.text);
+  if (criteria.length === 0) {
+    return NextResponse.json({
+      error: "No measurable promises were found. Paste the acceptance criteria or deliverables section and try again.",
+      code: "NO_CRITERIA_FOUND",
+    }, { status: 422 });
+  }
+
+  return analysisResponse({
+    input,
+    criteria,
+    model: "MilestoneProof fast fallback",
+    analysisMode: "fallback",
+    notice: reason === "unavailable"
+      ? "Gemini was unavailable or did not respond within 8 seconds, so MilestoneProof generated this source-grounded draft locally instead of making you wait. Review each item before continuing."
+      : "Gemini is not configured, so MilestoneProof generated this source-grounded draft locally. Review each item before continuing.",
+    startedAt,
+    providerStartedAt,
+  });
+}
+
 export async function POST(request: Request) {
-  let input: z.infer<typeof requestSchema>;
+  const startedAt = performance.now();
+  let input: AnalysisInput;
   try {
     input = await readInput(request);
   } catch (error) {
@@ -91,12 +159,14 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "AI analysis is not configured. Use the guided demo while the workspace owner adds Gemini.", code: "AI_NOT_CONFIGURED" }, { status: 503 });
+  if (!apiKey) return fallbackResponse(input, "not_configured", startedAt);
 
   const ai = new GoogleGenAI({ apiKey });
+  const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
+  const providerStartedAt = performance.now();
   try {
     const result = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL ?? "gemini-3.5-flash",
+      model,
       contents: [{
         role: "user",
         parts: [{
@@ -110,13 +180,16 @@ Extract only atomic, objectively verifiable promises from the source. For every 
 - rationale should briefly explain what evidence would prove the promise or why human review is required.
 
 Never invent a URL, path, selector, action, number, or requirement. Return no criterion without an exact source quote.
+Return the 3 to 8 highest-value criteria, or fewer only when the source contains fewer measurable promises. Keep every field concise.
 
 SOURCE:
 ${input.text}`,
         }],
       }],
       config: {
+        abortSignal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
         temperature: 0.1,
+        maxOutputTokens: 2_200,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -141,20 +214,25 @@ ${input.text}`,
       },
     });
     const validated = responseSchema.parse(JSON.parse(result.text ?? "{}"));
-    const criteria = validated.criteria.map((criterion) => ({
-      ...criterion,
-      supported: criterion.supported && criterion.checkType !== "manual",
-      grounded: isGroundedQuote(input.text, criterion.sourceQuote),
-    }));
-    return NextResponse.json({
-      sourceName: input.sourceName ?? "Pasted SOW",
-      sourceText: input.text,
+    const criteria = validated.criteria
+      .map((criterion) => ({
+        ...criterion,
+        supported: criterion.supported && criterion.checkType !== "manual",
+        grounded: isGroundedQuote(input.text, criterion.sourceQuote),
+      }))
+      .filter((criterion) => criterion.grounded);
+    if (criteria.length === 0) throw new Error("Gemini returned no source-grounded criteria");
+
+    return analysisResponse({
+      input,
       criteria,
-      requiresHumanConfirmation: true,
-      model: process.env.GEMINI_MODEL ?? "gemini-3.5-flash",
+      model,
+      analysisMode: "gemini",
+      startedAt,
+      providerStartedAt,
     });
   } catch (error) {
     console.error("Gemini analysis failed", error instanceof Error ? error.message : "unknown error");
-    return NextResponse.json({ error: "Gemini could not analyze this document. Try again or use the guided demo.", code: "ANALYSIS_FAILED" }, { status: 502 });
+    return fallbackResponse(input, "unavailable", startedAt, providerStartedAt);
   }
 }

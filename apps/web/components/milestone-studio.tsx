@@ -43,6 +43,9 @@ type AnalysisResponse = {
   sourceText: string;
   criteria: Omit<AnalysisCriterion, "id">[];
   model?: string;
+  analysisMode?: "gemini" | "fallback";
+  notice?: string;
+  durationMs?: number;
   error?: string;
 };
 
@@ -88,7 +91,7 @@ function applyFixtureMappings(source: string, criteria: AnalysisCriterion[]) {
 
 function phaseStatus(phase: Phase) {
   if (phase === "intake") return { text: "Awaiting SOW", className: "status-badge--neutral" };
-  if (phase === "analyzing") return { text: "Gemini analyzing", className: "status-badge--neutral" };
+  if (phase === "analyzing") return { text: "Drafting criteria", className: "status-badge--neutral" };
   if (phase === "criteria") return { text: "Needs confirmation", className: "" };
   if (phase === "handoff") return { text: "Scope frozen", className: "status-badge--pass" };
   if (phase.startsWith("running")) return { text: "Verifying", className: "status-badge--neutral" };
@@ -107,6 +110,7 @@ export function MilestoneStudio() {
   const [criteria, setCriteria] = useState<AnalysisCriterion[]>([]);
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const [analysisError, setAnalysisError] = useState("");
+  const [analysisNotice, setAnalysisNotice] = useState("");
   const [model, setModel] = useState("Gemini");
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState(false);
@@ -132,6 +136,7 @@ export function MilestoneStudio() {
     setCriteria([]);
     setConfirmed({});
     setAnalysisError("");
+    setAnalysisNotice("");
     setCopied(false);
     setToast("Ready for a new SOW");
   };
@@ -143,6 +148,7 @@ export function MilestoneStudio() {
     setCriteria([]);
     setConfirmed({});
     setAnalysisError("");
+    setAnalysisNotice("");
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
@@ -159,18 +165,21 @@ export function MilestoneStudio() {
 
     setPhase("analyzing");
     setAnalysisError("");
+    setAnalysisNotice("");
     try {
       let response: Response;
+      const signal = AbortSignal.timeout(15_000);
       if (selectedFile) {
         const form = new FormData();
         form.set("file", selectedFile);
         form.set("syntheticDataAttested", "true");
-        response = await fetch("/api/analyze", { method: "POST", body: form });
+        response = await fetch("/api/analyze", { method: "POST", body: form, signal });
       } else {
         response = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true }),
+          signal,
         });
       }
       const responseText = await response.text();
@@ -187,11 +196,18 @@ export function MilestoneStudio() {
       setCriteria(applyFixtureMappings(payload.sourceText, drafted));
       setConfirmed({});
       setModel(payload.model ?? "Gemini");
+      setAnalysisNotice(payload.notice ?? "");
       setSourceMode("live");
       setPhase("criteria");
-      setToast(`${payload.criteria.length} source-backed criteria drafted`);
+      const timing = payload.durationMs ? ` in ${(payload.durationMs / 1000).toFixed(1)}s` : "";
+      setToast(payload.analysisMode === "fallback"
+        ? `${payload.criteria.length} criteria drafted locally${timing}`
+        : `${payload.criteria.length} Gemini criteria drafted${timing}`);
     } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "Gemini could not analyze this SOW.");
+      const message = error instanceof DOMException && error.name === "TimeoutError"
+        ? "Analysis exceeded 15 seconds. Try again or launch the reliable guided demo."
+        : error instanceof Error ? error.message : "The SOW could not be analyzed.";
+      setAnalysisError(message);
       setPhase("intake");
     }
   };
@@ -305,6 +321,7 @@ export function MilestoneStudio() {
               confirmed={confirmed}
               setConfirmed={setConfirmed}
               model={model}
+              notice={analysisNotice}
               fixtureCompatible={canRunImportedFixture}
               onContinue={continueFromCriteria}
             />
@@ -345,7 +362,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       <section className="panel intake-panel">
         <div className="intake-kicker"><WandSparkles size={14} /> Gemini-powered SOW import</div>
         <h2>Turn contract language into proof-ready checks.</h2>
-        <p className="intake-lede">Paste a scope or upload a selectable-text document. Gemini extracts measurable promises and cites the exact language behind each one.</p>
+        <p className="intake-lede">Paste a scope or upload a selectable-text document. Gemini gets a short deadline; if it is busy, a source-grounded fallback keeps you moving.</p>
 
         <div className="source-input-head"><label htmlFor="sow-text">Paste SOW text</label><button type="button" onClick={loadSample}>Use the synthetic sample</button></div>
         <textarea id="sow-text" className="sow-textarea" value={sourceText} disabled={Boolean(selectedFile) || analyzing} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste the acceptance criteria, deliverables, or relevant SOW section here…" />
@@ -365,7 +382,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
 
         {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
         <div className="intake-actions">
-          <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Analyzing with Gemini…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+          <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
           <span>or</span>
           <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
         </div>
@@ -428,7 +445,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   );
 }
 
-function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, fixtureCompatible: canRunFixture, onContinue }: {
+function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, notice, fixtureCompatible: canRunFixture, onContinue }: {
   sourceName: string;
   sourceText: string;
   criteria: AnalysisCriterion[];
@@ -436,6 +453,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   confirmed: Record<string, boolean>;
   setConfirmed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   model: string;
+  notice: string;
   fixtureCompatible: boolean;
   onContinue: () => void;
 }) {
@@ -463,7 +481,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
         <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div></div>
-        <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by Gemini. Every citation is checked against this extracted source.</span></div>
+        <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by the draft. Every citation is checked against this extracted source.</span></div>
         <div className="document-page live-document">
           <div className="document-page__head"><span>Extracted source</span><span>{sourceLines.length} lines</span></div>
           {sourceLines.map((line, index) => line.trim() ? <div className={`document-line ${lineContainsCitation(line, citations) ? "is-cited" : ""}`} key={`${index}-${line.slice(0, 12)}`}><span>{index + 1}</span><div>{line}</div></div> : <div className="document-spacer" key={index} />)}
@@ -472,9 +490,10 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
 
       <section className="panel criteria-panel live-criteria-panel">
         <div className="panel-header">
-          <div><h2>{criteria.length} AI-drafted criteria</h2><p><Sparkles size={10} /> {model} drafted; {canRunFixture ? "trusted fixture mappings applied" : "human confirmation required"}.</p></div>
+          <div><h2>{criteria.length} source-backed criteria</h2><p><Sparkles size={10} /> {model} drafted; {canRunFixture ? "trusted fixture mappings applied" : "human confirmation required"}.</p></div>
           <div className="panel-header__actions"><span className="status-badge status-badge--neutral">{confirmedCount}/{criteria.length} confirmed</span><button className="mini-action" onClick={confirmReady}>Confirm grounded</button></div>
         </div>
+        {notice && <div className="analysis-notice"><RefreshCw size={15} /><div><strong>Fast fallback used</strong><span>{notice}</span></div></div>}
         <div className="criteria-list">
           {criteria.map((item) => {
             const ready = isCriterionReady(sourceText, item);

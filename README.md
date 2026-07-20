@@ -57,7 +57,7 @@ pnpm build
 - **Web/API:** import this repository into Vercel with the repository root as the project root. `vercel.json` contains the monorepo build settings.
 - **Database/storage:** create a Supabase project and apply `supabase/migrations/202607190001_initial.sql`. Enable anonymous sign-ins.
 - **Runner:** create the queue with `wrangler queues create milestoneproof-jobs`, set `RUNNER_HMAC_SECRET`, then run `pnpm runner:deploy`.
-- **AI:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in Vercel. Free-tier use is gated behind the synthetic/non-confidential data attestation.
+- **AI:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in Vercel. The default is the latency-optimized `gemini-3.1-flash-lite`; calls have an 8-second deadline and fall back to a local, source-grounded draft when Gemini is unavailable. Free-tier use is gated behind the synthetic/non-confidential data attestation.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough.
 
