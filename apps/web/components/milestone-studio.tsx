@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
-import { demoCriteria, demoMilestone, demoSowText, sowExcerpt } from "@/lib/demo";
+import { demoCriteria, demoMilestone, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 
@@ -68,6 +68,7 @@ type RunResponse = {
   startedAt?: string | null;
   completedAt?: string | null;
   record?: { public_id: string; revision: number; confirmed_criteria: Array<{ id: string; title: string; sourceQuote: string }> };
+  seededDemo?: boolean;
 };
 
 type AnalysisResponse = {
@@ -130,6 +131,14 @@ function phaseStatus(phase: Phase) {
   if (phase === "run1") return { text: "Needs work", className: "status-badge--fail" };
   if (phase === "run2") return { text: "Ready for review", className: "status-badge--pass" };
   return { text: "In review", className: "status-badge--pass" };
+}
+
+function friendlyRunError(error: unknown) {
+  const message = error instanceof Error ? error.message : "The verification run failed.";
+  if (/429|rate limit|browser capacity|daily browser quota/i.test(message)) {
+    return "Cloudflare’s free daily browser quota is currently used up. No paid capacity was enabled. This failed attempt remains in the audit record; open the clearly labeled synthetic walkthrough now or retry the real browser run after the daily reset.";
+  }
+  return message;
 }
 
 async function browserSha256(value: string) {
@@ -232,7 +241,10 @@ export function MilestoneStudio() {
     setRunError("");
     setReviewUrl("");
     setReviewPacketId("");
-    try { window.localStorage.removeItem("milestoneproof-approved-url"); } catch { /* optional workspace convenience */ }
+    try {
+      window.localStorage.removeItem("milestoneproof-approved-url");
+      window.localStorage.removeItem("milestoneproof-demo-decision");
+    } catch { /* optional workspace convenience */ }
     setToast("Ready for a new SOW");
   };
 
@@ -255,7 +267,10 @@ export function MilestoneStudio() {
     setRunError("");
     setReviewUrl("");
     setReviewPacketId("");
-    try { window.localStorage.removeItem("milestoneproof-approved-url"); } catch { /* optional workspace convenience */ }
+    try {
+      window.localStorage.removeItem("milestoneproof-approved-url");
+      window.localStorage.removeItem("milestoneproof-demo-decision");
+    } catch { /* optional workspace convenience */ }
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
@@ -339,6 +354,35 @@ export function MilestoneStudio() {
       ? demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source }))
       : criteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.sourceQuote }));
     try {
+      if (sourceMode === "demo") {
+        await new Promise((resolve) => window.setTimeout(resolve, 650));
+        if (controller.signal.aborted) return;
+        const completedAt = new Date().toISOString();
+        const results = seededDemoResults(second ? "rc2" : "rc1", completedAt) as RunResult[];
+        const passing = results.every((result) => result.status === "PASS");
+        const demoRun: RunResponse = {
+          runId: second ? "DEMO-RUN-RC2" : "DEMO-RUN-RC1",
+          recordId: "DEMO-NOT-RETAINED",
+          status: "COMPLETED",
+          outcome: passing ? "READY_FOR_REVIEW" : "NEEDS_WORK",
+          buildUrl: `/fixture/${second ? "rc2" : "rc1"}`,
+          buildLabel: `launch-${second ? "rc2" : "rc1"}`,
+          results,
+          artifacts: [],
+          browserVersion: "Illustrative sample",
+          runnerVersion: "walkthrough-1.0",
+          manifestSha256: null,
+          completedAt,
+          seededDemo: true,
+          record: { public_id: "DEMO-NOT-RETAINED", revision: 1, confirmed_criteria: demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source })) },
+        };
+        setLatestRun(demoRun);
+        const completedPhase: Phase = passing ? "run2" : "run1";
+        setPhase(completedPhase);
+        setLastVerificationPhase(completedPhase);
+        setToast(`${results.filter((result) => result.status === "PASS").length} of ${results.length} sample checks shown`);
+        return;
+      }
       const amountMinor = Math.round(Number(business.amountDollars) * 100);
       if (!Number.isFinite(amountMinor) || amountMinor < 0) throw new Error("Enter a valid milestone value.");
       const sourceSha256 = await browserSha256(sourceText);
@@ -385,7 +429,7 @@ export function MilestoneStudio() {
       if (!controller.signal.aborted) throw new Error("Verification is taking longer than expected. Retry the run; no approval was created.");
     } catch (error) {
       if (controller.signal.aborted) return;
-      setRunError(error instanceof Error ? error.message : "The verification run failed.");
+      setRunError(friendlyRunError(error));
       setPhase(second && latestRun ? "run1" : "criteria");
     } finally {
       if (runController.current === controller) runController.current = null;
@@ -401,10 +445,20 @@ export function MilestoneStudio() {
   };
 
   const share = async () => {
-    if (!recordId || !latestRun) return;
+    if (!latestRun) return;
     setReviewBusy(true);
     setRunError("");
     try {
+      if (sourceMode === "demo") {
+        const origin = window.location.origin;
+        setReviewUrl(`${origin}/review/demo`);
+        setReviewPacketId("DEMO-NOT-RETAINED");
+        setPhase("shared");
+        setReviewCreated(true);
+        setToast("Synthetic client walkthrough ready");
+        return;
+      }
+      if (!recordId) throw new Error("The retained milestone record is unavailable.");
       const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The client review could not be created.");
@@ -463,7 +517,7 @@ export function MilestoneStudio() {
           </nav>
           <div className="side-facts">
             <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
-            <div><span>Source</span><strong>{sourceText ? "Hashed, text discarded" : "Not loaded"}</strong></div>
+            <div><span>Source</span><strong>{sourceText ? "Hashed; not persisted by app" : "Not loaded"}</strong></div>
             <div><span>Paid services</span><strong>None</strong></div>
           </div>
         </aside>
@@ -473,7 +527,7 @@ export function MilestoneStudio() {
             <div className="workspace-head__title"><span>{sourceText ? sourceName : "New proof set · safe intake"}</span><h1>{workspaceTitle}</h1></div>
             <div className="workspace-head__meta">
               <span className={`status-badge ${status.className}`}>{phase === "analyzing" || phase.startsWith("running") ? <LoaderCircle className="spin" size={12} /> : <CircleDot size={11} />}{status.text}</span>
-              {currentStep >= 2 && phase !== "handoff" && <span className="status-badge status-badge--neutral"><Globe2 size={11} /> Staging verified</span>}
+              {currentStep >= 2 && phase !== "handoff" && <span className="status-badge status-badge--neutral"><Globe2 size={11} /> {sourceMode === "demo" ? "Synthetic sample" : "Staging verified"}</span>}
             </div>
           </div>
 
@@ -484,7 +538,7 @@ export function MilestoneStudio() {
             })}
           </div>
 
-          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span></div>}
+          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span><button className="mini-action" type="button" onClick={launchDemo}>Open synthetic walkthrough</button></div>}
 
           {(phase === "intake" || phase === "analyzing") && (
             <SowIntake
@@ -524,10 +578,10 @@ export function MilestoneStudio() {
             />
           )}
           {phase === "handoff" && <VerificationHandoff criteria={criteria} sourceName={sourceName} onBack={() => setPhase("criteria")} onDemo={launchDemo} />}
-          {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} />}
+          {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => void startRun(true)} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={latestRun?.results.length ?? 0} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
@@ -666,7 +720,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
         </div>
         <footer className="criteria-footer">
           <p><LockKeyhole size={11} /> The guided path uses a synthetic SOW and an isolated staging fixture.</p>
-          <button className="button button--ink" onClick={onRun}>{allConfirmed ? "Run verified checks" : "Confirm all & run"} <ArrowRight size={16} /></button>
+          <button className="button button--ink" onClick={onRun}>{allConfirmed ? "Show sample check run" : "Confirm all & show sample"} <ArrowRight size={16} /></button>
         </footer>
       </section>
     </div>
@@ -777,13 +831,13 @@ function VerificationHandoff({ criteria, sourceName, onBack, onDemo }: { criteri
   );
 }
 
-function RunLoading({ second }: { second: boolean }) {
+function RunLoading({ second, seeded }: { second: boolean; seeded: boolean }) {
   return (
     <section className="panel loading-panel" aria-live="polite">
       <div className="loading-content">
         <div className="scanner"><ShieldCheck size={28} /><span className="scanner-line" /></div>
-        <h2>Verifying {second ? "launch-rc2" : "launch-rc1"}</h2>
-        <p>Queueing and running six confirmed checks in an isolated Cloudflare browser. This normally takes a few seconds.</p>
+        <h2>{seeded ? "Loading" : "Verifying"} {second ? "launch-rc2" : "launch-rc1"}</h2>
+        <p>{seeded ? "Preparing a clearly labeled synthetic walkthrough. It does not call the browser runner or create a retained transaction record." : "Queueing and running six confirmed checks in an isolated Cloudflare browser. This normally takes a few seconds."}</p>
         <div className="loading-steps" aria-hidden="true"><i /><i /><i /></div>
       </div>
     </section>
@@ -806,14 +860,15 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
       <div className="report-grid">
         <section>
           <div className="panel report-summary">
+            {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough — not retained evidence</strong><span>These seeded outcomes illustrate the workflow. No browser session, evidence artifact, audit event, or legal transaction record was created.</span></div></div>}
             <div className="score-line">
               <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
-              <div className="score-copy"><h2>{isPass ? "Every promise has evidence." : failed === 1 ? "One promise needs work." : `${failed} promises need work.`}</h2><p>{isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
+              <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every promise passes." : failed === 1 ? "Sample: one promise needs work." : `Sample: ${failed} promises need work.` : isPass ? "Every promise has evidence." : failed === 1 ? "One promise needs work." : `${failed} promises need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
             </div>
             <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
           </div>
           <div className="panel result-list">
-            <div className="panel-header"><div><h3>Acceptance evidence</h3><p>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
+            <div className="panel-header"><div><h3>{run.seededDemo ? "Sample acceptance outcomes" : "Acceptance evidence"}</h3><p>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
             {criteria.map((item) => {
               const result = resultByCriterion[item.id];
               const resultPassed = result?.status === "PASS";
@@ -828,13 +883,13 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
               {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
-            <div className="evidence-body"><strong>{isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. MilestoneProof caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
+            <div className="evidence-body"><strong>{run.seededDemo ? "Illustrative walkthrough frame" : isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{run.seededDemo ? "This visual and its outcomes are synthetic examples, not captured browser evidence." : isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. MilestoneProof caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
           </div>
-          <div className="panel audit-card"><h3>Run integrity</h3><div className="audit-item"><strong>Target allowlisted</strong>The runner received only the app-owned synthetic staging origin.</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>Artifacts hashed</strong>SHA-256 manifest {run.manifestSha256?.slice(0, 12) ?? "pending"}…</div><div className="audit-item"><strong>Source minimized</strong>Only a source hash and confirmed criteria enter the record.</div></div>
+          <div className="panel audit-card"><h3>{run.seededDemo ? "Walkthrough boundary" : "Run integrity"}</h3><div className="audit-item"><strong>{run.seededDemo ? "Seeded outcomes" : "Target allowlisted"}</strong>{run.seededDemo ? "Reliable presentation path when free runner capacity is unavailable." : "The runner received only the app-owned synthetic staging origin."}</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>{run.seededDemo ? "No evidence claim" : "Artifacts hashed"}</strong>{run.seededDemo ? "No screenshots, hashes, audit events, or approvals are persisted." : `SHA-256 manifest ${run.manifestSha256?.slice(0, 12) ?? "pending"}…`}</div><div className="audit-item"><strong>Source minimized</strong>{run.seededDemo ? "Only the included synthetic SOW is displayed." : "Only a source hash and confirmed criteria enter the record."}</div></div>
         </aside>
       </div>
       <div className="action-banner">
-        <div><h3>{isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
+        <div><h3>{run.seededDemo ? isPass ? "Continue the sample client journey." : "A polished UI can hide a broken handoff." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only sample review that creates no transaction record." : "Show the fixed rc2 sample against the same frozen promises." : isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
           {!isPass && <a className="button button--outline" href="/fixture/rc1" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
           <button className="button button--lime" disabled={shareBusy} onClick={isPass ? onShare : onRerun}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
@@ -844,23 +899,23 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   );
 }
 
-function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number }) {
+function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number; demo: boolean }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
         <div className="success-mark"><Send size={27} /></div>
-        <h2>Review packet created.</h2>
-        <p>{clientName} gets a focused, no-account page containing only the {criteriaCount} confirmed promises and the latest passing evidence.</p>
+        <h2>{demo ? "Synthetic client walkthrough ready." : "Review packet created."}</h2>
+        <p>{demo ? `This reliable presentation path shows ${clientName}’s ${criteriaCount}-criterion decision experience without creating or implying a retained transaction.` : `${clientName} gets a focused, no-account page containing only the ${criteriaCount} confirmed promises and the latest passing evidence.`}</p>
         <div className="share-box">
-          <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/••••••••</span><small>Expires in 72 hours · one final decision</small></div>
+          <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/{demo ? "demo" : "••••••••"}</span><small>{demo ? "Synthetic · local-only decision · not retained" : "Expires in 72 hours · one final decision"}</small></div>
           <button className="button button--outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button>
         </div>
         <a className="button button--lime" href={reviewUrl}>Open as the client <ArrowRight size={16} /></a>
-        <div className="receipt-id">PACKET {packetId} · SECURE TOKEN KEPT IN URL FRAGMENT</div>
+        <div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO SECURE TOKEN" : `PACKET ${packetId} · SECURE TOKEN KEPT IN URL FRAGMENT`}</div>
       </section>
       <aside className="run-side">
         <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{criteriaCount} passing results</strong>Observed outcome and timestamp for each.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
-        <div className="panel evidence-body"><Bot size={19} /><strong>Trust boundary</strong><p>The AI drafted the criteria. A human confirmed the checks. The browser produced the evidence. The client owns the decision.</p></div>
+        <div className="panel evidence-body"><Bot size={19} /><strong>Trust boundary</strong><p>{demo ? "This walkthrough uses seeded outcomes and a local-only decision. The real path requires browser evidence before a retained client decision." : "The AI drafted the criteria. A human confirmed the checks. The browser produced the evidence. The client owns the decision."}</p></div>
       </aside>
     </div>
   );

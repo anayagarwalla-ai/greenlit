@@ -27,6 +27,9 @@ export default function PrivacyPage() {
         <h2>Purposes and providers</h2>
         <p>Data is used only to draft acceptance criteria, run confirmed checks, produce evidence, create a review packet, record a decision, prevent abuse, and maintain a reproducible audit trail. Infrastructure providers are Google (AI when eligible), Vercel (web hosting), Cloudflare (queued browser verification), and Supabase (database and private evidence storage). Each receives only the data needed for its role.</p>
 
+        <h2>Synthetic walkthrough</h2>
+        <p>The guided walkthrough uses only the included synthetic SOW and seeded outcomes. It does not call the Cloudflare browser runner, create evidence artifacts, append transaction events, send its sample decision to the server, or create a downloadable transaction export. A reviewer name and email entered in that walkthrough remain only in local browser storage for the sample receipt.</p>
+
         <h2>Retention</h2>
         <div className="legal-table">
           <div><strong>Original SOW content</strong><span>Processed in memory; not intentionally retained by MilestoneProof</span></div>
@@ -49,4 +52,3 @@ export default function PrivacyPage() {
     </main>
   );
 }
-

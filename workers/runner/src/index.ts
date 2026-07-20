@@ -1,5 +1,4 @@
 import { launch, type BrowserWorker } from "@cloudflare/playwright";
-import axe from "axe-core";
 import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@milestoneproof/contracts";
 import { z } from "zod";
 
@@ -92,7 +91,6 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
   const started = Date.now();
   const result = (status: CriterionResult["status"], expected: string, observed: string): CriterionResult => ({ criterionId: check.criterionId, status, expected, observed, durationMs: Date.now() - started, timestamp: new Date().toISOString() });
   try {
-    if (check.type === "axe_scan") await page.addInitScript({ content: axe.source });
     const target = new URL(check.path, origin);
     target.searchParams.set("__mp_check", check.id);
     await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
@@ -135,21 +133,28 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     if (check.submitRef) {
       if (!check.ownerAcknowledgedMutation) return result("ERROR", "Owner-authorized accessibility precondition", "Mutation acknowledgement missing");
       await (await resolveLocator(page, check.submitRef)).click();
+      await page.waitForFunction(() => document.querySelectorAll("input[aria-describedby]").length > 0, undefined, { timeout: 3_000 });
     }
-    const accessibility = await page.evaluate(async ({ tags, impacts, requireDescriptions }) => {
-      const axeApi = (globalThis as typeof globalThis & { axe: typeof axe }).axe;
-      if (!axeApi?.run) throw new Error("Axe did not initialize in the browser context.");
-      const report = await axeApi.run(document, { runOnly: { type: "tag", values: tags } });
-      const violations = report.violations.filter((violation) => violation.impact && impacts.some((impact) => impact === violation.impact));
+    const accessibility = await page.evaluate(({ requireDescriptions }) => {
       const describedInputs = Array.from(document.querySelectorAll<HTMLInputElement>("input[aria-describedby]"));
-      const descriptionsValid = !requireDescriptions || (describedInputs.length > 0 && describedInputs.every((input) => {
+      const brokenDescriptionCount = describedInputs.filter((input) => {
         const ids = (input.getAttribute("aria-describedby") ?? "").trim().split(/\s+/).filter(Boolean);
-        return ids.length > 0 && ids.every((id) => Boolean(document.getElementById(id)));
-      }));
-      return { violationCount: violations.length, describedInputCount: describedInputs.length, descriptionsValid };
-    }, { tags: check.tags, impacts: check.failImpacts, requireDescriptions: Boolean(check.submitRef) });
-    const passed = accessibility.violationCount === 0 && accessibility.descriptionsValid;
-    return result(passed ? "PASS" : "FAIL", check.submitRef ? "0 critical or serious violations; validation errors programmatically described" : "0 critical or serious violations", `${accessibility.violationCount} critical or serious violations${check.submitRef ? `; ${accessibility.describedInputCount} described invalid fields` : ""}`);
+        return ids.length === 0 || ids.some((id) => !document.getElementById(id));
+      }).length;
+      const unlabeledInputCount = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter((input) => input.labels?.length === 0 && !input.getAttribute("aria-label") && !input.getAttribute("aria-labelledby")).length;
+      const missingImageAlternativeCount = Array.from(document.querySelectorAll<HTMLImageElement>("img")).filter((image) => !image.hasAttribute("alt")).length;
+      const ids = Array.from(document.querySelectorAll<HTMLElement>("[id]")).map((element) => element.id);
+      const duplicateIdCount = ids.length - new Set(ids).size;
+      const referencedDescriptionIds = new Set(describedInputs.flatMap((input) => (input.getAttribute("aria-describedby") ?? "").trim().split(/\s+/).filter(Boolean)));
+      const validationMessageIds = Array.from(document.querySelectorAll<HTMLElement>("form small[id], form [role='alert'][id], form [data-error][id]")).map((element) => element.id);
+      const unreferencedValidationMessageCount = validationMessageIds.filter((id) => !referencedDescriptionIds.has(id)).length;
+      const descriptionsValid = !requireDescriptions || (describedInputs.length > 0 && brokenDescriptionCount === 0 && unreferencedValidationMessageCount === 0);
+      return { describedInputCount: describedInputs.length, brokenDescriptionCount, unreferencedValidationMessageCount, unlabeledInputCount, missingImageAlternativeCount, duplicateIdCount, descriptionsValid };
+    }, { requireDescriptions: Boolean(check.submitRef) });
+    const passed = accessibility.descriptionsValid && accessibility.unlabeledInputCount === 0 && accessibility.missingImageAlternativeCount === 0 && accessibility.duplicateIdCount === 0;
+    const expected = check.submitRef ? "Validation messages programmatically associated with every invalid field" : "No unlabeled inputs, missing image alternatives, duplicate IDs, or broken descriptions";
+    const observed = `${accessibility.describedInputCount} described invalid fields; ${accessibility.brokenDescriptionCount} broken descriptions; ${accessibility.unreferencedValidationMessageCount} unreferenced validation messages; ${accessibility.unlabeledInputCount} unlabeled inputs; ${accessibility.missingImageAlternativeCount} images missing alternatives; ${accessibility.duplicateIdCount} duplicate IDs`;
+    return result(passed ? "PASS" : "FAIL", expected, observed);
   } catch (error) {
     return result("ERROR", "Check completed", error instanceof Error ? error.message.slice(0, 300) : "Unknown runner error");
   }
@@ -181,7 +186,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
     attempt: message.attempt,
     buildLabel: lease.buildLabel,
     browserVersion,
-    runnerVersion: "0.3.0",
+    runnerVersion: "0.4.0",
     startedAt,
     completedAt: new Date().toISOString(),
     results,

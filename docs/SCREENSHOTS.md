@@ -6,9 +6,9 @@ Final production PNGs live in `docs/screenshots/` and were captured at 1512×772
 |---|---|---|
 | `01-gemini-sow-import.png` | Workspace intake with the synthetic SOW loaded and confidentiality gate visible | Paste or upload a non-confidential SOW; Gemini turns contract language into proof-ready checks. |
 | `02-source-grounded-criteria.png` | Live Gemini results with cited source and green exact-match badges | Human-controlled AI: every editable criterion carries an exact quote independently matched to the source. |
-| `03-false-success-caught.png` | `launch-rc1` report with AC-04 failing | The UI claimed success, but the lead API returned HTTP 500—MilestoneProof caught the contradiction. |
-| `04-client-review.png` | Passing no-login client review | Clients see the promises they signed and one clear decision, not CI jargon. |
-| `05-invoice-ready-record.png` | Approval receipt after Mara Chen approves | An invoice-ready record binds the SOW revision, build, evidence hashes, client decision, timestamp, and value. |
+| `03-false-success-caught.png` | Clearly labeled synthetic `launch-rc1` walkthrough with AC-04 failing | A seeded walkthrough illustrates how MilestoneProof surfaces a false-success HTTP 500 without presenting the sample as evidence. |
+| `04-client-review.png` | Clearly labeled synthetic client-decision walkthrough | Clients see the promises they signed and one clear decision; this sample is explicitly not retained. |
+| `05-invoice-ready-record.png` | Clearly labeled sample approval format | The printable format is demonstrated without implying that a real client transaction occurred. |
 
 Before upload, verify that every image:
 

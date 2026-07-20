@@ -24,14 +24,14 @@ The repository contains a complete judge-first vertical slice for the Blueprint 
 4. Verify the fixed `launch-rc2` build; all six checks pass.
 5. Create the client review, approve as Mara Chen, and open the invoice-ready record.
 
-If Gemini is unavailable, click **Launch the reliable guided demo**. It uses clearly labeled synthetic criteria and the real production verification runner. Custom imported SOWs stop at the staging-configuration handoff until their own verified origin and typed checks are connected; they never inherit the synthetic fixture’s results.
+If Gemini or free browser capacity is unavailable, click **Launch the reliable guided demo**. It uses clearly labeled seeded outcomes and creates no browser-evidence or transaction record. Custom imported SOWs stop at the staging-configuration handoff until their own verified origin and typed checks are connected; they never inherit the synthetic fixture’s results.
 
 ### Hosted build
 
 - **Product:** [milestoneproof.vercel.app](https://milestoneproof.vercel.app)
 - **Runner health:** [milestoneproof-runner.anay-agarwalla-581.workers.dev/health](https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health)
 
-The production build is connected to a Cloudflare Queue and Browser Run worker with signed HMAC callbacks. The deployed flow records each run, result, evidence hash, review packet, and client decision in Supabase. Gemini has an eight-second deadline and a local, source-grounded analysis fallback; verification still requires the deployed database and runner.
+The production build is connected to a Cloudflare Queue and Browser Run worker with signed HMAC callbacks. The real verification flow records each run, result, evidence hash, review packet, and client decision in Supabase. Gemini has a short deadline and a local, source-grounded analysis fallback; real verification still requires the deployed database and runner.
 
 ## Local setup
 

@@ -52,7 +52,7 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 
 - Capture both desktop and mobile screenshots.
 - Show the two-column source/criteria review, compact status language, progress stepper, and client-facing review.
-- The guided demo is a reliable escape hatch, not a separate unfinished prototype.
+- The guided walkthrough is a reliable, clearly labeled presentation fallback; it never claims seeded outcomes are real evidence.
 
 ### Accessibility
 
@@ -109,7 +109,7 @@ Spend the final 20 seconds on the trust boundary and architecture. Name Gemini, 
 
 **Can Gemini execute anything?**  No. Gemini returns structured criterion drafts only. It cannot submit selectors, JavaScript, credentials, headers, or off-origin actions. Human-confirmed data must pass a shared typed schema before the runner sees a job ID.
 
-**Are the demo results real?**  The two included staging fixtures and observed failure/pass story are controlled, synthetic demo data. Production queue, lease, browser execution, and callback plumbing have been smoke-tested. A custom imported SOW stops at staging setup until its own origin and checks are configured.
+**Are the demo results real?**  There are two distinct paths. The production queue/lease/browser/callback path creates retained evidence from the included synthetic fixture. The always-available guided walkthrough uses seeded outcomes, labels them on every result/review/receipt screen, and creates no transaction record. A custom imported SOW stops at staging setup until its own origin and checks are configured.
 
 **What data goes to Gemini?**  Only text the user explicitly pasted or uploaded after attesting that it is synthetic or non-confidential. It is processed in memory and omitted from verification logs. This free-tier build is not for confidential client documents.
 

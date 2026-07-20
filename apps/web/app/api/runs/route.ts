@@ -80,7 +80,15 @@ export async function POST(request: Request) {
       }).select("id").single();
       if (error || !record) throw new Error(`Milestone record could not be created: ${error?.message ?? "unknown error"}`);
       recordId = record.id;
-      await appendAuditEvent({ recordId: record.id, eventType: "MILESTONE_FROZEN", actorType: "OWNER", actorHash, payload: { publicId: recordPublicId, revision: 1, sourceSha256: sourceHash, criteriaSha256: criteriaHash, criteriaCount: body.criteria.length, criteriaConfirmedByOwner: true, ownerTermsAccepted: true, noticeVersion: body.noticeVersion } });
+      try {
+        await appendAuditEvent({ recordId: record.id, eventType: "MILESTONE_FROZEN", actorType: "OWNER", actorHash, payload: { publicId: recordPublicId, revision: 1, sourceSha256: sourceHash, criteriaSha256: criteriaHash, criteriaCount: body.criteria.length, criteriaConfirmedByOwner: true, ownerTermsAccepted: true, noticeVersion: body.noticeVersion } });
+      } catch (auditError) {
+        // A record without its first audit event is not a valid transaction.
+        // This exact, childless setup row is safe to remove; if the event was
+        // actually committed, the audit-event foreign key prevents deletion.
+        await database.from("transaction_records").delete().eq("id", record.id);
+        throw auditError;
+      }
     }
 
     const durableRecordId = recordId;
@@ -93,7 +101,7 @@ export async function POST(request: Request) {
       build_url: `${appOrigin}/fixture/${body.version}`,
       build_label: `launch-${body.version}`,
       checks,
-      runner_version: "0.2",
+      runner_version: "0.4.0",
     }).select("id").single();
     if (jobError || !job) throw new Error(`Verification job could not be recorded: ${jobError?.message ?? "unknown error"}`);
 

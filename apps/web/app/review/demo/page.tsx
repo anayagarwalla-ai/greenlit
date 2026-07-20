@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import { ClientReview } from "@/components/client-review";
 
-export default function LegacyDemoReviewPage() {
-  redirect("/workspace");
+export default function DemoReviewPage() {
+  return <ClientReview packetId="demo" demo />;
 }
-

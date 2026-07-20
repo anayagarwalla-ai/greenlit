@@ -97,10 +97,10 @@ export const demoCriteria: DemoCriterion[] = [
     id: "AC-05",
     title: "Required errors identify their fields",
     source: "Required-field errors must be programmatically associated with their fields.",
-    check: "Submit empty form; serious and critical WCAG violations equal 0.",
+    check: "Submit empty form; every validation-message ID is referenced by its field’s aria-describedby.",
     type: "Accessibility",
     path: "/contact",
-    result: { rc1: "PASS", rc2: "PASS", expected: "0 serious or critical violations", observedRc1: "0 serious or critical violations", observedRc2: "0 serious or critical violations", duration: 1094 },
+    result: { rc1: "PASS", rc2: "PASS", expected: "All invalid fields are programmatically described", observedRc1: "2 described fields; 0 broken references", observedRc2: "2 described fields; 0 broken references", duration: 1094 },
   },
   {
     id: "AC-06",
@@ -114,3 +114,14 @@ export const demoCriteria: DemoCriterion[] = [
 ];
 
 export const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+export function seededDemoResults(version: "rc1" | "rc2", timestamp = new Date().toISOString()) {
+  return demoCriteria.map((criterion) => ({
+    criterionId: criterion.id,
+    status: criterion.result[version],
+    expected: criterion.result.expected,
+    observed: version === "rc1" ? criterion.result.observedRc1 : criterion.result.observedRc2,
+    durationMs: criterion.result.duration,
+    timestamp,
+  }));
+}

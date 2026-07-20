@@ -50,6 +50,12 @@ Product response: the reviewer must state a name and business email, affirm auth
 
 Product response: the app provides just-in-time collection notices, Privacy/Terms/Recordkeeping pages, a privacy-request form, source minimization, server-only database credentials, private evidence storage, HMAC-authenticated runner callbacks, HttpOnly owner and reviewer sessions, expiring review links, and authenticated retention automation.
 
+### Accounting and tax-record boundary
+
+- The IRS says a business may choose a recordkeeping system that clearly shows income and expenses, but must keep supporting records for as long as they may be needed to substantiate a tax return. It identifies invoices, receipts, payment records, journals, and ledgers as accounting support, and requires electronic tax records to remain complete, accurate, accessible, and reproducible. Sources: [IRS Recordkeeping](https://www.irs.gov/businesses/small-businesses-self-employed/recordkeeping) and [IRS Publication 583](https://www.irs.gov/publications/p583).
+
+Product response: MilestoneProof records a milestone-evidence and client-decision event only. It does not record payment settlement, revenue recognition, tax treatment, the final invoice, or the general ledger entry. Businesses must keep the MilestoneProof export alongside—never instead of—their contract, invoice, payment, and accounting records for the period their tax adviser and governing law require.
+
 ### Gemini unpaid-tier restriction
 
 Google's Gemini API Additional Terms effective March 23, 2026 state that for unpaid services Google may use submitted content and generated responses to provide, improve, and develop products, and human reviewers may process API inputs and outputs. The terms instruct users not to submit sensitive, confidential, or personal information to unpaid services, limit EEA/Swiss/UK availability to paid services, and require 18+ professional or business use. Source: [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms).
@@ -77,4 +83,4 @@ The app should not be represented as generally “legally approved” or product
 - Explain that AI drafts, the owner confirms, the browser observes, and the client decides.
 - Show the exact-quote grounding, a real failing `rc1` network check, the passing `rc2` rerun, secure review, explicit approval intent, printable receipt, and JSON audit export.
 - Avoid claims such as “legally binding everywhere,” “immutable,” “tamper-proof,” “certified,” or “guaranteed payment.” Use “append-only,” “hash-chained,” “tamper-evident,” “business approval record,” and “retained according to policy.”
-
+- Keep the clearly labeled synthetic walkthrough separate from real verification: it creates no browser evidence, audit event, client transaction, or export. Only the real Cloudflare-backed flow creates a retained record.

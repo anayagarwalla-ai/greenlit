@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, FileCheck2, LockKeyhole, MessageSquareText, ShieldCheck, X } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { demoCriteria, demoMilestone, seededDemoResults } from "@/lib/demo";
 import { formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 
@@ -30,9 +31,35 @@ type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha2
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
 const dateTime = (value: string) => formatTimestamp(new Date(value));
 
-export function ClientReview({ packetId }: { packetId: string }) {
-  const [packet, setPacket] = useState<PacketResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+function demoPacket(): PacketResponse {
+  const completedAt = "2026-07-20T17:00:00.000Z";
+  const expiresAt = "2026-07-23T17:00:00.000Z";
+  return {
+    packetId: "DEMO-NOT-RETAINED",
+    snapshotSha256: "synthetic-walkthrough-no-hash",
+    expiresAt,
+    snapshot: {
+      packetPublicId: "DEMO-NOT-RETAINED",
+      recordPublicId: "DEMO-NOT-RETAINED",
+      agencyName: demoMilestone.agency,
+      clientName: demoMilestone.client,
+      projectName: demoMilestone.project,
+      milestoneTitle: demoMilestone.milestone,
+      amountMinor: demoMilestone.amountMinor,
+      currency: demoMilestone.currency,
+      sourceName: "Synthetic guided-demo SOW",
+      sourceSha256: "synthetic-walkthrough-no-hash",
+      revision: demoMilestone.revision,
+      criteria: demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source })),
+      run: { runId: "DEMO-RUN-RC2", buildLabel: "launch-rc2", results: seededDemoResults("rc2", completedAt), manifestSha256: "synthetic-walkthrough-no-hash", completedAt, browserVersion: "Illustrative sample", runnerVersion: "walkthrough-1.0" },
+      expiresAt,
+    },
+  };
+}
+
+export function ClientReview({ packetId, demo = false }: { packetId: string; demo?: boolean }) {
+  const [packet, setPacket] = useState<PacketResponse | null>(() => demo ? demoPacket() : null);
+  const [loading, setLoading] = useState(!demo);
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState<"approve" | "changes" | null>(null);
   const [name, setName] = useState("");
@@ -45,6 +72,7 @@ export function ClientReview({ packetId }: { packetId: string }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -63,7 +91,7 @@ export function ClientReview({ packetId }: { packetId: string }) {
     };
     void load();
     return () => { cancelled = true; };
-  }, [packetId]);
+  }, [demo, packetId]);
 
   useEffect(() => {
     if (!dialog) return;
@@ -93,6 +121,19 @@ export function ClientReview({ packetId }: { packetId: string }) {
     if (!dialog) return;
     setSubmitting(true); setError("");
     try {
+      if (demo) {
+        const decidedAt = new Date().toISOString();
+        const decision = dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED";
+        setPacket((current) => current ? { ...current, decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt, receiptSha256: "synthetic-walkthrough-no-hash" } : current);
+        setDialog(null);
+        if (decision === "APPROVED") {
+          try {
+            window.localStorage.setItem("milestoneproof-approved-url", "/receipt/demo");
+            window.localStorage.setItem("milestoneproof-demo-decision", JSON.stringify({ reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt }));
+          } catch { /* optional walkthrough convenience */ }
+        }
+        return;
+      }
       const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", reviewerName: name, reviewerEmail: email, reviewerNote: note, intentConfirmed: intent, electronicRecordsConsent: recordsConsent, noticeVersion: RECORD_NOTICE_VERSION }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The decision could not be recorded.");
@@ -116,25 +157,26 @@ export function ClientReview({ packetId }: { packetId: string }) {
 
   return (
     <main className="review-shell">
-      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> Secure client review · expires {dateTime(packet.expiresAt)}</span></header>
+      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> {demo ? "Synthetic walkthrough · not retained" : `Secure client review · expires ${dateTime(packet.expiresAt)}`}</span></header>
       <div className="review-main">
         {!packet.decision ? <>
-          <div className="review-hero"><div><span>{snapshot.agencyName} submitted for approval</span><h1>{snapshot.milestoneTitle}</h1><p>{snapshot.projectName} · Evidence captured from {snapshot.run.buildLabel}</p></div><div className="review-amount"><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></div>
+          {demo && <div className="analysis-notice"><ShieldCheck size={15} /><div><strong>Interactive sample — no legal record is created</strong><span>This page uses seeded outcomes to demonstrate the decision experience when free browser capacity is unavailable.</span></div></div>}
+          <div className="review-hero"><div><span>{snapshot.agencyName} submitted for approval</span><h1>{snapshot.milestoneTitle}</h1><p>{snapshot.projectName} · {demo ? "Sample outcomes for" : "Evidence captured from"} {snapshot.run.buildLabel}</p></div><div className="review-amount"><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></div>
           <section className="panel review-proof">
-            <div className="review-proof__head"><div><h2>What was promised—and what we observed</h2><p>Every result below comes from the same verified staging run.</p></div><span className="seal"><Check size={16} /> ALL VERIFIED</span></div>
+            <div className="review-proof__head"><div><h2>What was promised—and what we observed</h2><p>{demo ? "Every result below is a seeded illustration of a passing run." : "Every result below comes from the same verified staging run."}</p></div><span className="seal"><Check size={16} /> {demo ? "SAMPLE PASS" : "ALL VERIFIED"}</span></div>
             <div className="review-summary"><div><span>Result</span><strong>{snapshot.run.results.filter((result) => result.status === "PASS").length} of {snapshot.run.results.length} passed</strong></div><div><span>Verified</span><strong>{dateTime(snapshot.run.completedAt)}</strong></div><div><span>Build</span><strong>{snapshot.run.buildLabel}</strong></div><div><span>Source</span><strong>Revision {snapshot.revision}</strong></div></div>
             <div className="review-list">{snapshot.criteria.map((criterion) => { const result = results[criterion.id]; return <article className="review-row" key={criterion.id}><span className="criterion-id">{criterion.id}</span><div><h3>{criterion.title}</h3><p>Expected: {result?.expected ?? "Recorded check"} · Observed: {result?.observed ?? "No result"}</p></div><span className="status-badge status-badge--pass"><CheckCircle2 size={11} /> Passed</span></article>; })}</div>
           </section>
-          <div className="review-footer"><p><ShieldCheck size={12} /> Your decision is timestamped and bound to snapshot {packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.</p><div className="review-footer__actions"><button className="button button--outline" onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
-        </> : <section className="panel approval-success"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>Decision recorded</span><h2>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. The decision is bound to this evidence snapshot and its append-only audit chain.</p>{approved && <Link className="button button--lime" href={`/receipt/${packetId}`}>View approval record <ArrowRight size={16} /></Link>}<a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a><div className="receipt-id">{snapshot.recordPublicId} · RECEIPT {packet.receiptSha256?.slice(0, 16)}…</div></section>}
+          <div className="review-footer"><p><ShieldCheck size={12} /> {demo ? "This local sample decision is not sent to the server, retained, hash-chained, or usable as a transaction record." : `Your decision is timestamped and bound to snapshot ${packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.`}</p><div className="review-footer__actions"><button className="button button--outline" onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
+        </> : <section className="panel approval-success"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
       </div>
 
-      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
+      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
         <div className="form-field"><label htmlFor="reviewer-name">Your full name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required /></div>
         <div className="form-field"><label htmlFor="reviewer-email">Business email</label><input id="reviewer-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div>
         <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" placeholder={dialog === "approve" ? "Looks ready to launch." : "Describe the requested change…"} value={note} onChange={(event) => setNote(event.target.value)} required={dialog === "changes"} /></div>
         <label className="decision-consent"><input type="checkbox" checked={intent} onChange={(event) => setIntent(event.target.checked)} /><span>I intend to {dialog === "approve" ? "approve this milestone" : "request these changes"} for {snapshot.clientName}, and I am authorized to make this decision.</span></label>
-        <label className="decision-consent"><input type="checkbox" checked={recordsConsent} onChange={(event) => setRecordsConsent(event.target.checked)} /><span>I consent to receive and retain this record electronically. I can print or save the final record as PDF. <Link href="/records" target="_blank">Record details</Link></span></label>
+        <label className="decision-consent"><input type="checkbox" checked={recordsConsent} onChange={(event) => setRecordsConsent(event.target.checked)} /><span>{demo ? "I understand this is a synthetic walkthrough and no transaction record will be retained." : <>I consent to receive and retain this record electronically. I can print or save the final record as PDF. <Link href="/records" target="_blank">Record details</Link></>}</span></label>
         {error && <div className="analysis-error" role="alert">{error}</div>}
         <div className="dialog-actions"><button type="button" className="button button--outline" onClick={() => setDialog(null)}>Cancel</button><button className={`button ${dialog === "approve" ? "button--ink" : "button--danger"}`} disabled={submitting || !name.trim() || !email.trim() || !intent || !recordsConsent || (dialog === "changes" && !note.trim())}>{submitting ? "Recording…" : `Confirm ${dialog === "approve" ? "approval" : "request"}`}</button></div>
       </form></section></div>}

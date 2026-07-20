@@ -32,7 +32,7 @@ MilestoneProof gives an agency one guided flow:
 
 The included demo deliberately contains a deceptive bug: the contact form shows “success” while its lead request returns HTTP 500. MilestoneProof catches the contradiction, then proves the fixed build against the same frozen scope.
 
-For arbitrary imported SOWs, MilestoneProof stops after scope confirmation until a client-owned staging origin and typed checks are configured. It never presents fixture results as proof of a customer’s real project. The synthetic guided demo is always available as a deterministic fallback.
+For arbitrary imported SOWs, MilestoneProof stops after scope confirmation until a client-owned staging origin and typed checks are configured. It never presents fixture results as proof of a customer’s real project. A clearly labeled, non-retained synthetic walkthrough remains available if free runner capacity is unavailable.
 
 ## How we built it
 
@@ -58,7 +58,7 @@ Finally, we treated the runner as an untrusted boundary. Queue messages carry on
 - A safe typed-check model and a signed queue/runner architecture.
 - A failure story judges can see immediately: visible success, real HTTP failure, then proof of the fixed build.
 - A responsive, keyboard-usable interface, client review, approval dialog, and printable receipt.
-- A live production deployment plus a deterministic fallback that does not depend on AI availability.
+- A live production deployment plus an honest deterministic walkthrough that depends on neither AI nor browser capacity and never claims to be retained evidence.
 - Automated tests for schema/security boundaries and source-grounding edge cases.
 - No paid services enabled.
 
@@ -92,4 +92,3 @@ TypeScript, React, Next.js, Gemini API, Google GenAI SDK, Zod, Cloudflare Worker
 3. **A false success caught:** The page claimed the form worked, but MilestoneProof proved its lead request returned HTTP 500.
 4. **Proof the client understands:** The review packet translates a passing browser run back into the six promises the client signed.
 5. **Invoice-ready, not an invoice:** The approval record binds revision, build, evidence hashes, decision, timestamp, and milestone value.
-

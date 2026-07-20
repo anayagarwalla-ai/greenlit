@@ -61,6 +61,6 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 ## Recording safety net
 
 - Use only the included synthetic SOW.
-- If Gemini is slow or unavailable during the recording, click **Launch the reliable guided demo** and say, “The deterministic fallback keeps the judge path available; the live import is shown in the submitted screenshots.”
+- If Gemini or free Cloudflare browser capacity is unavailable during recording, click **Launch the reliable guided demo** and say, “This clearly labeled walkthrough uses seeded outcomes and creates no evidence record; the real Gemini import and browser architecture are shown separately.” Do not narrate its results as a live browser run.
 - Do one dry run through the approval dialog before recording so the browser has no permission prompts.
 - Avoid opening Vercel, Supabase, or Cloudflare dashboards on camera; they may expose project metadata.

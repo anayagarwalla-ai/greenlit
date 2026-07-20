@@ -33,9 +33,11 @@ export default function RecordsPage() {
         <p>Approval and audit records default to four years; evidence screenshots default to 90 days; review tokens expire within 72 hours. A legal hold can suspend deletion for a specific dispute. Customers should obtain counsel before changing retention for regulated industries or contracts governed by another jurisdiction.</p>
 
         <h2>Important boundary</h2>
-        <p>MilestoneProof records milestone approval. It does not replace a formal signature platform, notarization, an invoice, accounting records, or legal advice.</p>
+        <p>MilestoneProof records milestone approval. It does not replace a formal signature platform, notarization, an invoice, accounting or tax records, or legal advice. Keep the exported approval record alongside the governing contract, invoice, proof of payment, and general-ledger entry for the period required by your tax adviser, contract, industry, and jurisdiction.</p>
+
+        <h2>Synthetic walkthrough</h2>
+        <p>The guided walkthrough is a presentation fallback that uses clearly labeled seeded outcomes. It does not run a browser, save screenshots, append audit events, retain a reviewer decision, or create a transaction export. Only the real verification and secure-review flow creates the records described above.</p>
       </article>
     </main>
   );
 }
-

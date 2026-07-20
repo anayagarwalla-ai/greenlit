@@ -23,7 +23,10 @@ export default function TermsPage() {
         <p>AI suggestions are drafts. You are responsible for reviewing source quotes, measurable outcomes, check mappings, and results. Browser evidence reflects only the recorded build, time, and typed checks and does not prove facts outside that scope.</p>
 
         <h2>Approval record—not a legal signature</h2>
-        <p>The client decision is a business approval record. It is not an invoice, payment instruction, payment guarantee, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use MilestoneProof for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
+        <p>The client decision is a business approval record. It is not an invoice, payment instruction, payment guarantee, accounting or tax ledger, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use MilestoneProof for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
+
+        <h2>Guided walkthrough</h2>
+        <p>The synthetic walkthrough is not a transaction-record service. Its seeded outcomes and local sample decision are for demonstration only and are not retained, hash-chained, exported, or represented as browser evidence.</p>
 
         <h2>Electronic records</h2>
         <p>Reviewers must affirm their intent, consent to receive and retain the record electronically, and provide their name and business email. Records can be viewed in a modern browser and printed or saved as PDF. Transaction events are timestamped and hash-chained to make later alteration detectable.</p>
@@ -40,4 +43,3 @@ export default function TermsPage() {
     </main>
   );
 }
-
