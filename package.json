@@ -11,6 +11,8 @@
     "lint": "pnpm --filter @milestoneproof/web lint",
     "runner:dev": "pnpm --filter @milestoneproof/runner dev",
     "runner:deploy": "pnpm --filter @milestoneproof/runner deploy"
+  },
+  "devDependencies": {
+    "next": "16.2.10"
   }
 }
-
