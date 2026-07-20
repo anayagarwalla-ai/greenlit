@@ -77,6 +77,7 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
   const started = Date.now();
   const result = (status: CriterionResult["status"], expected: string, observed: string): CriterionResult => ({ criterionId: check.criterionId, status, expected, observed, durationMs: Date.now() - started, timestamp: new Date().toISOString() });
   try {
+    if (check.type === "axe_scan") await page.addInitScript({ content: axe.source });
     await page.goto(new URL(check.path, origin).toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
     if (check.type === "element_state") {
       const locator = await resolveLocator(page, check.elementRef);
@@ -114,13 +115,24 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       }
       return result(worstOverflow <= check.maxHorizontalOverflowPx ? "PASS" : "FAIL", `≤ ${check.maxHorizontalOverflowPx}px horizontal overflow`, `${worstOverflow}px horizontal overflow`);
     }
-    await page.addScriptTag({ content: axe.source });
-    const violations = await page.evaluate(async ({ tags, impacts }) => {
+    if (check.submitRef) {
+      if (!check.ownerAcknowledgedMutation) return result("ERROR", "Owner-authorized accessibility precondition", "Mutation acknowledgement missing");
+      await (await resolveLocator(page, check.submitRef)).click();
+    }
+    const accessibility = await page.evaluate(async ({ tags, impacts, requireDescriptions }) => {
       const axeApi = (globalThis as typeof globalThis & { axe: typeof axe }).axe;
+      if (!axeApi?.run) throw new Error("Axe did not initialize in the browser context.");
       const report = await axeApi.run(document, { runOnly: { type: "tag", values: tags } });
-      return report.violations.filter((violation) => violation.impact && impacts.some((impact) => impact === violation.impact));
-    }, { tags: check.tags, impacts: check.failImpacts });
-    return result(violations.length === 0 ? "PASS" : "FAIL", "0 critical or serious violations", `${violations.length} critical or serious violations`);
+      const violations = report.violations.filter((violation) => violation.impact && impacts.some((impact) => impact === violation.impact));
+      const describedInputs = Array.from(document.querySelectorAll<HTMLInputElement>("input[aria-describedby]"));
+      const descriptionsValid = !requireDescriptions || (describedInputs.length > 0 && describedInputs.every((input) => {
+        const ids = (input.getAttribute("aria-describedby") ?? "").trim().split(/\s+/).filter(Boolean);
+        return ids.length > 0 && ids.every((id) => Boolean(document.getElementById(id)));
+      }));
+      return { violationCount: violations.length, describedInputCount: describedInputs.length, descriptionsValid };
+    }, { tags: check.tags, impacts: check.failImpacts, requireDescriptions: Boolean(check.submitRef) });
+    const passed = accessibility.violationCount === 0 && accessibility.descriptionsValid;
+    return result(passed ? "PASS" : "FAIL", check.submitRef ? "0 critical or serious violations; validation errors programmatically described" : "0 critical or serious violations", `${accessibility.violationCount} critical or serious violations${check.submitRef ? `; ${accessibility.describedInputCount} described invalid fields` : ""}`);
   } catch (error) {
     return result("ERROR", "Check completed", error instanceof Error ? error.message.slice(0, 300) : "Unknown runner error");
   }

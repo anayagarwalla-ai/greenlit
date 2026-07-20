@@ -49,6 +49,8 @@ export const axeScanCheckSchema = baseCheck.extend({
   type: z.literal("axe_scan"),
   tags: z.array(z.string()).default(["wcag2a", "wcag2aa", "wcag22aa"]),
   failImpacts: z.array(z.enum(["critical", "serious"])).default(["critical", "serious"]),
+  submitRef: z.string().min(1).max(160).optional(),
+  ownerAcknowledgedMutation: z.literal(true).optional(),
 });
 
 export const checkSpecSchema = z.discriminatedUnion("type", [
@@ -101,4 +103,3 @@ export function isSafeRelativePath(value: string): boolean {
     return false;
   }
 }
-

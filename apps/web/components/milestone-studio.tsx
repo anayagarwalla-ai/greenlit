@@ -177,6 +177,7 @@ export function MilestoneStudio() {
   const status = phaseStatus(phase);
   const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
   const visibleCount = sourceMode === "demo" ? demoCriteria.length : criteria.length;
+  const latestPassCount = latestRun?.results.filter((result) => result.status === "PASS").length ?? 0;
 
   useEffect(() => {
     if (!toast) return;
@@ -456,7 +457,7 @@ export function MilestoneStudio() {
           <div className="side-label">Proof flow</div>
           <nav className="side-nav">
             <button className={currentStep === 1 ? "is-active" : ""} disabled={!sourceText} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
-            <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase === "run1" && <span>5/6</span>}{lastVerificationPhase === "run2" && <span>6/6</span>}</button>
+            <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase && latestRun && <span>{latestPassCount}/{latestRun.results.length}</span>}</button>
             <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={() => setPhase("shared")}><Send size={15} /><span>Client review</span></button>
             <button disabled={!approvalRecorded || !receiptUrl} onClick={() => receiptUrl && window.location.assign(receiptUrl)}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
@@ -793,6 +794,8 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const isPass = run.outcome === "READY_FOR_REVIEW";
   const passed = run.results.filter((result) => result.status === "PASS").length;
   const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
+  const failed = run.results.length - passed;
+  const caughtFalseSuccess = run.results.some((result) => result.criterionId === "AC-04" && result.status === "FAIL" && /HTTP 500/.test(result.observed));
   const resultByCriterion = Object.fromEntries(run.results.map((result) => [result.criterionId, result]));
   const evidence = run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true)) ?? run.artifacts.find((artifact) => artifact.url);
   const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt)) : "Just now";
@@ -803,7 +806,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
           <div className="panel report-summary">
             <div className="score-line">
               <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
-              <div className="score-copy"><h2>{isPass ? "Every promise has evidence." : "One promise needs work."}</h2><p>{isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : "The interface says success, but the underlying lead request failed."}</p></div>
+              <div className="score-copy"><h2>{isPass ? "Every promise has evidence." : failed === 1 ? "One promise needs work." : `${failed} promises need work.`}</h2><p>{isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
             </div>
             <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
           </div>
@@ -823,13 +826,13 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
               {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
-            <div className="evidence-body"><strong>{isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : "The visible confirmation contradicted the network response. MilestoneProof caught the false success."}</p></div>
+            <div className="evidence-body"><strong>{isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. MilestoneProof caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
           </div>
           <div className="panel audit-card"><h3>Run integrity</h3><div className="audit-item"><strong>Target allowlisted</strong>The runner received only the app-owned synthetic staging origin.</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>Artifacts hashed</strong>SHA-256 manifest {run.manifestSha256?.slice(0, 12) ?? "pending"}…</div><div className="audit-item"><strong>Source minimized</strong>Only a source hash and confirmed criteria enter the record.</div></div>
         </aside>
       </div>
       <div className="action-banner">
-        <div><h3>{isPass ? "Give the client proof, not a test report." : "A polished UI hid a broken handoff."}</h3><p>{isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
+        <div><h3>{isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
           {!isPass && <a className="button button--outline" href="/fixture/rc1" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
           <button className="button button--lime" disabled={shareBusy} onClick={isPass ? onShare : onRerun}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>

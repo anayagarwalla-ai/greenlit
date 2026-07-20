@@ -34,5 +34,17 @@ describe("safe CheckSpec contract", () => {
     expect(isSafeRelativePath("//attacker.example/x")).toBe(false);
     expect(isSafeRelativePath("https://attacker.example/x")).toBe(false);
   });
-});
 
+  it("rejects a false mutation acknowledgement on an accessibility precondition", () => {
+    expect(() => checkSpecSchema.parse({
+      id: "check-a11y",
+      criterionId: "AC-05",
+      type: "axe_scan",
+      path: "/fixture/rc1#contact",
+      sourceQuote: "Required-field errors are associated with their fields.",
+      confirmedByHuman: true,
+      submitRef: "button:Send my request",
+      ownerAcknowledgedMutation: false,
+    })).toThrow();
+  });
+});
