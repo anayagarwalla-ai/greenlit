@@ -171,12 +171,12 @@ begin
     raise exception 'Unknown transaction record';
   end if;
 
-  v_hash := encode(digest(
+  v_hash := encode(extensions.digest(convert_to(
     v_previous || '|' || p_record_id::text || '|' || v_sequence::text || '|' ||
     p_event_type || '|' || p_actor_type || '|' || coalesce(p_actor_hash, '') || '|' ||
     p_payload::text || '|' || to_char(v_occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-    'sha256'
-  ), 'hex');
+    'UTF8'
+  ), 'sha256'::text), 'hex');
 
   insert into public.transaction_audit_events (
     record_id, sequence, event_type, actor_type, actor_hash, payload,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Check, Download, FileJson2, FileWarning } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { formatTimestamp } from "@/lib/format";
 
 type Result = { criterionId: string; status: string; expected: string; observed: string };
 type Criterion = { id: string; title: string };
@@ -21,7 +22,7 @@ type ReceiptPacket = {
 };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
-const dateTime = (value: string) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "long", timeZoneName: "short" }).format(new Date(value));
+const dateTime = (value: string) => formatTimestamp(new Date(value));
 
 export function ApprovalReceipt({ packetId }: { packetId: string }) {
   const [packet, setPacket] = useState<ReceiptPacket | null>(null);

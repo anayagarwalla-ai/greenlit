@@ -34,7 +34,7 @@ import {
 import { Brand } from "@/components/brand";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
 import { demoCriteria, demoMilestone, demoSowText, sowExcerpt } from "@/lib/demo";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
@@ -795,7 +795,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
   const resultByCriterion = Object.fromEntries(run.results.map((result) => [result.criterionId, result]));
   const evidence = run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true)) ?? run.artifacts.find((artifact) => artifact.url);
-  const completedAt = run.completedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZoneName: "short" }).format(new Date(run.completedAt)) : "Just now";
+  const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt)) : "Just now";
   return (
     <>
       <div className="report-grid">
