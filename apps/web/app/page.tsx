@@ -74,17 +74,16 @@ export default function Home() {
           <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. MilestoneProof makes “done” concrete, reviewable, and auditable.</p>
         </div>
         <div className="steps-grid">
-          <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload the signed SOW. AI drafts measurable criteria with exact source citations.</p></article>
+          <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload a redacted, non-confidential SOW section. AI drafts measurable criteria with exact source citations.</p></article>
           <article><span>02</span><Play /><h3>Verify the build</h3><p>Run safe, typed browser checks against a staging site and capture evidence for every claim.</p></article>
           <article><span>03</span><ShieldCheck /><h3>Collect approval</h3><p>Send one client-ready proof page, capture the decision, and create an invoice-ready record.</p></article>
         </div>
       </section>
 
       <section className="cta-strip">
-        <div><span>Judge-ready product demo</span><h2>One milestone. Six promises.<br />Proof in under three minutes.</h2></div>
+        <div><span>Closed agency beta</span><h2>One milestone. Clear promises.<br />Proof before the invoice.</h2></div>
         <Link className="button button--lime" href="/workspace">Run the proof flow <ArrowRight size={18} /></Link>
       </section>
     </main>
   );
 }
-

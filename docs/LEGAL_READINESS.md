@@ -24,12 +24,14 @@ Raw IP addresses are not intentionally stored in the transaction record. Request
 
 | Record | Default | Rationale / behavior |
 | --- | ---: | --- |
-| Review bearer link | 72 hours | Limits exposure of a no-account review link. |
+| Review bearer link | 72 hours by default; 14-day hard limit | Limits exposure of a no-account review link; owners can revoke or extend it. |
 | Screenshot evidence | 90 days | Keeps short-term visual evidence while minimizing retained page content. |
 | Approval, verification, and audit record | 4 years | Aligns with California's four-year limitations period for actions on a written contract as a conservative beta default; it is not universal. |
 | Privacy request | 24 months | Keeps a limited request-handling record. |
+| Beta feedback / operational events | 24 months / 90 days | Supports issue handling while limiting diagnostic retention. |
+| Agency notifications | 180 days | Keeps client-decision visibility without making the inbox a permanent ledger. |
 
-A daily, authenticated retention job removes expired screenshots, privacy requests, and transaction records after their retention date. A record-level or artifact-level legal hold prevents automatic deletion. Operators must document and periodically review legal holds.
+A review link starts at 72 hours; the agency may revoke it or extend it within a 14-day hard limit. A daily, authenticated retention job removes expired screenshots, privacy requests, feedback, notifications, operational events, abuse counters, and transaction records after their retention date. A record-level or artifact-level legal hold prevents automatic deletion. Operators must document and periodically review legal holds.
 
 ## Legal design research
 
@@ -48,7 +50,7 @@ Product response: the reviewer must state a name and business email, affirm auth
 - The FTC recommends collecting only what is needed, limiting access, protecting data in transit and at rest, verifying service providers, and having an incident plan. Source: [FTC, Start with Security](https://www.ftc.gov/business-guidance/resources/start-security-guide-business).
 - The FTC has also warned AI companies to honor privacy and confidentiality commitments made to customers. Source: [FTC, AI Companies: Uphold Your Privacy and Confidentiality Commitments](https://www.ftc.gov/policy/advocacy-research/tech-at-ftc/2024/01/ai-companies-uphold-your-privacy-confidentiality-commitments).
 
-Product response: the app provides just-in-time collection notices, Privacy/Terms/Recordkeeping pages, a privacy-request form, source minimization, server-only database credentials, private evidence storage, HMAC-authenticated runner callbacks, HttpOnly owner and reviewer sessions, expiring review links, and authenticated retention automation.
+Product response: the app provides just-in-time collection notices, Privacy/Terms/Recordkeeping pages, a privacy-request form, source minimization, server-only database credentials, private evidence storage, HMAC-authenticated runner callbacks, authenticated agency accounts, HttpOnly reviewer sessions, revocable/expiring review links, abuse and capacity limits, operational triage, and authenticated retention automation.
 
 ### Accounting and tax-record boundary
 
@@ -71,7 +73,7 @@ The app should not be represented as generally “legally approved” or product
 3. Do not send real customer SOWs through Gemini's unpaid tier. A commercial version should use provider terms and data controls approved by counsel and customers; that may require a paid or enterprise arrangement, which is intentionally outside this no-paid-services hackathon build.
 4. Execute and retain applicable data-processing terms with Vercel, Cloudflare, Supabase, Google, and any future subprocessors; maintain a subprocessor register.
 5. Add verified operator identity and monitored privacy-request operations. The database form is an intake mechanism, not a complete request-response program by itself.
-6. Add an incident-response and breach-notification runbook, access reviews, secret rotation, backups/restore testing, dependency monitoring, and operational alerting.
+6. Adopt the included incident-response and beta-operations runbooks; then schedule access reviews, secret rotation, backups/restore testing, dependency monitoring, and alert escalation with named owners.
 7. Add stronger reviewer identity verification if customers will rely on decisions for payment disputes. Email text entry and contextual evidence support attribution but are not high-assurance identity proofing.
 8. Define contract-specific legal holds and retention by jurisdiction and industry. Four years is only a beta default.
 9. Keep invoices, payments, tax records, accounting ledgers, and formal signatures in the appropriate systems of record. MilestoneProof does not replace them.

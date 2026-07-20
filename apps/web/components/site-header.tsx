@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { ArrowUpRight } from "lucide-react";
 import { Brand } from "./brand";
 
@@ -8,12 +9,11 @@ export function SiteHeader({ dark = false }: { dark?: boolean }) {
       <Brand inverse={dark} />
       <nav aria-label="Primary navigation">
         <Link href="/#how-it-works">How it works</Link>
-        <Link href="/workspace">Demo workspace</Link>
+        <Link href={"/login" as Route}>Agency sign in</Link>
         <Link className="button button--small button--ink" href="/workspace">
-          Open live demo <ArrowUpRight size={15} aria-hidden="true" />
+          Open workspace <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
       </nav>
     </header>
   );
 }
-

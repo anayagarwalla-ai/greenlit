@@ -1,12 +1,18 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { checkSpecSchema, type CheckSpec } from "@milestoneproof/contracts";
 import { signRunnerRequest } from "@/lib/hmac";
 import { fixtureChecks } from "@/lib/demo-checks";
 import { demoCriteria, demoMilestone } from "@/lib/demo";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { appendAuditEvent, canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, sha256 } from "@/lib/recordkeeping";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
+import { getOwnerIdentity } from "@/lib/owner-auth";
+import { verifyOriginProof } from "@/lib/origin-proof";
+import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@/lib/rate-limit";
+import { validateStagingUrl } from "@/lib/security";
+import { betaAccessAllowed } from "@/lib/beta-access";
+import { logOperationalEvent } from "@/lib/operations";
 
 export const runtime = "nodejs";
 
@@ -14,11 +20,13 @@ const criterionSchema = z.object({
   id: z.string().min(1).max(40),
   title: z.string().min(1).max(300),
   sourceQuote: z.string().min(3).max(1_000),
+  supported: z.boolean().optional(),
+  checkType: z.enum(["element_state", "link_destination", "form_submission", "viewport_layout", "axe_scan", "manual"]).optional(),
 });
 
 const schema = z.object({
   recordId: z.string().uuid().optional(),
-  version: z.enum(["rc1", "rc2"]),
+  version: z.enum(["rc1", "rc2"]).default("rc1"),
   sourceMode: z.enum(["demo", "live"]),
   sourceName: z.string().min(1).max(240),
   sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -29,6 +37,10 @@ const schema = z.object({
   amountMinor: z.number().int().min(0).max(1_000_000_000),
   currency: z.string().regex(/^[A-Z]{3}$/),
   criteria: z.array(criterionSchema).min(1).max(40),
+  targetUrl: z.string().url().max(2_000).optional(),
+  originReceipt: z.string().min(20).max(4_000).optional(),
+  buildLabel: z.string().trim().min(1).max(80).optional(),
+  checks: z.array(checkSpecSchema).min(1).max(40).optional(),
   ownerTermsAccepted: z.literal(true),
   noticeVersion: z.literal(RECORD_NOTICE_VERSION),
 });
@@ -45,8 +57,36 @@ export async function POST(request: Request) {
     const database = requireSupabaseAdmin();
     const actorHash = requestActorHash(request);
     const body = parsed.data;
+    const owner = await getOwnerIdentity();
+    if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
+    if (!owner.user || !betaAccessAllowed(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+    const quota = await consumeRateLimit(request, "verification-run-day", 8, 86_400, owner.userId);
+    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 20);
+    const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "milestoneproof-global-browser-capacity");
+    if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
     const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
-    const checks = fixtureChecks(body.version);
+    const customTarget = Boolean(body.targetUrl || body.checks || body.originReceipt);
+    let targetOrigin = appOrigin;
+    let buildUrl = `${appOrigin}/fixture/${body.version}`;
+    let buildLabel = `launch-${body.version}`;
+    let checks: CheckSpec[] = fixtureChecks(body.version);
+    if (customTarget) {
+      if (!body.targetUrl || !body.originReceipt || !body.buildLabel || !body.checks) return NextResponse.json({ error: "Verify the staging origin and complete every automated check mapping." }, { status: 422, headers: noStoreJsonHeaders() });
+      const target = validateStagingUrl(body.targetUrl);
+      if (!target.ok) return NextResponse.json({ error: target.reason }, { status: 422, headers: noStoreJsonHeaders() });
+      targetOrigin = target.url.origin;
+      if (!verifyOriginProof(body.originReceipt, targetOrigin, owner.userId)) return NextResponse.json({ error: "The staging-origin verification expired or does not match this account. Verify it again." }, { status: 409, headers: noStoreJsonHeaders() });
+      const criteriaById = new Map(body.criteria.map((criterion) => [criterion.id, criterion]));
+      const invalidCheck = body.checks.find((check) => {
+        const criterion = criteriaById.get(check.criterionId);
+        return !criterion || criterion.sourceQuote !== check.sourceQuote || !check.confirmedByHuman;
+      });
+      if (invalidCheck) return NextResponse.json({ error: `Check ${invalidCheck.id} is not bound to its confirmed source criterion.` }, { status: 422, headers: noStoreJsonHeaders() });
+      checks = body.checks;
+      buildUrl = targetOrigin;
+      buildLabel = body.buildLabel;
+    }
     const sourceHash = body.sourceSha256;
     const criteriaHash = sha256(canonicalJson(body.criteria));
     let recordId = body.recordId;
@@ -54,10 +94,9 @@ export async function POST(request: Request) {
     let ownerToken: string | null = null;
 
     if (recordId) {
-      const ownerSession = (await cookies()).get("mp_owner")?.value;
-      if (!ownerSession) return NextResponse.json({ error: "The milestone owner session has expired. Start a new import." }, { status: 401, headers: noStoreJsonHeaders() });
-      const { data: record, error } = await database.from("transaction_records").select("id, public_id").eq("id", recordId).eq("owner_token_hash", sha256(ownerSession)).single();
-      if (error || !record) return NextResponse.json({ error: "The milestone record no longer exists." }, { status: 404, headers: noStoreJsonHeaders() });
+      const { data: record, error } = await database.from("transaction_records").select("id, public_id, owner_user_id, owner_token_hash").eq("id", recordId).single();
+      const authorized = record && (record.owner_user_id === owner.userId || Boolean(owner.ownerTokenHash && record.owner_token_hash === owner.ownerTokenHash));
+      if (error || !authorized) return NextResponse.json({ error: "The milestone record no longer exists or belongs to another account." }, { status: 404, headers: noStoreJsonHeaders() });
       recordPublicId = record.public_id;
     } else {
       recordPublicId = publicRecordId("MP");
@@ -65,7 +104,8 @@ export async function POST(request: Request) {
       const { data: record, error } = await database.from("transaction_records").insert({
         public_id: recordPublicId,
         owner_token_hash: sha256(ownerToken),
-        mode: body.sourceMode === "demo" ? "GUIDED_DEMO" : "IMPORTED_FIXTURE",
+        owner_user_id: owner.userId,
+        mode: customTarget ? "CUSTOM_TARGET" : body.sourceMode === "demo" ? "GUIDED_DEMO" : "IMPORTED_FIXTURE",
         agency_name: body.agencyName,
         client_name: body.clientName,
         project_name: body.projectName,
@@ -75,7 +115,7 @@ export async function POST(request: Request) {
         source_name: body.sourceName,
         source_sha256: sourceHash,
         confirmed_criteria: body.criteria,
-        target_origin: appOrigin,
+        target_origin: targetOrigin,
         status: "READY",
       }).select("id").single();
       if (error || !record) throw new Error(`Milestone record could not be created: ${error?.message ?? "unknown error"}`);
@@ -97,16 +137,16 @@ export async function POST(request: Request) {
     const { data: job, error: jobError } = await database.from("verification_jobs_v2").insert({
       record_id: durableRecordId,
       status: "QUEUED",
-      target_origin: appOrigin,
-      build_url: `${appOrigin}/fixture/${body.version}`,
-      build_label: `launch-${body.version}`,
+      target_origin: targetOrigin,
+      build_url: buildUrl,
+      build_label: buildLabel,
       checks,
       runner_version: "0.4.0",
     }).select("id").single();
     if (jobError || !job) throw new Error(`Verification job could not be recorded: ${jobError?.message ?? "unknown error"}`);
 
     await database.from("transaction_records").update({ status: "VERIFYING" }).eq("id", durableRecordId);
-    await appendAuditEvent({ recordId: durableRecordId, eventType: "VERIFICATION_QUEUED", actorType: "OWNER", actorHash, payload: { jobId: job.id, buildLabel: `launch-${body.version}`, checkCount: checks.length } });
+    await appendAuditEvent({ recordId: durableRecordId, eventType: "VERIFICATION_QUEUED", actorType: "OWNER", actorHash, payload: { jobId: job.id, buildLabel, targetOrigin, checkCount: checks.length, customTarget } });
 
     const payload = JSON.stringify({ jobId: job.id });
     const signed = await signRunnerRequest(payload, secret);
@@ -119,6 +159,7 @@ export async function POST(request: Request) {
       await database.from("verification_jobs_v2").update({ status: "FAILED", last_error: `Dispatch returned ${dispatched.status}`, completed_at: new Date().toISOString() }).eq("id", job.id);
       await database.from("transaction_records").update({ status: "READY" }).eq("id", durableRecordId);
       await appendAuditEvent({ recordId: durableRecordId, eventType: "VERIFICATION_DISPATCH_FAILED", actorType: "SYSTEM", payload: { jobId: job.id, status: dispatched.status } });
+      await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "RUNNER_DISPATCH_FAILED", recordId: durableRecordId, details: { jobId: job.id, status: dispatched.status } });
       return NextResponse.json({ error: "The verification runner did not accept the job. Please retry." }, { status: 502, headers: noStoreJsonHeaders() });
     }
 

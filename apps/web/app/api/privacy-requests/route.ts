@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders, publicRecordId, requestActorHash } from "@/lib/recordkeeping";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   requestType: z.enum(["ACCESS", "CORRECTION", "DELETION", "EXPORT", "OTHER"]),
@@ -10,6 +11,8 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const quota = await consumeRateLimit(request, "privacy-request-day", 5, 86_400);
+  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid business email and request type." }, { status: 422, headers: noStoreJsonHeaders() });
   try {
@@ -22,4 +25,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "The privacy request could not be recorded." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }
-

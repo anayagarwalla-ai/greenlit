@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import type { Route } from "next";
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -32,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { VerificationSetup, type CustomRunConfiguration } from "@/components/verification-setup";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
 import { demoCriteria, demoMilestone, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
@@ -92,6 +94,7 @@ const checkLabels: Record<CheckType, string> = {
   manual: "Human review",
 };
 const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
+const geminiPaidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
 
 function fixtureCompatible(source: string) {
   return demoCriteria.every((item) => isGroundedQuote(source, item.source));
@@ -180,6 +183,8 @@ export function MilestoneStudio() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewUrl, setReviewUrl] = useState("");
   const [reviewPacketId, setReviewPacketId] = useState("");
+  const [sessionEmail, setSessionEmail] = useState("");
+  const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const currentStep = phaseOrder[phase];
@@ -195,6 +200,10 @@ export function MilestoneStudio() {
   }, [toast]);
 
   useEffect(() => {
+    void fetch("/api/account/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => setSessionEmail(payload.user?.email ?? ""))
+      .catch(() => undefined);
     const syncApproval = () => {
       try {
         const stored = window.localStorage.getItem("milestoneproof-approved-url") ?? "";
@@ -241,6 +250,7 @@ export function MilestoneStudio() {
     setRunError("");
     setReviewUrl("");
     setReviewPacketId("");
+    setCustomRun(null);
     try {
       window.localStorage.removeItem("milestoneproof-approved-url");
       window.localStorage.removeItem("milestoneproof-demo-decision");
@@ -267,6 +277,7 @@ export function MilestoneStudio() {
     setRunError("");
     setReviewUrl("");
     setReviewPacketId("");
+    setCustomRun(null);
     try {
       window.localStorage.removeItem("milestoneproof-approved-url");
       window.localStorage.removeItem("milestoneproof-demo-decision");
@@ -343,7 +354,7 @@ export function MilestoneStudio() {
     }
   };
 
-  const startRun = async (second = false) => {
+  const startRun = async (second = false, configuration?: CustomRunConfiguration) => {
     if (sourceMode === "demo") setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
     runController.current?.abort("replaced-run");
     const controller = new AbortController();
@@ -352,7 +363,8 @@ export function MilestoneStudio() {
     setPhase(second ? "running2" : "running1");
     const frozenCriteria = sourceMode === "demo"
       ? demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source }))
-      : criteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.sourceQuote }));
+      : criteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.sourceQuote, supported: item.supported, checkType: item.checkType }));
+    const activeCustomRun = configuration ?? customRun;
     try {
       if (sourceMode === "demo") {
         await new Promise((resolve) => window.setTimeout(resolve, 650));
@@ -385,6 +397,8 @@ export function MilestoneStudio() {
       }
       const amountMinor = Math.round(Number(business.amountDollars) * 100);
       if (!Number.isFinite(amountMinor) || amountMinor < 0) throw new Error("Enter a valid milestone value.");
+      if (!sessionEmail) throw new Error("Sign in before creating a retained verification run.");
+      if (!canRunImportedFixture && !activeCustomRun) throw new Error("Verify the staging origin and map the browser checks before running evidence.");
       const sourceSha256 = await browserSha256(sourceText);
       const response = await fetch("/api/runs", {
         method: "POST",
@@ -405,6 +419,7 @@ export function MilestoneStudio() {
           criteria: frozenCriteria,
           ownerTermsAccepted: true,
           noticeVersion: RECORD_NOTICE_VERSION,
+          ...(activeCustomRun ?? {}),
         }),
       });
       const created = await response.json();
@@ -429,8 +444,10 @@ export function MilestoneStudio() {
       if (!controller.signal.aborted) throw new Error("Verification is taking longer than expected. Retry the run; no approval was created.");
     } catch (error) {
       if (controller.signal.aborted) return;
-      setRunError(friendlyRunError(error));
-      setPhase(second && latestRun ? "run1" : "criteria");
+      const friendly = friendlyRunError(error);
+      setRunError(friendly);
+      if (/origin verification expired|verify it again/i.test(friendly)) setCustomRun((current) => current ? { ...current, originReceipt: "" } : current);
+      setPhase(sourceMode === "live" && activeCustomRun ? "handoff" : second && latestRun ? "run1" : "criteria");
     } finally {
       if (runController.current === controller) runController.current = null;
     }
@@ -495,8 +512,9 @@ export function MilestoneStudio() {
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
+          <Link className="app-account-link" href={(sessionEmail ? "/dashboard" : "/login") as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
-          <span className="avatar" aria-label="Northstar Studio">NS</span>
+          <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
         </div>
       </header>
 
@@ -518,7 +536,7 @@ export function MilestoneStudio() {
           <div className="side-facts">
             <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
             <div><span>Source</span><strong>{sourceText ? "Hashed; not persisted by app" : "Not loaded"}</strong></div>
-            <div><span>Paid services</span><strong>None</strong></div>
+            <div><span>Paid services</span><strong>{geminiPaidService ? "Gemini API" : "None"}</strong></div>
           </div>
         </aside>
 
@@ -558,6 +576,7 @@ export function MilestoneStudio() {
               analyzing={phase === "analyzing"}
               onAnalyze={analyze}
               onDemo={launchDemo}
+              signedInEmail={sessionEmail}
             />
           )}
           {phase === "criteria" && sourceMode === "demo" && (
@@ -577,11 +596,11 @@ export function MilestoneStudio() {
               onContinue={continueFromCriteria}
             />
           )}
-          {phase === "handoff" && <VerificationHandoff criteria={criteria} sourceName={sourceName} onBack={() => setPhase("criteria")} onDemo={launchDemo} />}
+          {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
-          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => void startRun(true)} />}
+          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} demo={sourceMode === "demo"} />}
         </section>
       </div>
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
@@ -589,7 +608,7 @@ export function MilestoneStudio() {
   );
 }
 
-function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo }: {
+function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo, signedInEmail }: {
   sourceText: string;
   setSourceText: (value: string) => void;
   selectedFile: File | null;
@@ -606,6 +625,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   analyzing: boolean;
   onAnalyze: () => void;
   onDemo: () => void;
+  signedInEmail: string;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -628,7 +648,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" href={"/login?next=/workspace" as Route}><LockKeyhole size={15} /> Sign in to analyze</Link>}
             <span>or</span>
             <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
           </div>
@@ -661,11 +681,11 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         </label>
         <label className="attestation">
           <input type="checkbox" checked={aiDisclosureAccepted} disabled={analyzing} onChange={(event) => setAiDisclosureAccepted(event.target.checked)} />
-          <span><strong>I accept the Gemini unpaid-tier data notice.</strong> Google may use submitted content and responses to improve its products, and human reviewers may process it. <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Provider terms</a></span>
+          <span>{geminiPaidService ? <><strong>I acknowledge Gemini processing under the paid-service terms.</strong> Google states paid-service prompts and responses are not used to improve its products. I still will not submit secrets, regulated data, or material I am not authorized to process.</> : <><strong>I accept the Gemini unpaid-tier data notice.</strong> Google may use submitted content and responses to improve its products, and human reviewers may process it.</>} <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Provider terms</a></span>
         </label>
         <label className="attestation">
           <input type="checkbox" checked={adultBusinessUseAttested} disabled={analyzing} onChange={(event) => setAdultBusinessUseAttested(event.target.checked)} />
-          <span><strong>I am 18+, acting for a business, and accept the beta terms.</strong> I agree to the <Link href="/terms" target="_blank">Terms</Link>, <Link href="/privacy" target="_blank">Privacy Notice</Link>, and <Link href="/records" target="_blank">recordkeeping notice</Link>. The unpaid Gemini flow is a U.S.-only beta; restricted regions use the local fallback.</span>
+          <span><strong>I am 18+, acting for a business, and accept the beta terms.</strong> I agree to the <Link href="/terms" target="_blank">Terms</Link>, <Link href="/privacy" target="_blank">Privacy Notice</Link>, and <Link href="/records" target="_blank">recordkeeping notice</Link>. {!geminiPaidService && "The unpaid Gemini flow is a U.S.-only beta; restricted regions use the local fallback."}</span>
         </label>
 
       </section>
@@ -813,24 +833,6 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   );
 }
 
-function VerificationHandoff({ criteria, sourceName, onBack, onDemo }: { criteria: AnalysisCriterion[]; sourceName: string; onBack: () => void; onDemo: () => void }) {
-  const automated = criteria.filter((item) => item.supported && item.checkType !== "manual").length;
-  return (
-    <div className="handoff-grid">
-      <section className="panel handoff-card">
-        <span className="handoff-mark"><ShieldCheck size={28} /></span>
-        <div className="intake-kicker">Scope frozen · source-backed</div>
-        <h2>Your acceptance contract is ready.</h2>
-        <p>{criteria.length} confirmed promises from <strong>{sourceName}</strong> are ready to map to a client-owned staging target.</p>
-        <div className="handoff-stats"><div><strong>{criteria.length}</strong><span>confirmed</span></div><div><strong>{automated}</strong><span>safe to automate</span></div><div><strong>{criteria.length - automated}</strong><span>human review</span></div></div>
-        <div className="boundary-callout"><LockKeyhole size={16} /><div><strong>No pretend verification.</strong><p>A custom SOW needs a verified staging origin and typed check mappings before evidence can be claimed. The hackathon demo includes a safe fixture so you can see that complete workflow now.</p></div></div>
-        <div className="handoff-actions"><button className="button button--lime" onClick={onDemo}>Open guided verification demo <Play size={15} /></button><button className="button button--outline" onClick={onBack}>Back to criteria</button></div>
-      </section>
-      <aside className="panel handoff-checklist"><h3>Production connection checklist</h3><div><CheckCircle2 size={15} /><span><strong>1. Verify origin ownership</strong>Serve MilestoneProof’s one-time token from the staging hostname.</span></div><div><CircleDot size={15} /><span><strong>2. Map typed checks</strong>Choose accessible labels, same-origin paths, and explicit assertions.</span></div><div><CircleDot size={15} /><span><strong>3. Run in isolation</strong>The Cloudflare runner captures timestamped, hashed evidence.</span></div></aside>
-    </div>
-  );
-}
-
 function RunLoading({ second, seeded }: { second: boolean; seeded: boolean }) {
   return (
     <section className="panel loading-panel" aria-live="polite">
@@ -844,7 +846,7 @@ function RunLoading({ second, seeded }: { second: boolean; seeded: boolean }) {
   );
 }
 
-function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false }: { run: RunResponse; criteria: Array<{ id: string; title: string }>; onRerun?: () => void; onShare?: () => void; shareBusy?: boolean }) {
+function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false }: { run: RunResponse; criteria: Array<{ id: string; title: string; supported?: boolean; checkType?: CheckType }>; onRerun?: () => void; onShare?: () => void; shareBusy?: boolean }) {
   const isPass = run.outcome === "READY_FOR_REVIEW";
   const passed = run.results.filter((result) => result.status === "PASS").length;
   const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
@@ -871,8 +873,9 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
             <div className="panel-header"><div><h3>{run.seededDemo ? "Sample acceptance outcomes" : "Acceptance evidence"}</h3><p>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
             {criteria.map((item) => {
               const result = resultByCriterion[item.id];
+              const manual = !result && (item.supported === false || item.checkType === "manual");
               const resultPassed = result?.status === "PASS";
-              return <div className={`result-row ${!resultPassed ? "is-fail" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>Expected: {result?.expected ?? "Recorded check"} · {formatDuration(result?.durationMs ?? 0)}</span></div><span className="result-observed">{result?.observed ?? "No result returned"}</span><span className={`result-icon ${!resultPassed ? "is-fail" : ""}`}>{resultPassed ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}</span></div>;
+              return <div className={`result-row ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>{manual ? "Expected: client judgment on the confirmed promise" : `Expected: ${result?.expected ?? "Recorded check"} · ${formatDuration(result?.durationMs ?? 0)}`}</span></div><span className="result-observed">{manual ? "Reserved for client review" : result?.observed ?? "No result returned"}</span><span className={`result-icon ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`}>{manual ? <PencilLine size={13} /> : resultPassed ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}</span></div>;
             })}
           </div>
         </section>
@@ -891,7 +894,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
       <div className="action-banner">
         <div><h3>{run.seededDemo ? isPass ? "Continue the sample client journey." : "A polished UI can hide a broken handoff." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only sample review that creates no transaction record." : "Show the fixed rc2 sample against the same frozen promises." : isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
-          {!isPass && <a className="button button--outline" href="/fixture/rc1" target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
+          {!isPass && <a className="button button--outline" href={run.buildUrl} target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
           <button className="button button--lime" disabled={shareBusy} onClick={isPass ? onShare : onRerun}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
         </div>
       </div>

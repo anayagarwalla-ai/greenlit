@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isGroundedQuote, normalizeSourceText } from "@/lib/analysis";
 import { buildFallbackCriteria } from "@/lib/fallback-analysis";
+import { getOptionalUser } from "@/lib/supabase-server";
+import { betaAccessAllowed } from "@/lib/beta-access";
+import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@/lib/rate-limit";
+import { logOperationalEvent } from "@/lib/operations";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
@@ -159,6 +163,14 @@ function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_con
 
 export async function POST(request: Request) {
   const startedAt = performance.now();
+  const user = await getOptionalUser();
+  if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
+  if (!betaAccessAllowed(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
+  const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id);
+  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
+  const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "milestoneproof-global-analysis-capacity");
+  if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
   let input: AnalysisInput;
   try {
     input = await readInput(request);
@@ -171,7 +183,8 @@ export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return fallbackResponse(input, "not_configured", startedAt);
   const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
-  if (country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt);
+  const paidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt);
 
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
@@ -245,6 +258,7 @@ ${input.text}`,
     });
   } catch (error) {
     console.error("Gemini analysis failed", error instanceof Error ? error.message : "unknown error");
+    await logOperationalEvent({ severity: "WARN", service: "web", eventType: "GEMINI_ANALYSIS_FALLBACK", details: { model, reason: error instanceof Error ? error.message.slice(0, 300) : "unknown" } });
     return fallbackResponse(input, "unavailable", startedAt, providerStartedAt);
   }
 }

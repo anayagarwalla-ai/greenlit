@@ -18,7 +18,7 @@ export default function RecordsPage() {
           <li>The owner freezes source-grounded acceptance criteria.</li>
           <li>The service records the target build and queues typed checks.</li>
           <li>The isolated runner records results, timestamps, evidence hashes, and its manifest hash.</li>
-          <li>The service snapshots the passing run into a 72-hour, single-decision review packet.</li>
+          <li>The service snapshots the passing run into a single-decision review packet that expires in 72 hours by default and can be revoked or extended by the agency within a 14-day hard limit.</li>
           <li>The reviewer records approval or requested changes with explicit intent and electronic-record consent.</li>
           <li>The final receipt binds the snapshot, decision, and audit-chain hash.</li>
         </ol>
@@ -30,7 +30,7 @@ export default function RecordsPage() {
         <p>The client record remains viewable in a modern browser and can be printed or saved as PDF. Electronic-record laws can be fact-specific; this design supports accuracy, later access, and reproduction but does not guarantee that a particular record satisfies every industry or transaction-specific requirement.</p>
 
         <h2>Retention</h2>
-        <p>Approval and audit records default to four years; evidence screenshots default to 90 days; review tokens expire within 72 hours. A legal hold can suspend deletion for a specific dispute. Customers should obtain counsel before changing retention for regulated industries or contracts governed by another jurisdiction.</p>
+        <p>Approval and audit records default to four years; evidence screenshots default to 90 days; review tokens expire within 72 hours unless the agency extends them, with a 14-day hard limit. A legal hold can suspend deletion for a specific dispute. Customers should obtain counsel before changing retention for regulated industries or contracts governed by another jurisdiction.</p>
 
         <h2>Important boundary</h2>
         <p>MilestoneProof records milestone approval. It does not replace a formal signature platform, notarization, an invoice, accounting or tax records, or legal advice. Keep the exported approval record alongside the governing contract, invoice, proof of payment, and general-ledger entry for the period required by your tax adviser, contract, industry, and jurisdiction.</p>

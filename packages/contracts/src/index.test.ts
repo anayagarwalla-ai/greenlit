@@ -33,6 +33,16 @@ describe("safe CheckSpec contract", () => {
     expect(isSafeRelativePath("/contact?source=proof")).toBe(true);
     expect(isSafeRelativePath("//attacker.example/x")).toBe(false);
     expect(isSafeRelativePath("https://attacker.example/x")).toBe(false);
+    expect(() => checkSpecSchema.parse({
+      id: "check-2",
+      criterionId: "AC-02",
+      type: "link_destination",
+      path: "//attacker.example/x",
+      sourceQuote: "The link opens contact.",
+      confirmedByHuman: true,
+      elementRef: "link:Contact",
+      expectedPath: "/contact",
+    })).toThrow();
   });
 
   it("rejects a false mutation acknowledgement on an accessibility precondition", () => {

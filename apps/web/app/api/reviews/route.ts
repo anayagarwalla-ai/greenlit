@@ -1,8 +1,9 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { appendAuditEvent, canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, REVIEW_EXPIRY_HOURS, sha256 } from "@/lib/recordkeeping";
+import { getOwnerIdentity } from "@/lib/owner-auth";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 const schema = z.object({ recordId: z.string().uuid(), runId: z.string().uuid() });
 
@@ -11,11 +12,14 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: "A completed record and run are required." }, { status: 422, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();
-    const ownerSession = (await cookies()).get("mp_owner")?.value;
-    if (!ownerSession) return NextResponse.json({ error: "The milestone owner session has expired." }, { status: 401, headers: noStoreJsonHeaders() });
-    const { data: record, error: recordError } = await database.from("transaction_records").select("*").eq("id", parsed.data.recordId).eq("owner_token_hash", sha256(ownerSession)).single();
+    const owner = await getOwnerIdentity();
+    if (!owner.userId && !owner.ownerTokenHash) return NextResponse.json({ error: "Sign in to create a client review." }, { status: 401, headers: noStoreJsonHeaders() });
+    const quota = await consumeRateLimit(request, "review-packet-day", 20, 86_400, owner.userId ?? owner.ownerTokenHash);
+    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+    const { data: record, error: recordError } = await database.from("transaction_records").select("*").eq("id", parsed.data.recordId).single();
+    const authorized = record && (record.owner_user_id === owner.userId || record.owner_token_hash === owner.ownerTokenHash);
     const { data: run, error: runError } = await database.from("verification_jobs_v2").select("*").eq("id", parsed.data.runId).eq("record_id", parsed.data.recordId).single();
-    if (recordError || runError || !record || !run) return NextResponse.json({ error: "The passing verification record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
+    if (recordError || runError || !authorized || !run) return NextResponse.json({ error: "The passing verification record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
     const results: unknown[] = Array.isArray(run.results) ? run.results : [];
     if (run.status !== "COMPLETED" || results.length === 0 || results.some((result) => (result as { status?: string }).status !== "PASS")) return NextResponse.json({ error: "Only a completed passing run can be sent for review." }, { status: 409, headers: noStoreJsonHeaders() });
 
@@ -40,6 +44,7 @@ export async function POST(request: Request) {
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));
+    await database.from("review_packets_v2").update({ revoked_at: new Date().toISOString() }).eq("record_id", record.id).is("decision", null).is("revoked_at", null);
     const { error } = await database.from("review_packets_v2").insert({ record_id: record.id, run_id: run.id, public_id: packetPublicId, snapshot, snapshot_sha256: snapshotSha256, bearer_token_hash: sha256(token), expires_at: expiresAt });
     if (error) throw new Error(`Review packet could not be recorded: ${error.message}`);
     await database.from("transaction_records").update({ status: "IN_REVIEW" }).eq("id", record.id);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { LegalFooter } from "@/components/legal-footer";
+import { FeedbackWidget } from "@/components/feedback-widget";
 
 export const metadata: Metadata = {
   title: { default: "MilestoneProof — Turn your SOW into proof", template: "%s · MilestoneProof" },
@@ -16,9 +17,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body>{children}<LegalFooter /></body>
+    <html lang="en" data-scroll-behavior="smooth">
+      <body>{children}<LegalFooter /><FeedbackWidget /></body>
     </html>
   );
 }
-

@@ -12,7 +12,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 ## 0:18–0:52 — Real Gemini import
 
-**Screen:** Click **Use the synthetic sample**, confirm the non-confidential, Gemini unpaid-tier, and 18+/business notices, then **Generate acceptance criteria**. When the result appears, scroll just enough to show the source and criteria together.
+**Screen:** Before recording, sign in with the pre-approved demo account. Click **Use the synthetic sample**, confirm the non-confidential, Gemini unpaid-tier, and 18+/business notices, then **Generate acceptance criteria**. When the result appears, scroll just enough to show the source and criteria together.
 
 **Narration:**
 
@@ -61,6 +61,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 ## Recording safety net
 
 - Use only the included synthetic SOW.
+- Add the recording account to `BETA_ALLOWED_EMAILS`, complete its magic-link sign-in before recording, and close the email tab so no personal inbox details appear on camera.
 - If Gemini or free Cloudflare browser capacity is unavailable during recording, click **Launch the reliable guided demo** and say, “This clearly labeled walkthrough uses seeded outcomes and creates no evidence record; the real Gemini import and browser architecture are shown separately.” Do not narrate its results as a live browser run.
 - Do one dry run through the approval dialog before recording so the browser has no permission prompts.
 - Avoid opening Vercel, Supabase, or Cloudflare dashboards on camera; they may expose project metadata.

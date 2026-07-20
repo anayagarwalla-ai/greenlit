@@ -10,6 +10,9 @@ The repository contains a complete judge-first vertical slice for the Blueprint 
 - six source-grounded, typed acceptance checks;
 - two real staging fixtures, including a deceptive UI-success/API-failure bug;
 - a client review and approval flow;
+- durable magic-link agency accounts, a cross-device dashboard, revocable review links, and in-app client-decision notifications;
+- custom public-HTTPS staging verification with account-bound origin proofs and explicit typed-check mappings;
+- beta feedback, operator triage, invite allowlists, abuse limits, and global free-tier capacity controls;
 - an accessible approval record that prints cleanly to PDF;
 - a Gemini structured-output adapter with exact-quote grounding;
 - a Cloudflare Queue + Browser Run worker;
@@ -24,7 +27,7 @@ The repository contains a complete judge-first vertical slice for the Blueprint 
 4. Verify the fixed `launch-rc2` build; all six checks pass.
 5. Create the client review, approve as Mara Chen, and open the invoice-ready record.
 
-If Gemini or free browser capacity is unavailable, click **Launch the reliable guided demo**. It uses clearly labeled seeded outcomes and creates no browser-evidence or transaction record. Custom imported SOWs stop at the staging-configuration handoff until their own verified origin and typed checks are connected; they never inherit the synthetic fixture’s results.
+If Gemini or free browser capacity is unavailable, click **Launch the reliable guided demo**. It uses clearly labeled seeded outcomes and creates no browser-evidence or transaction record. Custom imported SOWs require an agency account, a one-time ownership file at `/.well-known/milestoneproof.txt`, and a typed mapping for every automated promise; manual promises remain explicitly client-reviewed.
 
 ### Hosted build
 
@@ -55,13 +58,15 @@ pnpm build
 ## Deployment
 
 - **Web/API:** import this repository into Vercel with the repository root as the project root. `vercel.json` contains the monorepo build settings.
-- **Database/storage:** create a Supabase project and apply both migrations in `supabase/migrations/` in filename order. The current public workflow uses server-only service-role access; anonymous database access is not required.
+- **Database/storage:** create a Supabase project and apply all migrations in `supabase/migrations/` in filename order. Configure Supabase Auth Site URL and redirect URLs for `/auth/callback`. Application data remains server-only; authenticated browser sessions are used only for account identity.
 - **Runner:** create the queue with `wrangler queues create milestoneproof-jobs`, set `RUNNER_HMAC_SECRET`, then run `pnpm runner:deploy`.
 - **Retention:** set `CRON_SECRET`; the daily Vercel cron purges expired evidence, privacy requests, and transaction records unless a legal hold applies.
 - **AI:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in Vercel. The default is the latency-optimized `gemini-3.1-flash-lite`; calls have an 8-second deadline and fall back to a local, source-grounded draft when Gemini is unavailable. Free-tier use requires the non-confidential-data, provider-use, and 18+/business/terms acknowledgments.
+- **Closed beta:** set `BETA_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`. Daily defaults are 20 retained browser runs and 100 analyses globally; tune them with `BETA_DAILY_RUN_LIMIT` and `BETA_DAILY_ANALYSIS_LIMIT` without enabling paid services.
+- **Notifications:** every client decision appears in-app. Optionally set a webhook URL/secret for immediate external delivery; failed deliveries remain in the outbox and are retried by daily maintenance.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough. Beta operators should also use [docs/BETA_OPERATIONS.md](docs/BETA_OPERATIONS.md) and [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md).
 
 ## Data policy
 
-The free-tier build is for synthetic, demo, or explicitly non-confidential material only. Uploaded documents are extracted in memory and are not persisted by the analysis route; Google may still process eligible free-tier Gemini inputs under its terms. Screenshot evidence defaults to 90 days, approval/audit records to four years, and review links to 72 hours, with legal-hold support and daily retention cleanup. MilestoneProof is not a legal e-signature, payment guarantee, invoice, or WCAG certification. See [docs/LEGAL_READINESS.md](docs/LEGAL_READINESS.md).
+The free-tier build is for synthetic, redacted, or explicitly non-confidential material only. Uploaded documents are extracted in memory and are not persisted by the analysis route; Google may still process eligible unpaid-tier Gemini inputs under its terms. Screenshot evidence defaults to 90 days, approval/audit records to four years, and review links to 72 hours (extendable within a 14-day hard limit), with legal-hold support and daily retention cleanup. MilestoneProof is not a legal e-signature, payment guarantee, invoice, or WCAG certification. See [docs/LEGAL_READINESS.md](docs/LEGAL_READINESS.md).

@@ -6,10 +6,12 @@ export const viewportSchema = z.object({
   label: z.string().min(1).max(32),
 });
 
+const safeRelativePathSchema = z.string().max(500).refine(isSafeRelativePath, "Path must remain on the verified origin");
+
 const baseCheck = z.object({
   id: z.string().min(1),
   criterionId: z.string().min(1),
-  path: z.string().startsWith("/").max(500),
+  path: safeRelativePathSchema,
   sourceQuote: z.string().min(3).max(1000),
   confirmedByHuman: z.literal(true),
 });
@@ -25,7 +27,7 @@ export const elementStateCheckSchema = baseCheck.extend({
 export const linkDestinationCheckSchema = baseCheck.extend({
   type: z.literal("link_destination"),
   elementRef: z.string().min(1).max(160),
-  expectedPath: z.string().startsWith("/").max(500),
+  expectedPath: safeRelativePathSchema,
 });
 
 export const formSubmissionCheckSchema = baseCheck.extend({
@@ -33,8 +35,8 @@ export const formSubmissionCheckSchema = baseCheck.extend({
   fields: z.array(z.object({ label: z.string().min(1), value: z.string().max(500) })).min(1).max(20),
   submitRef: z.string().min(1).max(160),
   successText: z.string().min(1).max(200).optional(),
-  successPath: z.string().startsWith("/").max(500).optional(),
-  expectedPostPath: z.string().startsWith("/").max(500).optional(),
+  successPath: safeRelativePathSchema.optional(),
+  expectedPostPath: safeRelativePathSchema.optional(),
   expectedStatus: z.number().int().min(200).max(399).optional(),
   ownerAcknowledgedMutation: z.literal(true),
 });

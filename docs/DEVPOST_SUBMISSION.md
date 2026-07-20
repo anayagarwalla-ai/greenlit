@@ -32,7 +32,7 @@ MilestoneProof gives an agency one guided flow:
 
 The included demo deliberately contains a deceptive bug: the contact form shows “success” while its lead request returns HTTP 500. MilestoneProof catches the contradiction, then proves the fixed build against the same frozen scope.
 
-For arbitrary imported SOWs, MilestoneProof stops after scope confirmation until a client-owned staging origin and typed checks are configured. It never presents fixture results as proof of a customer’s real project. A clearly labeled, non-retained synthetic walkthrough remains available if free runner capacity is unavailable.
+For arbitrary imported SOWs, the agency proves ownership by serving a one-time token from the staging hostname, maps accessible labels and same-origin paths into typed checks, and explicitly authorizes any test-form mutation. It never presents fixture results as proof of a customer’s real project. A clearly labeled, non-retained synthetic walkthrough remains available if free runner capacity is unavailable.
 
 ## How we built it
 
@@ -46,7 +46,7 @@ Security constraints are part of the product design: staging origins require own
 
 The hardest design problem was preserving the convenience of AI without letting AI become the authority. A polished paraphrase is dangerous if it changes what a client actually signed, so we made exact source grounding and human confirmation hard gates. PDF extraction also creates inconsistent whitespace, which required normalization that tolerates line wrapping without accepting invented words.
 
-The second challenge was producing a memorable verification demo without overstating what had been proven. We built two controlled staging fixtures: one returns a false visual success with an HTTP 500, and the other fixes the endpoint. Custom SOWs stop at an honest staging-setup handoff; only the matching synthetic scope can run those fixtures.
+The second challenge was producing a memorable verification demo without overstating what had been proven. We built two controlled staging fixtures: one returns a false visual success with an HTTP 500, and the other fixes the endpoint. Custom SOWs must prove staging ownership and supply their own human-confirmed mapping; only the matching synthetic scope can run the included fixtures.
 
 Finally, we treated the runner as an untrusted boundary. Queue messages carry only a job ID, leases and callbacks are HMAC-signed, execution is constrained by shared schemas, and the worker records evidence without logging document text or form secrets.
 
@@ -56,6 +56,9 @@ Finally, we treated the runner as an untrusted boundary. Queue messages carry on
 - Editable acceptance criteria with independent exact-quote validation and confirmation invalidation after edits.
 - A complete, polished agency-to-client workflow rather than a disconnected AI demo.
 - A safe typed-check model and a signed queue/runner architecture.
+- Account-bound staging-origin verification and a polished custom check-mapping flow.
+- Durable agency accounts, cross-device project history, revocable review links, and remote decision visibility.
+- Invite, rate, capacity, feedback, retention, and operator-triage controls designed for a bounded closed beta.
 - A failure story judges can see immediately: visible success, real HTTP failure, then proof of the fixed build.
 - A responsive, keyboard-usable interface, client review, approval dialog, and printable receipt.
 - A live production deployment plus an honest deterministic walkthrough that depends on neither AI nor browser capacity and never claims to be retained evidence.
@@ -68,8 +71,7 @@ AI is most trustworthy when its role is narrow, visible, and reversible. Structu
 
 ## What is next
 
-- A guided check-mapping UI for arbitrary verified staging origins.
-- Agency authentication, project collaboration, and role-based client access.
+- Team collaboration and role-based agency access beyond the current single-owner account.
 - Framework adapters for Playwright/Cypress suites that import evidence without importing arbitrary execution.
 - Change-order detection when a new SOW revision alters frozen acceptance criteria.
 - Agency metrics for approval cycle time, revision causes, and value waiting for approval.

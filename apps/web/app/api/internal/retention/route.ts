@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { appendAuditEvent, noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { deliverPendingNotifications } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -65,7 +66,17 @@ export async function GET(request: Request) {
       if (error) throw new Error(error.message);
     }
 
-    return NextResponse.json({ ok: true, deletedEvidence: evidenceIds.length, purgedRecords, deletedPrivacyRequests: privacyIds.length, processedAt: now }, { headers: noStoreJsonHeaders() });
+    const { error: rateWindowError, count: deletedRateWindows } = await database.from("api_rate_windows").delete({ count: "exact" }).lte("expires_at", now);
+    if (rateWindowError) throw new Error(rateWindowError.message);
+    const { error: feedbackError, count: deletedFeedback } = await database.from("beta_feedback").delete({ count: "exact" }).lte("retention_until", now);
+    if (feedbackError) throw new Error(feedbackError.message);
+    const { error: notificationError, count: deletedNotifications } = await database.from("operator_notifications").delete({ count: "exact" }).lte("retention_until", now);
+    if (notificationError) throw new Error(notificationError.message);
+    const { error: eventError, count: deletedOperationalEvents } = await database.from("operational_events").delete({ count: "exact" }).lte("retention_until", now);
+    if (eventError) throw new Error(eventError.message);
+    const notificationDelivery = await deliverPendingNotifications(20);
+
+    return NextResponse.json({ ok: true, deletedEvidence: evidenceIds.length, purgedRecords, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, notificationDelivery, processedAt: now }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Retention maintenance failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }
