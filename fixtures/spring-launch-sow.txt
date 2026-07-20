@@ -1,0 +1,15 @@
+STATEMENT OF WORK — SPRING LAUNCH MILESTONE
+
+Northstar Studio will deliver the Spring launch milestone for Acme Outdoors for $12,000 USD.
+
+Acceptance criteria
+
+1. The homepage hero headline and primary “Plan my trip” call-to-action must be visible on load.
+2. The primary call-to-action must take visitors to the contact page.
+3. The services section must present three distinct trip-planning packages.
+4. Submitting the contact form must create a lead and show a success confirmation.
+5. Required-field errors must be programmatically associated with their fields.
+6. The mobile navigation must fit a 390px viewport without horizontal scrolling.
+
+This is synthetic demonstration content and contains no confidential customer information.
+

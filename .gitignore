@@ -1,0 +1,13 @@
+node_modules
+.next
+.turbo
+.pnpm-store
+dist
+.wrangler
+.vercel
+.env
+.env.local
+coverage
+*.log
+*.tsbuildinfo
+.DS_Store

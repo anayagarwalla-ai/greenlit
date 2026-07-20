@@ -1,0 +1,20 @@
+project_id = "milestoneproof"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+
+[db]
+port = 54322
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+enable_anonymous_sign_ins = true
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+

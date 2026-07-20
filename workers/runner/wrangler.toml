@@ -1,0 +1,25 @@
+name = "milestoneproof-runner"
+main = "src/index.ts"
+compatibility_date = "2026-07-19"
+compatibility_flags = ["nodejs_compat"]
+
+[browser]
+binding = "BROWSER"
+
+[[queues.producers]]
+binding = "JOB_QUEUE"
+queue = "milestoneproof-jobs"
+
+[[queues.consumers]]
+queue = "milestoneproof-jobs"
+max_batch_size = 1
+max_batch_timeout = 1
+max_concurrency = 1
+max_retries = 1
+
+[vars]
+WEB_APP_URL = "https://milestoneproof.app"
+
+# Secrets set with `wrangler secret put`:
+# RUNNER_HMAC_SECRET
+
