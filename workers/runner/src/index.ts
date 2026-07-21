@@ -106,9 +106,6 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
   const started = Date.now();
   const result = (status: CriterionResult["status"], expected: string, observed: string): CriterionResult => ({ criterionId: check.criterionId, status, expected, observed, durationMs: Date.now() - started, timestamp: new Date().toISOString() });
   try {
-    // Install Axe before navigation so Chromium evaluates it in the page's main
-    // world without depending on the target site's CSP or a late script tag.
-    if (check.type === "axe_scan") await page.addInitScript({ content: axe.source });
     const target = new URL(check.path, origin);
     target.searchParams.set("__mp_check", check.id);
     await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
@@ -159,6 +156,10 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       await (await resolveLocator(page, check.submitRef)).click();
       await page.waitForFunction(() => document.querySelectorAll("input[aria-describedby]").length > 0, undefined, { timeout: 3_000 });
     }
+    // Playwright accepts a source string here and evaluates it directly in the
+    // page's main world. This is more reliable in Browser Rendering than a
+    // script tag or init script, and does not depend on the target site's CSP.
+    await page.evaluate(axe.source);
     const axeReady = await page.evaluate(() => typeof (window as typeof window & { axe?: { run?: unknown } }).axe?.run === "function");
     if (!axeReady) throw new Error("Axe could not be initialized in the verified page.");
     const accessibility = await page.evaluate(async ({ tags, impacts }) => {
