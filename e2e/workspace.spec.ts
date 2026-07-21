@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { demoCriteria } from "../apps/web/lib/demo";
 
 const source = "The launch page must display a visible Get started button on the home page. The button must open the /contact page when activated. The page must not create horizontal overflow at 390 pixels wide.";
 
@@ -82,4 +83,37 @@ test("feedback distinguishes failure and success and allows another report", asy
   await expect(page.getByRole("heading", { name: "Feedback received." })).toBeVisible();
   await page.getByRole("button", { name: "Send another" }).click();
   await expect(page.getByLabel("What happened?")).toBeVisible();
+});
+
+test("a retained imported fixture reruns rc2 directly instead of opening custom-origin setup", async ({ page }) => {
+  const recordId = "5d683117-cdeb-402a-b2b1-0d8359b4580e";
+  const checkTypes = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"] as const;
+  const criteria = demoCriteria.map((criterion, index) => ({
+    id: criterion.id,
+    title: criterion.title,
+    sourceQuote: criterion.source,
+    checkType: checkTypes[index],
+  }));
+  const failedResults = criteria.map((criterion) => ({ criterionId: criterion.id, status: criterion.id === "AC-04" ? "FAIL" : "PASS", expected: "Expected", observed: "Observed", durationMs: 10, timestamp: "2026-07-20T20:00:00.000Z" }));
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "test-user", email: "agency@example.test" } }) }));
+  await page.route(`**/api/account/records/${recordId}`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    record: { id: recordId, public_id: "MP-TEST", mode: "IMPORTED_FIXTURE", status: "NEEDS_WORK", agency_name: "Northstar Studio", client_name: "Acme Outdoors", project_name: "Spring launch", milestone_title: "Spring launch", amount_minor: 1200050, currency: "USD", source_name: "Pasted SOW", confirmed_criteria: criteria, criteria_revision: 1 },
+    runs: [{ id: "old-run", status: "COMPLETED", target_origin: "http://127.0.0.1:3008", build_url: "http://127.0.0.1:3008/fixture/rc1", build_label: "launch-rc1", checks: [], results: failedResults, artifacts: [], browser_version: "test", runner_version: "test", manifest_sha256: "a".repeat(64), completed_at: "2026-07-20T20:00:00.000Z" }],
+    reviews: [],
+  }) }));
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/runs", async (route) => {
+    submitted = await route.request().postDataJSON();
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ runId: "new-run", recordId, status: "QUEUED" }) });
+  });
+  await page.route("**/api/runs/new-run", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runId: "new-run", recordId, status: "COMPLETED", outcome: "READY_FOR_REVIEW", buildUrl: "http://127.0.0.1:3008/fixture/rc2", buildLabel: "launch-rc2", results: criteria.map((criterion) => ({ criterionId: criterion.id, status: "PASS", expected: "Expected", observed: "Observed", durationMs: 10, timestamp: "2026-07-20T20:01:00.000Z" })), artifacts: [], browserVersion: "test", runnerVersion: "test", manifestSha256: "b".repeat(64), completedAt: "2026-07-20T20:01:00.000Z", record: { public_id: "MP-TEST", revision: 1, confirmed_criteria: criteria } }) }));
+
+  await page.goto(`/workspace?record=${recordId}`);
+  await expect(page.getByRole("heading", { name: "One automated check needs work." })).toBeVisible();
+  await page.getByRole("button", { name: "Verify fixed build" }).click();
+  await expect(page.getByRole("heading", { name: "Every promise has browser evidence." })).toBeVisible();
+  expect(submitted).toMatchObject({ recordId, version: "rc2" });
+  expect(submitted).not.toHaveProperty("targetUrl");
+  expect(submitted).not.toHaveProperty("checks");
+  expect(submitted).not.toHaveProperty("originReceipt");
 });

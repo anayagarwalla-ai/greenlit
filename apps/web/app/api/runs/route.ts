@@ -86,6 +86,18 @@ export async function POST(request: Request) {
       checks = body.checks;
       buildUrl = targetOrigin;
       buildLabel = body.buildLabel;
+    } else {
+      const criteriaById = new Map(body.criteria.map((criterion) => [criterion.id, criterion]));
+      const invalidFixtureCheck = checks.find((check) => {
+        const criterion = criteriaById.get(check.criterionId);
+        return !criterion
+          || criterion.sourceQuote !== check.sourceQuote
+          || criterion.checkType !== check.type
+          || criterion.supported === false;
+      });
+      if (invalidFixtureCheck || body.criteria.length !== checks.length) {
+        return NextResponse.json({ error: "The fixed sample can only verify its matching six source-backed criteria. Use custom-origin setup for other scopes." }, { status: 422, headers: noStoreJsonHeaders() });
+      }
     }
     const sourceHash = body.sourceSha256;
     const criteriaHash = sha256(canonicalJson(body.criteria));

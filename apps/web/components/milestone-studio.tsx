@@ -118,6 +118,7 @@ type WorkspaceDraft = {
   recordId: string | null;
   latestRun: RunResponse | null;
   customRun: CustomRunConfiguration | null;
+  retainedFixtureRecord?: boolean;
   reviewUrl: string;
   reviewPacketId: string;
 };
@@ -212,6 +213,7 @@ export function MilestoneStudio() {
   const [changeRequest, setChangeRequest] = useState("");
   const [sessionEmail, setSessionEmail] = useState("");
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
+  const [retainedFixtureRecord, setRetainedFixtureRecord] = useState(false);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const draftHydrated = useRef(false);
@@ -219,6 +221,7 @@ export function MilestoneStudio() {
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase, Boolean(sourceText.trim() || selectedFile));
   const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
+  const canUseImportedFixture = canRunImportedFixture || retainedFixtureRecord;
   const visibleCount = sourceMode === "demo" ? demoCriteria.length : criteria.length;
   const latestPassCount = latestRun?.results.filter((result) => result.status === "PASS").length ?? 0;
   const activeRunId = latestRun?.runId;
@@ -250,6 +253,7 @@ export function MilestoneStudio() {
         setRecordId(draft.recordId ?? null);
         setLatestRun(draft.latestRun ?? null);
         setCustomRun(draft.customRun ?? null);
+        setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
         setReviewUrl(draft.reviewUrl ?? "");
         setReviewPacketId(draft.reviewPacketId ?? "");
         if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
@@ -271,6 +275,8 @@ export function MilestoneStudio() {
         const latest = resumed.runs?.[0];
         const latestReview = resumed.reviews?.[0];
         setRecordId(record.id);
+        const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
+        setRetainedFixtureRecord(isImportedFixture);
         setBusiness({ agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
         setSourceName(record.source_name);
         setSourceText(restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
@@ -282,7 +288,8 @@ export function MilestoneStudio() {
           const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
           setLatestRun(run);
           const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
-          if (savedChecks.length) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
+          if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
+          else if (isImportedFixture) setCustomRun(null);
           if (["QUEUED", "LEASED", "RUNNING"].includes(latest.status)) setPhase("running1");
           else if (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW") { setPhase("run2"); setLastVerificationPhase("run2"); }
           else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
@@ -312,9 +319,9 @@ export function MilestoneStudio() {
 
   useEffect(() => {
     if (!draftHydrated.current || sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId };
+    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId };
     try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* Browser storage is an optional local recovery layer. */ }
-  }, [phase, sourceMode, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId]);
+  }, [phase, sourceMode, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId]);
 
   useEffect(() => {
     if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
@@ -347,7 +354,7 @@ export function MilestoneStudio() {
 
   const preserveDraft = () => {
     if (sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId };
+    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId };
     try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* optional */ }
   };
 
@@ -382,6 +389,7 @@ export function MilestoneStudio() {
     setReviewPacketId("");
     setChangeRequest("");
     setCustomRun(null);
+    setRetainedFixtureRecord(false);
     setBusiness({ agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
     try {
       window.localStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -419,6 +427,7 @@ export function MilestoneStudio() {
     setReviewUrl("");
     setReviewPacketId("");
     setCustomRun(null);
+    setRetainedFixtureRecord(false);
     try {
       window.localStorage.removeItem("milestoneproof-approved-url");
       window.localStorage.removeItem("milestoneproof-demo-decision");
@@ -512,7 +521,7 @@ export function MilestoneStudio() {
     }
   };
 
-  const startRun = async (second = false, configuration?: CustomRunConfiguration) => {
+  const startRun = async (second = false, configuration?: CustomRunConfiguration | null) => {
     if (sourceMode === "demo") setConfirmed(Object.fromEntries(demoCriteria.map((item) => [item.id, true])));
     runController.current?.abort("replaced-run");
     const controller = new AbortController();
@@ -522,7 +531,7 @@ export function MilestoneStudio() {
     const frozenCriteria = sourceMode === "demo"
       ? demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source }))
       : criteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.sourceQuote, supported: item.supported, checkType: item.checkType }));
-    const activeCustomRun = configuration ?? customRun;
+    const activeCustomRun = configuration === null ? null : configuration ?? customRun;
     try {
       if (sourceMode === "demo") {
         await new Promise((resolve) => window.setTimeout(resolve, 650));
@@ -556,7 +565,7 @@ export function MilestoneStudio() {
       const amountMinor = Math.round(Number(business.amountDollars) * 100);
       if (!Number.isFinite(amountMinor) || amountMinor < 0) throw new Error("Enter a valid milestone value.");
       if (!sessionEmail) throw new Error("Sign in before creating a retained verification run.");
-      if (!canRunImportedFixture && !activeCustomRun) throw new Error("Verify the staging origin and map the browser checks before running evidence.");
+      if (!canUseImportedFixture && !activeCustomRun) throw new Error("Verify the staging origin and map the browser checks before running evidence.");
       const sourceSha256 = await browserSha256(sourceText);
       const response = await fetch("/api/runs", {
         method: "POST",
@@ -583,6 +592,7 @@ export function MilestoneStudio() {
       const created = await response.json();
       if (!response.ok) throw new Error(created.error ?? "The verification run could not be created.");
       setRecordId(created.recordId);
+      setRetainedFixtureRecord(!activeCustomRun);
       setLatestRun({ runId: created.runId, recordId: created.recordId, status: created.status ?? "QUEUED", buildUrl: activeCustomRun?.targetUrl ?? window.location.origin, buildLabel: activeCustomRun?.buildLabel ?? `launch-${second ? "rc2" : "rc1"}`, results: [], artifacts: [] });
       const deadline = Date.now() + 12 * 60_000;
       while (!controller.signal.aborted && Date.now() < deadline) {
@@ -617,11 +627,11 @@ export function MilestoneStudio() {
   };
 
   const continueFromCriteria = () => {
-    if (sourceMode === "live" && !canRunImportedFixture) {
+    if (sourceMode === "live" && !canUseImportedFixture) {
       setLastVerificationPhase("handoff");
       setPhase("handoff");
     }
-    else startRun(false);
+    else startRun(false, sourceMode === "live" ? null : undefined);
   };
 
   const share = async () => {
@@ -763,13 +773,13 @@ export function MilestoneStudio() {
               setConfirmed={setConfirmed}
               model={model}
               notice={analysisNotice}
-              fixtureCompatible={canRunImportedFixture}
+              fixtureCompatible={canUseImportedFixture}
               onContinue={continueFromCriteria}
             />
           )}
           {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
-          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" || canRunImportedFixture ? void startRun(true) : setPhase("handoff")} />}
+          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} />}
           {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
