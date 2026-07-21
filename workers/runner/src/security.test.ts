@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUnsafeAddress, pathWithQueryAndHash } from "./security";
+import { addressMatchesFrozenSet, isUnsafeAddress, pathWithQueryAndHash } from "./security";
 
 describe("isUnsafeAddress", () => {
   it("blocks loopback, private, link-local, and metadata IPv4 ranges", () => {
@@ -39,5 +39,13 @@ describe("pathWithQueryAndHash", () => {
     const withQuery = pathWithQueryAndHash(new URL("https://example.test/contact?sent=1"));
     const withoutQuery = pathWithQueryAndHash(new URL("https://example.test/contact"));
     expect(withQuery).not.toBe(withoutQuery);
+  });
+});
+
+describe("addressMatchesFrozenSet", () => {
+  it("accepts only a safe address frozen when the job was queued", () => {
+    expect(addressMatchesFrozenSet("93.184.216.34", ["93.184.216.34", "2606:4700:4700::1111"])).toBe(true);
+    expect(addressMatchesFrozenSet("93.184.216.35", ["93.184.216.34"])).toBe(false);
+    expect(addressMatchesFrozenSet("127.0.0.1", ["127.0.0.1"])).toBe(false);
   });
 });

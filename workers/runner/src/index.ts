@@ -2,7 +2,7 @@ import { launch, type BrowserWorker } from "@cloudflare/playwright";
 import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@milestoneproof/contracts";
 import { z } from "zod";
 import axe from "axe-core";
-import { isUnsafeAddress, pathWithQueryAndHash } from "./security";
+import { addressMatchesFrozenSet, pathWithQueryAndHash } from "./security";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -30,6 +30,7 @@ const leaseSchema = z.object({
   targetOrigin: z.string().url(),
   checks: z.array(checkSpecSchema).min(1).max(40),
   buildLabel: z.string(),
+  originAddresses: z.array(z.string()).min(1),
 });
 
 function hex(bytes: ArrayBuffer): string {
@@ -204,7 +205,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
       const page = await context.newPage();
-      let rebindingDetected: string | null = null;
+      const addressValidations: Array<Promise<void>> = [];
       try {
         page.on("popup", (popup) => void popup.close());
         // Constrain every request the page makes — top-level navigation,
@@ -226,14 +227,15 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
         // moment any connection lands on a private/loopback/link-local or
         // otherwise reserved address, even if the pre-flight check passed.
         page.on("response", (response) => {
-          void response.serverAddr().then((address) => {
-            if (address?.ipAddress && isUnsafeAddress(address.ipAddress)) {
-              rebindingDetected = `Connection resolved to an unsafe address (${address.ipAddress}) after origin validation.`;
-            }
-          }).catch(() => undefined);
+          if (!/^https?:/i.test(response.url())) return;
+          addressValidations.push(response.serverAddr().then((address) => {
+            if (!address?.ipAddress) throw new Error(`The runner could not verify the connected address for ${new URL(response.url()).hostname}.`);
+            if (!addressMatchesFrozenSet(address.ipAddress, lease.originAddresses)) throw new Error(`Connection address ${address.ipAddress} does not match the job's frozen safe DNS set.`);
+          }));
         });
         const checkResult = await executeCheck(page, lease.targetOrigin, check);
-        if (rebindingDetected) throw new Error(rebindingDetected);
+        await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
+        await Promise.all(addressValidations);
         const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
         const evidence: EvidenceArtifact = { criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
         const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);

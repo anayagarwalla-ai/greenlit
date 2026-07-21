@@ -35,3 +35,12 @@ export function isUnsafeAddress(address: string): boolean {
 export function pathWithQueryAndHash(url: URL): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
+
+export function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+export function addressMatchesFrozenSet(address: string, frozenAddresses: string[]): boolean {
+  const normalized = normalizeAddress(address);
+  return !isUnsafeAddress(normalized) && frozenAddresses.map(normalizeAddress).includes(normalized);
+}

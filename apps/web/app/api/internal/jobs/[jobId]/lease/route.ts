@@ -18,8 +18,10 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const database = requireSupabaseAdmin();
     const { data: job, error } = await database.rpc("lease_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt }).single();
     if (error || !job) return NextResponse.json({ error: error?.message ?? "Job could not be leased." }, { status: error?.message?.includes("not found") ? 404 : 409, headers: noStoreJsonHeaders() });
-    const leased = job as { target_origin: string; checks: unknown; build_label: string; started_at: string };
-    return NextResponse.json({ jobId, targetOrigin: leased.target_origin, checks: leased.checks, buildLabel: leased.build_label, startedAt: leased.started_at }, { headers: noStoreJsonHeaders() });
+    const leased = job as { target_origin: string; checks: unknown; build_label: string; started_at: string; origin_addresses: unknown };
+    const originAddresses = Array.isArray(leased.origin_addresses) ? leased.origin_addresses.filter((item): item is string => typeof item === "string") : [];
+    if (originAddresses.length === 0) return NextResponse.json({ error: "The job has no frozen DNS addresses." }, { status: 409, headers: noStoreJsonHeaders() });
+    return NextResponse.json({ jobId, targetOrigin: leased.target_origin, checks: leased.checks, buildLabel: leased.build_label, startedAt: leased.started_at, originAddresses }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Lease failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }

@@ -1,0 +1,42 @@
+import { NextResponse } from "next/server";
+import { requireSupabaseAdmin } from "@/lib/database";
+import { adminAccessAllowed } from "@/lib/beta-access";
+import { getOptionalUser } from "@/lib/supabase-server";
+import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+
+export async function GET(_request: Request, context: { params: Promise<{ requestId: string }> }) {
+  const operator = await getOptionalUser();
+  if (!operator || !adminAccessAllowed(operator)) return NextResponse.json({ error: "Operator access required." }, { status: 403, headers: noStoreJsonHeaders() });
+  const { requestId } = await context.params;
+  try {
+    const database = requireSupabaseAdmin();
+    const { data: privacyRequest, error: requestError } = await database.from("privacy_requests_v2").select("id, public_id, request_type, email, details, status, assigned_to, identity_verified_at, response_summary, response_sent_at, created_at").eq("id", requestId).single();
+    if (requestError || !privacyRequest) return NextResponse.json({ error: "Privacy request not found." }, { status: 404, headers: noStoreJsonHeaders() });
+    if (!privacyRequest.identity_verified_at) return NextResponse.json({ error: "Verify the requester before exporting account data." }, { status: 409, headers: noStoreJsonHeaders() });
+    let ownerId = "";
+    for (let page = 1; page <= 5 && !ownerId; page += 1) {
+      const { data, error } = await database.auth.admin.listUsers({ page, perPage: 200 });
+      if (error) throw new Error(error.message);
+      ownerId = data.users.find((account) => account.email?.toLowerCase() === privacyRequest.email.toLowerCase())?.id ?? "";
+      if (data.users.length < 200) break;
+    }
+    const { data: records, error: recordsError } = ownerId ? await database.from("transaction_records").select("*").eq("owner_user_id", ownerId).order("created_at") : { data: [], error: null };
+    if (recordsError) throw new Error(recordsError.message);
+    const recordIds = (records ?? []).map((record) => record.id);
+    const [runs, reviews, events, amendments] = await Promise.all([
+      recordIds.length ? database.from("verification_jobs_v2").select("*").in("record_id", recordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
+      recordIds.length ? database.from("review_packets_v2").select("id, record_id, run_id, public_id, snapshot, snapshot_sha256, expires_at, decision, reviewer_name, reviewer_email, reviewer_note, decided_at, receipt_sha256, revoked_at, created_at").in("record_id", recordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
+      recordIds.length ? database.from("transaction_audit_events").select("record_id, sequence, event_type, actor_type, actor_hash, payload, previous_hash, event_hash, occurred_at").in("record_id", recordIds).order("occurred_at") : Promise.resolve({ data: [], error: null }),
+      recordIds.length ? database.from("privacy_record_amendments").select("id, request_id, record_id, field_name, previous_value, corrected_value, reason, created_at").in("record_id", recordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
+    ]);
+    const queryError = runs.error ?? reviews.error ?? events.error ?? amendments.error;
+    if (queryError) throw new Error(queryError.message);
+    const exportedAt = new Date().toISOString();
+    const payload = { exportVersion: 1, exportedAt, privacyRequest, account: { email: privacyRequest.email, userId: ownerId || null }, records: records ?? [], verificationJobs: runs.data ?? [], reviewPackets: reviews.data ?? [], auditEvents: events.data ?? [], corrections: amendments.data ?? [] };
+    const { error: actionError } = await database.rpc("record_operator_action", { p_operator_email: operator.email, p_action_type: "EXPORT_PRIVACY_DATA", p_target_type: "privacy_request", p_target_id: requestId, p_details: { exportedAt, recordCount: recordIds.length } });
+    if (actionError) throw new Error(`The export was not released because its operator log failed: ${actionError.message}`);
+    return new NextResponse(JSON.stringify(payload, null, 2), { headers: { ...noStoreJsonHeaders(), "content-type": "application/json; charset=utf-8", "content-disposition": `attachment; filename="${privacyRequest.public_id}-export.json"` } });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Privacy export failed." }, { status: 503, headers: noStoreJsonHeaders() });
+  }
+}

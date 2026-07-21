@@ -3,13 +3,14 @@ import { redirect } from "next/navigation";
 import { AuthPanel } from "@/components/auth-panel";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { betaAccessAllowed } from "@/lib/beta-access";
+import { safeAuthNext } from "@/lib/auth-next";
 
 export const metadata: Metadata = { title: "Agency sign in", robots: { index: false, follow: false } };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
   const params = await searchParams;
   const requested = params.next;
-  const nextPath = requested === "/workspace" ? "/workspace" : "/dashboard";
+  const nextPath = safeAuthNext(requested);
   const user = await getOptionalUser();
   if (user && betaAccessAllowed(user)) redirect(nextPath as Route);
   const initialError = params.error === "expired"

@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, LoaderCircle, Mail, ShieldCheck } from "lucid
 import { Brand } from "@/components/brand";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { nextPath?: "/dashboard" | "/workspace"; initialError?: string }) {
+export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { nextPath?: string; initialError?: string }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -46,7 +46,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
         {sent ? <>
           <span className="auth-mark"><CheckCircle2 size={30} /></span>
           <h1>Check your email</h1>
-          <p role="status">We sent a secure sign-in link to <strong>{email}</strong>. It returns you to {nextPath === "/workspace" ? "your workspace" : "your agency dashboard"}.</p>
+          <p role="status">We sent a secure sign-in link to <strong>{email}</strong>. It returns you to {nextPath.startsWith("/workspace") ? "your workspace" : "your agency dashboard"}.</p>
         </> : <>
           <span className="auth-mark"><ShieldCheck size={30} /></span>
           <div className="legal-kicker">Invite-only agency beta</div>

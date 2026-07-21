@@ -4,9 +4,10 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { betaAccessAllowed } from "@/lib/beta-access";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 
 const patchSchema = z.object({
-  workspaceState: z.record(z.string(), z.unknown()).refine((value) => JSON.stringify(value).length <= 200_000, "Workspace snapshot is too large."),
+  workspaceState: z.record(z.string(), z.unknown()).refine((value) => JSON.stringify(value).length <= 1_000_000, "Workspace snapshot is too large."),
 });
 
 async function ownerRecord(recordId: string) {
@@ -47,7 +48,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ recor
   const owned = await ownerRecord(recordId);
   if (!owned.user) return NextResponse.json({ error: "Sign in with an invited account." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!owned.record || !owned.database) return NextResponse.json({ error: "This milestone was not found in your account." }, { status: 404, headers: noStoreJsonHeaders() });
-  const { error } = await owned.database.from("transaction_records").update({ workspace_state: parsed.data.workspaceState }).eq("id", recordId).eq("owner_user_id", owned.user.id);
+  const { error } = await owned.database.from("transaction_records").update({ workspace_state: sanitizeWorkspaceState(parsed.data.workspaceState) }).eq("id", recordId).eq("owner_user_id", owned.user.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ saved: true }, { headers: noStoreJsonHeaders() });
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -43,7 +43,15 @@ import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, no
 import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
-import { clearLegacyGlobalDraftState, draftStorageKey } from "@/lib/client-storage";
+import {
+  activeDraftId,
+  claimPendingAnonymousDraft,
+  clearLegacyGlobalDraftState,
+  legacyDraftStorageKey,
+  readProjectDraft,
+  removeProjectDraft,
+  saveProjectDraft,
+} from "@/lib/client-storage";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
 type SourceMode = "live" | "demo";
@@ -110,7 +118,8 @@ const MAX_PERSISTED_FILE_BYTES = 1_500_000;
 type PersistedFile = { name: string; type: string; base64: string };
 
 type WorkspaceDraft = {
-  version: 3;
+  version: 4;
+  draftId: string;
   phase: Phase;
   sourceText: string;
   sourceName: string;
@@ -240,6 +249,7 @@ export function MilestoneStudio() {
   const [sessionEmail, setSessionEmail] = useState("");
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
   const [retainedFixtureRecord, setRetainedFixtureRecord] = useState(false);
+  const [draftId, setDraftId] = useState("");
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const draftHydrated = useRef(false);
@@ -252,6 +262,28 @@ export function MilestoneStudio() {
   const latestPassCount = latestRun?.results.filter((result) => result.status === "PASS").length ?? 0;
   const activeRunId = latestRun?.runId;
   const activeRunStatus = latestRun?.status;
+  const signInHref = `/login?next=${encodeURIComponent(draftId ? `/workspace?draft=${draftId}` : "/workspace")}` as Route;
+  const workspaceSnapshot = useCallback((includeLocalSource: boolean): WorkspaceDraft => ({
+    version: 4,
+    draftId,
+    phase,
+    sourceText: includeLocalSource ? sourceText : "",
+    sourceName,
+    selectedFileMeta: includeLocalSource ? selectedFileMeta : null,
+    business,
+    attested,
+    aiDisclosureAccepted,
+    adultBusinessUseAttested,
+    criteria,
+    confirmed,
+    model,
+    analysisNotice,
+    recordId,
+    latestRun,
+    customRun: customRun ? { ...customRun, originReceipt: "" } : null,
+    retainedFixtureRecord,
+    reviewPacketId,
+  }), [draftId, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -267,41 +299,53 @@ export function MilestoneStudio() {
     clearLegacyGlobalDraftState();
     let cancelled = false;
 
-    const restoreLocalDraft = (email: string) => {
+    const hydrateDraft = (draft: Partial<WorkspaceDraft>, fallbackDraftId: string) => {
+      const restoredPhase: Phase = draft.phase === "analyzing"
+        ? "intake"
+        : draft.phase?.startsWith("running")
+          ? (draft.latestRun ? (draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1") : "handoff")
+          : draft.phase === "shared"
+            ? (draft.latestRun ? "run2" : "criteria")
+            : draft.phase ?? "intake";
+      setDraftId(draft.draftId || fallbackDraftId);
+      setPhase(restoredPhase);
+      setSourceText(draft.sourceText ?? "");
+      setSourceName(draft.sourceName ?? "Pasted SOW");
+      if (draft.selectedFileMeta) { setSelectedFileMeta(draft.selectedFileMeta); setSelectedFile(base64ToFile(draft.selectedFileMeta)); }
+      setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
+      setAttested(Boolean(draft.attested));
+      setAiDisclosureAccepted(Boolean(draft.aiDisclosureAccepted));
+      setAdultBusinessUseAttested(Boolean(draft.adultBusinessUseAttested));
+      setCriteria(Array.isArray(draft.criteria) ? draft.criteria : []);
+      setConfirmed(draft.confirmed ?? {});
+      setModel(draft.model ?? "Gemini");
+      setAnalysisNotice(draft.analysisNotice ?? "");
+      setRecordId(draft.recordId ?? null);
+      setLatestRun(draft.latestRun ?? null);
+      setCustomRun(draft.customRun ?? null);
+      setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
+      setReviewPacketId(draft.reviewPacketId ?? "");
+      setReviewCreated(Boolean(draft.reviewPacketId));
+      if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
+    };
+
+    const restoreLocalDraft = (email: string, requestedDraftId: string | null, claimed: { draftId: string; raw: string } | null) => {
       try {
-        const raw = window.localStorage.getItem(draftStorageKey(email));
-        const draft = raw ? JSON.parse(raw) as WorkspaceDraft : null;
-        if (draft?.version === 3) {
-          const restoredPhase: Phase = draft.phase === "analyzing"
-            ? "intake"
-            : draft.phase.startsWith("running")
-              ? (draft.latestRun ? (draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1") : "handoff")
-              // The review bearer token is never persisted, so a "shared"
-              // phase can never be safely restored — fall back to the last
-              // verification result and let the agency re-share if needed.
-              : draft.phase === "shared"
-                ? (draft.latestRun ? "run2" : "criteria")
-                : draft.phase;
-          setPhase(restoredPhase);
-          setSourceText(draft.sourceText ?? "");
-          setSourceName(draft.sourceName ?? "Pasted SOW");
-          if (draft.selectedFileMeta) { setSelectedFileMeta(draft.selectedFileMeta); setSelectedFile(base64ToFile(draft.selectedFileMeta)); }
-          setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
-          setAttested(Boolean(draft.attested));
-          setAiDisclosureAccepted(Boolean(draft.aiDisclosureAccepted));
-          setAdultBusinessUseAttested(Boolean(draft.adultBusinessUseAttested));
-          setCriteria(Array.isArray(draft.criteria) ? draft.criteria : []);
-          setConfirmed(draft.confirmed ?? {});
-          setModel(draft.model ?? "Gemini");
-          setAnalysisNotice(draft.analysisNotice ?? "");
-          setRecordId(draft.recordId ?? null);
-          setLatestRun(draft.latestRun ?? null);
-          setCustomRun(draft.customRun ?? null);
-          setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
-          setReviewPacketId(draft.reviewPacketId ?? "");
-          setReviewCreated(Boolean(draft.reviewPacketId));
-          if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
+        const resolvedDraftId = claimed?.draftId || requestedDraftId || activeDraftId(email) || crypto.randomUUID();
+        let raw = claimed?.raw || readProjectDraft(email, resolvedDraftId);
+        if (!raw) {
+          const legacy = window.localStorage.getItem(legacyDraftStorageKey(email));
+          if (legacy) {
+            raw = legacy;
+            saveProjectDraft(email, resolvedDraftId, legacy);
+            window.localStorage.removeItem(legacyDraftStorageKey(email));
+          }
         }
+        const parsedDraft = raw ? JSON.parse(raw) as { version?: number } : null;
+        const draft = parsedDraft as Partial<WorkspaceDraft> | null;
+        if (draft && (parsedDraft?.version === 3 || parsedDraft?.version === 4)) hydrateDraft(draft, resolvedDraftId);
+        else setDraftId(resolvedDraftId);
+        if (!new URL(window.location.href).searchParams.get("record")) window.history.replaceState({}, "", `/workspace?draft=${encodeURIComponent(resolvedDraftId)}`);
       } catch { /* A corrupt convenience draft must never block the workspace. */ }
     };
 
@@ -315,7 +359,9 @@ export function MilestoneStudio() {
       if (cancelled) return;
       setSessionEmail(email);
 
-      const resumeId = new URL(window.location.href).searchParams.get("record");
+      const currentUrl = new URL(window.location.href);
+      const resumeId = currentUrl.searchParams.get("record");
+      const requestedDraftId = currentUrl.searchParams.get("draft");
       if (email && resumeId) {
         try {
           const response = await fetch(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" });
@@ -323,18 +369,26 @@ export function MilestoneStudio() {
           if (!response.ok) throw new Error(resumed.error ?? "The retained workspace could not be restored.");
           if (cancelled) return;
           const record = resumed.record;
-          const restoredCriteria = (record.confirmed_criteria ?? []) as AnalysisCriterion[];
+          const savedWorkspace = record.workspace_state && typeof record.workspace_state === "object" ? record.workspace_state as Partial<WorkspaceDraft> : null;
+          const restoredCriteria = (savedWorkspace?.version === 4 && Array.isArray(savedWorkspace.criteria) ? savedWorkspace.criteria : record.confirmed_criteria ?? []) as AnalysisCriterion[];
           const latest = resumed.runs?.[0];
           const latestReview = resumed.reviews?.[0];
           setRecordId(record.id);
+          setDraftId(savedWorkspace?.draftId || record.id);
           const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
           setRetainedFixtureRecord(isImportedFixture);
-          setBusiness({ agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
-          setSourceName(record.source_name);
-          setSourceText(restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+          setBusiness(savedWorkspace?.version === 4 && savedWorkspace.business ? savedWorkspace.business : { agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
+          setSourceName(savedWorkspace?.version === 4 ? savedWorkspace.sourceName ?? record.source_name : record.source_name);
+          setSourceText(savedWorkspace?.version === 4 && savedWorkspace.sourceText?.trim()
+            ? savedWorkspace.sourceText
+            : restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
           setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
-          setConfirmed(Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
-          setAttested(true); setAiDisclosureAccepted(true); setAdultBusinessUseAttested(true);
+          setConfirmed(savedWorkspace?.version === 4 ? savedWorkspace.confirmed ?? {} : Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
+          setAttested(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.attested) : true);
+          setAiDisclosureAccepted(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.aiDisclosureAccepted) : true);
+          setAdultBusinessUseAttested(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.adultBusinessUseAttested) : true);
+          setModel(savedWorkspace?.model ?? "Gemini");
+          setAnalysisNotice(savedWorkspace?.analysisNotice ?? "");
           setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
           // An approved record is a terminal, finalized state — send the
           // agency straight to its receipt instead of reopening it inside
@@ -347,7 +401,8 @@ export function MilestoneStudio() {
             const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
             setLatestRun(run);
             const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
-            if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
+            if (savedWorkspace?.version === 4 && savedWorkspace.customRun) setCustomRun({ ...savedWorkspace.customRun, originReceipt: "" });
+            else if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
             else if (isImportedFixture) setCustomRun(null);
             const openReview = (resumed.reviews as Array<{ decision?: string | null; public_id: string }> ?? []).find((item) => !item.decision);
             if (openReview) { setReviewPacketId(openReview.public_id); setReviewCreated(true); }
@@ -363,7 +418,8 @@ export function MilestoneStudio() {
         }
       }
       if (cancelled) return;
-      restoreLocalDraft(email);
+      const claimed = email ? claimPendingAnonymousDraft(email) : null;
+      restoreLocalDraft(email, requestedDraftId, claimed);
       draftHydrated.current = true;
     };
     void restore();
@@ -388,10 +444,23 @@ export function MilestoneStudio() {
   }, [selectedFile]);
 
   useEffect(() => {
-    if (!draftHydrated.current || sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 3, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId };
-    try { window.localStorage.setItem(draftStorageKey(sessionEmail), JSON.stringify(draft)); } catch { /* Browser storage is an optional local recovery layer. */ }
-  }, [phase, sourceMode, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId, sessionEmail]);
+    if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
+    saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+  }, [sourceMode, sessionEmail, draftId, workspaceSnapshot]);
+
+  useEffect(() => {
+    if (!draftHydrated.current || sourceMode === "demo" || !recordId || !sessionEmail) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/account/records/${encodeURIComponent(recordId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspaceState: workspaceSnapshot(false) }),
+        signal: controller.signal,
+      }).catch(() => undefined);
+    }, 450);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [sourceMode, recordId, sessionEmail, workspaceSnapshot]);
 
   useEffect(() => {
     if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
@@ -422,10 +491,9 @@ export function MilestoneStudio() {
     phaseHeading.current?.focus({ preventScroll: true });
   }, [phase]);
 
-  const preserveDraft = () => {
-    if (sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 3, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId };
-    try { window.localStorage.setItem(draftStorageKey(sessionEmail), JSON.stringify(draft)); } catch { /* optional */ }
+  const preserveDraft = (markForSignIn = false) => {
+    if (sourceMode === "demo" || !draftId) return;
+    saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)), markForSignIn && !sessionEmail);
   };
 
   const reset = () => {
@@ -435,6 +503,9 @@ export function MilestoneStudio() {
     analysisController.current = null;
     runController.current?.abort("new-import");
     runController.current = null;
+    const previousDraftId = draftId;
+    const nextDraftId = crypto.randomUUID();
+    setDraftId(nextDraftId);
     setPhase("intake");
     setSourceMode("live");
     setSourceText("");
@@ -460,8 +531,9 @@ export function MilestoneStudio() {
     setCustomRun(null);
     setRetainedFixtureRecord(false);
     setBusiness({ agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
-    try { window.localStorage.removeItem(draftStorageKey(sessionEmail)); } catch { /* optional workspace convenience */ }
+    if (previousDraftId) removeProjectDraft(sessionEmail, previousDraftId);
     clearLegacyGlobalDraftState();
+    window.history.replaceState({}, "", `/workspace?draft=${encodeURIComponent(nextDraftId)}`);
     setToast("Ready for a new SOW");
   };
 
@@ -647,12 +719,14 @@ export function MilestoneStudio() {
           criteria: frozenCriteria,
           ownerTermsAccepted: true,
           noticeVersion: RECORD_NOTICE_VERSION,
+          workspaceState: workspaceSnapshot(false),
           ...(activeCustomRun ?? {}),
         }),
       });
       const created = await response.json();
       if (!response.ok) throw new Error(created.error ?? "The verification run could not be created.");
       setRecordId(created.recordId);
+      window.history.replaceState({}, "", `/workspace?record=${encodeURIComponent(created.recordId)}`);
       setRetainedFixtureRecord(!activeCustomRun);
       setLatestRun({ runId: created.runId, recordId: created.recordId, status: created.status ?? "QUEUED", buildUrl: activeCustomRun?.targetUrl ?? window.location.origin, buildLabel: activeCustomRun?.buildLabel ?? `launch-${second ? "rc2" : "rc1"}`, results: [], artifacts: [] });
       const deadline = Date.now() + 12 * 60_000;
@@ -773,7 +847,7 @@ export function MilestoneStudio() {
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
-          <Link className="app-account-link" onClick={preserveDraft} href={(sessionEmail ? "/dashboard" : "/login?next=/workspace") as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
+          <Link className="app-account-link" onClick={() => preserveDraft(!sessionEmail)} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
           <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
         </div>
@@ -841,6 +915,8 @@ export function MilestoneStudio() {
               onAnalyze={analyze}
               onDemo={launchDemo}
               signedInEmail={sessionEmail}
+              signInHref={signInHref}
+              onSignIn={() => preserveDraft(true)}
             />
           )}
           {phase === "criteria" && sourceMode === "demo" && (
@@ -872,7 +948,7 @@ export function MilestoneStudio() {
   );
 }
 
-function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo, signedInEmail }: {
+function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo, signedInEmail, signInHref, onSignIn }: {
   sourceText: string;
   setSourceText: (value: string) => void;
   selectedFile: File | null;
@@ -890,6 +966,8 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   onAnalyze: () => void;
   onDemo: () => void;
   signedInEmail: string;
+  signInHref: Route;
+  onSignIn: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -912,7 +990,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" href={"/login?next=/workspace" as Route}><LockKeyhole size={15} /> Sign in to analyze</Link>}
+            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={onSignIn} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
             <span>or</span>
             <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
           </div>
@@ -976,7 +1054,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   const allConfirmed = confirmedCount === demoCriteria.length;
   return (
     <div className="criteria-layout">
-      <section className="panel source-sheet" aria-label="Source document">
+      <section className="panel source-sheet" aria-label="Scrollable source document" tabIndex={0}>
         <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>Acme × Northstar — SOW.pdf</strong><span>Selected page 4 · source hash 3f45b1d8…a209</span></div></div>
         <div className="document-page">
           <div className="document-page__head"><span>Statement of work</span><span>Page 4 / 7</span></div>

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, RECORD_NOTICE_VERSION, requestActorHash, sha256 } from "@/lib/recordkeeping";
 import { deliverNotification, type NotificationPayload } from "@/lib/notifications";
+import { logOperationalEvent } from "@/lib/operations";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
 
@@ -37,20 +38,15 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     const actorHash = requestActorHash(request);
     const decisionRecord = { packetId, snapshotSha256: packet.snapshot_sha256, decision: parsed.data.decision, reviewerName: parsed.data.reviewerName, reviewerEmail: parsed.data.reviewerEmail, reviewerNote: parsed.data.reviewerNote, intentConfirmed: true, electronicRecordsConsent: true, noticeVersion: parsed.data.noticeVersion, actorHash, decidedAt };
     const receiptSha256 = sha256(canonicalJson({ snapshot: packet.snapshot, decision: decisionRecord }));
-    const { error: updateError } = await database.rpc("record_review_decision_atomic", { p_packet_id: packet.id, p_decision: parsed.data.decision, p_reviewer_name: parsed.data.reviewerName, p_reviewer_email: parsed.data.reviewerEmail, p_reviewer_note: parsed.data.reviewerNote, p_notice_version: parsed.data.noticeVersion, p_actor_hash: actorHash, p_country_code: request.headers.get("x-vercel-ip-country") ?? null, p_decided_at: decidedAt, p_receipt_sha256: receiptSha256 });
+    const deliveryStatus = process.env.NOTIFICATION_WEBHOOK_URL ? "PENDING_EMAIL" : "IN_APP";
+    const { data: decisionData, error: updateError } = await database.rpc("record_review_decision_with_notification_atomic", { p_packet_id: packet.id, p_decision: parsed.data.decision, p_reviewer_name: parsed.data.reviewerName, p_reviewer_email: parsed.data.reviewerEmail, p_reviewer_note: parsed.data.reviewerNote, p_notice_version: parsed.data.noticeVersion, p_actor_hash: actorHash, p_country_code: request.headers.get("x-vercel-ip-country") ?? null, p_decided_at: decidedAt, p_receipt_sha256: receiptSha256, p_delivery_status: deliveryStatus });
     if (updateError) return NextResponse.json({ error: /already|unavailable/i.test(updateError.message) ? "Another decision was recorded first, or this review is no longer available. Refresh the review." : updateError.message }, { status: 409, headers: noStoreJsonHeaders() });
-    const { data: ownerRecord } = await database.from("transaction_records").select("owner_user_id, milestone_title, client_name").eq("id", packet.record_id).single();
-    if (ownerRecord?.owner_user_id) {
-      const { data: notification } = await database.from("operator_notifications").insert({
-        owner_user_id: ownerRecord.owner_user_id,
-        record_id: packet.record_id,
-        event_type: parsed.data.decision,
-        title: parsed.data.decision === "APPROVED" ? `${ownerRecord.milestone_title} was approved` : `${ownerRecord.client_name} requested changes`,
-        body: `${parsed.data.reviewerName} recorded ${parsed.data.decision === "APPROVED" ? "approval" : "a change request"}. Open the agency dashboard for the retained record.`,
-        payload: { packetId, reviewerEmail: parsed.data.reviewerEmail, decidedAt },
-        delivery_status: process.env.NOTIFICATION_WEBHOOK_URL ? "PENDING_EMAIL" : "IN_APP",
-      }).select("id, owner_user_id, record_id, event_type, title, body, payload, created_at").single();
-      if (notification && process.env.NOTIFICATION_WEBHOOK_URL) await deliverNotification(notification as NotificationPayload);
+    const notificationId = decisionData && typeof decisionData === "object" ? (decisionData as { notificationId?: string | null }).notificationId : null;
+    if (notificationId && process.env.NOTIFICATION_WEBHOOK_URL) {
+      const { data: notification, error: notificationError } = await database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, created_at").eq("id", notificationId).single();
+      if (notificationError || !notification) await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "NOTIFICATION_LOOKUP_FAILED", recordId: packet.record_id, details: { notificationId, error: notificationError?.message ?? "Notification missing after decision commit" } });
+      else try { await deliverNotification(notification as NotificationPayload); }
+      catch (deliveryError) { await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "NOTIFICATION_STATUS_UPDATE_FAILED", recordId: packet.record_id, details: { notificationId, error: deliveryError instanceof Error ? deliveryError.message : "Notification delivery status failed" } }); }
     }
     return NextResponse.json({ decision: parsed.data.decision, decidedAt, receiptSha256, receiptUrl: `/receipt/${packetId}` }, { headers: noStoreJsonHeaders() });
   } catch (error) {

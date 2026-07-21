@@ -70,10 +70,10 @@ export const demoCriteria: DemoCriterion[] = [
     id: "AC-02",
     title: "Primary CTA reaches the contact page",
     source: "The primary call-to-action must take visitors to the contact page.",
-    check: "Activate “Plan my trip”; final same-origin path equals /contact.",
+    check: "Activate “Plan my trip”; final same-origin path equals /fixture/contact.",
     type: "Navigation",
     path: "/",
-    result: { rc1: "PASS", rc2: "PASS", expected: "Destination /contact", observedRc1: "Destination /contact", observedRc2: "Destination /contact", duration: 563 },
+    result: { rc1: "PASS", rc2: "PASS", expected: "Destination /fixture/contact", observedRc1: "Destination /fixture/contact", observedRc2: "Destination /fixture/contact", duration: 563 },
   },
   {
     id: "AC-03",
@@ -90,7 +90,7 @@ export const demoCriteria: DemoCriterion[] = [
     source: "Submitting the contact form must create a lead and show a success confirmation.",
     check: "Submit labeled staging fields; expect success text and POST /api/leads → 201.",
     type: "Form",
-    path: "/contact",
+    path: "/#contact",
     result: { rc1: "FAIL", rc2: "PASS", expected: "Success text + HTTP 201", observedRc1: "Success text shown, but POST returned 500", observedRc2: "Success text shown; POST returned 201", duration: 821 },
   },
   {
@@ -99,7 +99,7 @@ export const demoCriteria: DemoCriterion[] = [
     source: "Required-field errors must be programmatically associated with their fields.",
     check: "Submit empty form; every validation-message ID is referenced by its field’s aria-describedby.",
     type: "Accessibility",
-    path: "/contact",
+    path: "/#contact",
     result: { rc1: "PASS", rc2: "PASS", expected: "All invalid fields are programmatically described", observedRc1: "2 described fields; 0 broken references", observedRc2: "2 described fields; 0 broken references", duration: 1094 },
   },
   {

@@ -7,6 +7,7 @@ import { ArrowRight, Bell, Check, Clipboard, Clock3, ExternalLink, FileCheck2, L
 import { Brand } from "@/components/brand";
 import { formatTimestamp } from "@/lib/format";
 import { clearAccountDraftState } from "@/lib/client-storage";
+import { canCreateReviewLink } from "@/lib/review-lifecycle";
 
 type Run = { id: string; status: string; build_label: string; build_url: string; last_error?: string | null; completed_at?: string | null; created_at: string };
 type Review = { public_id: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewer_name?: string | null; reviewer_email?: string | null; reviewer_note?: string | null; decided_at?: string | null; expires_at: string; revoked_at?: string | null; created_at: string };
@@ -90,7 +91,7 @@ export function AgencyDashboard() {
         {data.records.length === 0 ? <section className="panel dashboard-empty"><FileCheck2 size={34} /><h2>No retained milestones yet</h2><p>Create a proof from a redacted SOW section, connect an authorized staging origin, and run the confirmed checks.</p><Link className="button button--lime" href="/workspace">Create the first milestone</Link></section> : <section className="record-grid">{data.records.map((record) => {
           const review = record.latestReview;
           const expired = review ? new Date(review.expires_at).getTime() <= renderedAt : false;
-          const canReview = record.latestRun?.status === "COMPLETED" && record.status !== "NEEDS_WORK";
+          const canCreateReview = canCreateReviewLink(record.status, record.latestRun?.status, review, renderedAt);
           return <article className="panel record-card" key={record.id}>
             <div className="record-card__top"><span className="status-badge status-badge--neutral">{record.status.replaceAll("_", " ")}</span><span>{record.public_id}</span></div>
             <h2>{record.milestone_title}</h2><p>{record.project_name} · {record.client_name}</p>
@@ -99,8 +100,8 @@ export function AgencyDashboard() {
             {record.latestRun?.last_error && <div className="record-warning">{record.latestRun.last_error}</div>}
             <div className="record-card__actions">
               {record.status !== "APPROVED" && <Link className="button button--outline button--small" href={`/workspace?record=${record.id}` as Route}>{review?.decision === "CHANGES_REQUESTED" ? "Revise and rerun" : "Resume project"} <ArrowRight size={13} /></Link>}
-              {canReview && !review?.decision && <button className="button button--ink button--small" onClick={() => void createReview(record)} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
-              {review && !review.decision && !review.revoked_at && <><button className="text-action" onClick={() => void reviewAction(record, "extend")}><Clock3 size={12} /> Extend 72h</button><button className="text-action text-action--danger" onClick={() => void reviewAction(record, "revoke")}>Revoke</button></>}
+              {canCreateReview && <button className="button button--ink button--small" onClick={() => void createReview(record)} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
+              {review && !review.decision && !review.revoked_at && !expired && <><button className="text-action" onClick={() => void reviewAction(record, "extend")}><Clock3 size={12} /> Extend 72h</button><button className="text-action text-action--danger" onClick={() => void reviewAction(record, "revoke")}>Revoke</button></>}
             </div>
               {reviewLinks[record.id] && <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={reviewLinks[record.id]} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(reviewLinks[record.id]!); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy"}</button><a href={reviewLinks[record.id]} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a></div>}
           </article>;

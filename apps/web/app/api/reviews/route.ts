@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const authorized = record && (record.owner_user_id === owner.userId || record.owner_token_hash === owner.ownerTokenHash);
     const { data: run, error: runError } = await database.from("verification_jobs_v2").select("*").eq("id", parsed.data.runId).eq("record_id", parsed.data.recordId).single();
     if (recordError || runError || !authorized || !run) return NextResponse.json({ error: "The passing verification record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    if (record.status !== "READY_FOR_REVIEW" || record.last_run_id !== run.id) return NextResponse.json({ error: "Only the milestone's current passing run can be sent for review. Refresh and try again." }, { status: 409, headers: noStoreJsonHeaders() });
+    if (!["READY_FOR_REVIEW", "IN_REVIEW"].includes(record.status) || record.last_run_id !== run.id) return NextResponse.json({ error: "Only the milestone's current passing run can be sent for review. Refresh and try again." }, { status: 409, headers: noStoreJsonHeaders() });
     const results: unknown[] = Array.isArray(run.results) ? run.results : [];
     const checks: Array<{ criterionId?: string }> = Array.isArray(run.checks) ? run.checks : [];
     const artifacts: Array<{ criterionId?: string; sha256?: string }> = Array.isArray(run.artifacts) ? run.artifacts : [];
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
     const origin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     return NextResponse.json({ packetId: packetPublicId, reviewUrl: `${origin}/review/${packetPublicId}#t=${token}`, expiresAt, snapshotSha256 }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The client review could not be created." }, { status: 503, headers: noStoreJsonHeaders() });
+    const message = error instanceof Error ? error.message : "The client review could not be created.";
+    return NextResponse.json({ error: message }, { status: /active review|current reviewable|stale|snapshot/i.test(message) ? 409 : 503, headers: noStoreJsonHeaders() });
   }
 }

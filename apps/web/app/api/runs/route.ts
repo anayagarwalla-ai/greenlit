@@ -14,6 +14,7 @@ import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@
 import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security";
 import { betaAccessAllowed } from "@/lib/beta-access";
 import { logOperationalEvent } from "@/lib/operations";
+import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,7 @@ const schema = z.object({
   checks: z.array(checkSpecSchema).min(1).max(40).optional(),
   ownerTermsAccepted: z.literal(true),
   noticeVersion: z.literal(RECORD_NOTICE_VERSION),
+  workspaceState: z.record(z.string(), z.unknown()).refine((value) => JSON.stringify(value).length <= 1_000_000, "Workspace snapshot is too large.").optional(),
 });
 
 export async function POST(request: Request) {
@@ -100,6 +102,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "The fixed sample can only verify its matching six source-backed criteria. Use custom-origin setup for other scopes." }, { status: 422, headers: noStoreJsonHeaders() });
       }
     }
+    if (originAddresses.length === 0) {
+      const frozenTarget = new URL(targetOrigin);
+      const [v4, v6] = await Promise.all([resolve4(frozenTarget.hostname).catch(() => []), resolve6(frozenTarget.hostname).catch(() => [])]);
+      originAddresses = [...v4, ...v6].sort();
+      assertSafeResolvedAddresses(originAddresses);
+    }
     const sourceHash = body.sourceSha256;
     const criteriaHash = sha256(canonicalJson(body.criteria));
     const recordId = body.recordId;
@@ -124,7 +132,7 @@ export async function POST(request: Request) {
     const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "milestoneproof-global-browser-capacity", { failClosed: true });
     if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
 
-    const workspaceState = { criteria: body.criteria, checks, buildLabel, targetOrigin, business: { agency: body.agencyName, client: body.clientName, project: body.projectName, milestone: body.milestoneTitle, amountMinor: body.amountMinor, currency: body.currency }, sourceName: body.sourceName, sourceSha256: sourceHash };
+    const workspaceState = sanitizeWorkspaceState(body.workspaceState ?? { criteria: body.criteria, checks, buildLabel, targetOrigin, business: { agency: body.agencyName, client: body.clientName, project: body.projectName, milestone: body.milestoneTitle, amountMinor: body.amountMinor, currency: body.currency }, sourceName: body.sourceName, sourceSha256: sourceHash });
     const { data: queued, error: queueError } = await database.rpc("queue_verification_job_atomic", {
       p_record_id: recordId ?? null, p_record_public_id: recordPublicId, p_owner_user_id: owner.userId,
       p_owner_token_hash: sha256(ownerToken ?? randomToken()), p_mode: customTarget ? "CUSTOM_TARGET" : "IMPORTED_FIXTURE",

@@ -7,28 +7,11 @@ import { createOriginProof } from "@/lib/origin-proof";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { betaAccessAllowed } from "@/lib/beta-access";
+import { pinnedHttpsGet } from "@/lib/pinned-https";
 
 export const runtime = "nodejs";
 
 const schema = z.object({ target: z.string().max(2000), token: z.string().min(16).max(200) });
-
-async function readSmallProof(response: Response) {
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > 4_096) throw new Error("Ownership proof is too large.");
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let total = 0;
-  let value = "";
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    total += chunk.value.byteLength;
-    if (total > 4_096) { await reader.cancel(); throw new Error("Ownership proof is too large."); }
-    value += decoder.decode(chunk.value, { stream: true });
-  }
-  return `${value}${decoder.decode()}`.trim();
-}
 
 export async function POST(request: Request) {
   const user = await getOptionalUser();
@@ -42,11 +25,11 @@ export async function POST(request: Request) {
   if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   try {
     const [v4, v6] = await Promise.all([resolve4(validated.url.hostname).catch(() => []), resolve6(validated.url.hostname).catch(() => [])]);
-    assertSafeResolvedAddresses([...v4, ...v6]);
+    const addresses = [...v4, ...v6].sort();
+    assertSafeResolvedAddresses(addresses);
     const proofUrl = new URL("/.well-known/milestoneproof.txt", validated.url.origin);
-    const response = await fetch(proofUrl, { redirect: "error", signal: AbortSignal.timeout(5_000), headers: { "user-agent": "MilestoneProof-Origin-Verifier/0.1" } });
-    const proof = await readSmallProof(response);
-    if (!response.ok || proof !== body.data.token) return NextResponse.json({ error: "The ownership token did not match." }, { status: 409 });
+    const response = await pinnedHttpsGet(proofUrl, addresses);
+    if (response.location || response.status < 200 || response.status >= 300 || response.text !== body.data.token) return NextResponse.json({ error: "The ownership token did not match." }, { status: 409 });
     const verifiedAt = new Date().toISOString();
     return NextResponse.json({ verified: true, origin: validated.url.origin, verifiedAt, receipt: createOriginProof(validated.url.origin, user.id) }, { headers: noStoreJsonHeaders() });
   } catch {

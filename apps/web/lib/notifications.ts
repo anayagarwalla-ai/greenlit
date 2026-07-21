@@ -27,8 +27,10 @@ export async function deliverNotification(notification: NotificationPayload) {
     if (!response.ok) deliveryError = `Webhook returned HTTP ${response.status}`;
   } catch (cause) { deliveryError = cause instanceof Error ? cause.message.slice(0, 500) : "Notification delivery failed"; }
   const database = requireSupabaseAdmin();
-  const { data: current } = await database.from("operator_notifications").select("delivery_attempts").eq("id", notification.id).maybeSingle();
-  await database.from("operator_notifications").update({ delivery_status: sent ? "SENT" : "FAILED", delivery_attempts: Number(current?.delivery_attempts ?? 0) + 1, delivery_error: sent ? null : deliveryError || "Webhook delivery failed", last_delivery_at: new Date().toISOString() }).eq("id", notification.id);
+  const { data: current, error: readError } = await database.from("operator_notifications").select("delivery_attempts").eq("id", notification.id).maybeSingle();
+  if (readError) throw new Error(`Notification delivery state could not be read: ${readError.message}`);
+  const { error: updateError } = await database.from("operator_notifications").update({ delivery_status: sent ? "SENT" : "FAILED", delivery_attempts: Number(current?.delivery_attempts ?? 0) + 1, delivery_error: sent ? null : deliveryError || "Webhook delivery failed", last_delivery_at: new Date().toISOString() }).eq("id", notification.id);
+  if (updateError) throw new Error(`Notification delivery state could not be recorded: ${updateError.message}`);
   return sent;
 }
 export async function deliverPendingNotifications(limit = 20) {
