@@ -397,6 +397,14 @@ export function MilestoneStudio() {
     setSourceMode("demo");
     setSourceText(demoSowText);
     setSourceName("Acme × Northstar — SOW.pdf");
+    setBusiness({
+      agencyName: "Northstar Studio",
+      clientName: "Acme Outdoors",
+      projectName: "Spring launch",
+      milestoneTitle: "Spring launch",
+      amountDollars: "12000.00",
+      currency: "USD",
+    });
     setCriteria([]);
     setConfirmed({});
     setAnalysisError("");

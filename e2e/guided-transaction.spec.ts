@@ -8,6 +8,7 @@ test("guided transaction reaches a client decision and printable receipt", async
   await page.getByRole("button", { name: "Verify fixed build" }).click();
   await expect(page.getByText(/every automated check passes/i)).toBeVisible();
   await page.getByRole("button", { name: "Create client review" }).click();
+  await expect(page.getByText("This reliable presentation path shows Acme Outdoors’s 6-criterion decision experience without creating or implying a retained transaction.")).toBeVisible();
   await page.getByRole("link", { name: "Open as the client" }).click();
   await expect(page).toHaveURL(/\/review\/demo/);
   await expect(page.getByRole("button", { name: "Beta feedback" })).toHaveCount(0);
