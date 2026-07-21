@@ -8,6 +8,9 @@ export default function TermsPage() {
   const operator = process.env.NEXT_PUBLIC_OPERATOR_NAME;
   const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
   const paidGemini = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  const operatorAddress = process.env.NEXT_PUBLIC_OPERATOR_ADDRESS;
+  const governingLaw = process.env.NEXT_PUBLIC_GOVERNING_LAW;
+  const venue = process.env.NEXT_PUBLIC_VENUE;
   return (
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
@@ -43,8 +46,11 @@ export default function TermsPage() {
         <h2>Privacy and requests</h2>
         <p>The <Link href="/privacy">Privacy Notice</Link> describes collection, providers, security, and retention. Submit data-rights requests through the <Link href="/privacy-request">privacy request form</Link>.</p>
 
+        <h2>Governing law and venue</h2>
+        <p>{governingLaw && venue ? `These Terms are governed by ${governingLaw}, without regard to conflict-of-law rules, and disputes must be brought in ${venue}, except where applicable law requires otherwise.` : "Governing law and venue are pending adult-operator configuration. External beta invitations must not begin until these terms are completed."}</p>
+
         <h2>Operator and contact</h2>
-        <p>{operator ? <><strong>Service provider:</strong> {operator}.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published.</>} {supportEmail ? <>Questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Use the <Link href="/privacy-request">privacy request form</Link> until a support address is published.</>}</p>
+        <p>{operator ? <><strong>Service provider:</strong> {operator}{operatorAddress ? `, ${operatorAddress}` : ""}.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published.</>} {supportEmail ? <>Questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Use the <Link href="/privacy-request">privacy request form</Link> until a support address is published.</>}</p>
       </article>
     </main>
   );

@@ -22,8 +22,8 @@ const completionSchema = z.object({
   runnerVersion: z.string().min(1).max(80),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime(),
-  results: z.array(criterionResultSchema).min(1).max(40),
-  artifacts: z.array(artifactSchema).max(40),
+  results: z.array(criterionResultSchema).min(1).max(6),
+  artifacts: z.array(artifactSchema).max(6),
 });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {

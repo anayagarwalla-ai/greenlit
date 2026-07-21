@@ -9,8 +9,8 @@ export function LegalFooter() {
         <Link href="/terms">Terms</Link>
         <Link href="/records">Recordkeeping</Link>
         <Link href="/privacy-request">Privacy request</Link>
+        <Link href="/contact">Contact</Link>
       </nav>
     </footer>
   );
 }
-

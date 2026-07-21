@@ -13,6 +13,7 @@ major_version = 17
 enabled = true
 site_url = "http://localhost:3000"
 enable_anonymous_sign_ins = false
+enable_signup = false
 
 [storage]
 enabled = true

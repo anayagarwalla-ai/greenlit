@@ -18,15 +18,20 @@ export async function GET() {
   try {
     const database = requireSupabaseAdmin();
     const since = new Date(Date.now() - 86_400_000).toISOString();
-    const [feedback, events, jobs, privacy, notifications, recentRuns] = await Promise.all([
+    const [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures] = await Promise.all([
       database.from("beta_feedback").select("id, public_id, email, category, message, page_path, status, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operational_events").select("id, severity, service, event_type, record_id, details, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("verification_jobs_v2").select("id, record_id, status, build_label, target_origin, last_error, acknowledged_at, acknowledged_by, retry_of, created_at, completed_at").in("status", ["QUEUED", "LEASED", "RUNNING", "FAILED"]).order("created_at", { ascending: false }).limit(100),
       database.from("privacy_requests_v2").select("id, public_id, request_type, email, details, status, assigned_to, internal_notes, identity_verified_at, response_summary, response_sent_at, updated_at, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, delivery_status, delivery_attempts, delivery_error, last_delivery_at, created_at").in("delivery_status", ["PENDING_EMAIL", "FAILED"]).order("created_at", { ascending: false }).limit(100),
       database.from("verification_jobs_v2").select("id, status, created_at").gte("created_at", since),
+      database.from("transaction_records").select("id, public_id, project_name, deletion_status, deletion_error, deletion_requested_at").eq("deletion_status", "FAILED").order("deletion_requested_at", { ascending: false }).limit(100),
+      database.from("maintenance_runs").select("id, task, status, started_at, completed_at, summary, error").order("started_at", { ascending: false }).limit(20),
+      database.from("beta_invites").select("id, email, status, adult_sponsor, invited_by, invited_at, removed_at, last_sign_in_requested_at").order("invited_at", { ascending: false }).limit(200),
+      database.from("legal_holds_v2").select("id,record_id,privacy_request_id,reason,owner_email,review_at,active,created_at,released_at,released_by").eq("active", true).order("created_at", { ascending: false }).limit(500),
+      database.from("privacy_account_deletions").select("id,request_id,email,status,attempts,last_error,requested_at,completed_at").eq("status", "FAILED").order("requested_at", { ascending: false }).limit(100),
     ]);
-    const firstError = [feedback, events, jobs, privacy, notifications, recentRuns].find((result) => result.error)?.error;
+    const firstError = [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures].find((result) => result.error)?.error;
     if (firstError) throw new Error(firstError.message);
     const staleBefore = Date.now() - 10 * 60_000;
     const jobIssues = (jobs.data ?? []).filter((job) => !job.acknowledged_at && (job.status === "FAILED" || new Date(job.created_at).getTime() < staleBefore));
@@ -39,11 +44,12 @@ export async function GET() {
       if (users.users.length < 200) break;
     }
     const privacyWithRecords = await Promise.all((privacy.data ?? []).map(async (item) => {
-      const ownerId = usersByEmail.get(item.email.toLowerCase());
-      if (!ownerId) return { ...item, matchedRecords: [] };
-      const { data: matchedRecords, error: matchedError } = await database.from("transaction_records").select("id, public_id, agency_name, client_name, project_name, milestone_title, status, legal_hold, retention_until, privacy_deletion_requested_at, deletion_status").eq("owner_user_id", ownerId).order("created_at", { ascending: false });
+      const { data: subjectRecords, error: subjectError } = await database.rpc("privacy_subject_record_ids", { p_email: item.email });
+      if (subjectError) throw new Error(subjectError.message);
+      const ids = (subjectRecords ?? []).map((row: { record_id: string }) => row.record_id);
+      const { data: matchedRecords, error: matchedError } = ids.length ? await database.from("transaction_records").select("id, public_id, agency_name, client_name, project_name, milestone_title, status, legal_hold, retention_until, privacy_deletion_requested_at, deletion_status").in("id", ids).order("created_at", { ascending: false }) : { data: [], error: null };
       if (matchedError) throw new Error(matchedError.message);
-      return { ...item, matchedRecords: matchedRecords ?? [] };
+      return { ...item, accountUserId: usersByEmail.get(item.email.toLowerCase()) ?? null, matchedRecords: matchedRecords ?? [], activeHolds: (holds.data ?? []).filter((hold) => hold.privacy_request_id === item.id) };
     }));
     return NextResponse.json({
       operator: user.email,
@@ -53,7 +59,7 @@ export async function GET() {
         openPrivacyRequests,
         runsLast24Hours: (recentRuns.data ?? []).length,
       },
-      feedback: feedback.data ?? [], events: events.data ?? [], jobs: jobIssues, privacy: privacyWithRecords, notifications: notifications.data ?? [],
+      feedback: feedback.data ?? [], events: events.data ?? [], jobs: jobIssues, privacy: privacyWithRecords, notifications: notifications.data ?? [], deletionFailures: deletionFailures.data ?? [], accountDeletionFailures: accountDeletionFailures.data ?? [], maintenance: maintenance.data ?? [], invites: invites.data ?? [],
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Operator overview unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
@@ -66,7 +72,9 @@ const patchSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("privacy_hold"), id: z.string().uuid(), enabled: z.boolean() }),
   z.object({ kind: z.literal("privacy_deletion"), id: z.string().uuid() }),
   z.object({ kind: z.literal("privacy_correction"), id: z.string().uuid(), recordId: z.string().uuid(), fieldName: z.enum(["agency_name", "client_name", "project_name", "milestone_title"]), correctedValue: z.string().trim().min(1).max(240), reason: z.string().trim().min(3).max(1_000) }),
-  z.object({ kind: z.literal("job"), id: z.string().uuid(), action: z.enum(["acknowledge", "retry"]) }),
+  z.object({ kind: z.literal("record_deletion"), id: z.string().uuid(), action: z.literal("retry") }),
+  z.object({ kind: z.literal("invite"), email: z.string().trim().email().max(320), action: z.enum(["activate", "remove"]), responsibleOperator: z.string().trim().min(2).max(160) }),
+  z.object({ kind: z.literal("job"), id: z.string().uuid(), action: z.enum(["acknowledge", "retry", "expire"]), reason: z.string().trim().max(500).optional() }),
   z.object({ kind: z.literal("notification"), id: z.string().uuid(), action: z.literal("retry") }),
 ]);
 
@@ -95,12 +103,31 @@ export async function PATCH(request: Request) {
       const { data: amendmentId, error } = await database.rpc("record_privacy_correction_atomic", { p_request_id: parsed.data.id, p_record_id: parsed.data.recordId, p_field_name: parsed.data.fieldName, p_corrected_value: parsed.data.correctedValue, p_reason: parsed.data.reason, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
       return NextResponse.json({ updated: true, amendmentId }, { headers: noStoreJsonHeaders() });
+    } else if (parsed.data.kind === "record_deletion") {
+      const { data: updated, error } = await database.rpc("retry_record_deletion_atomic", { p_record_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
+      if (error || !updated) throw new Error(error?.message ?? "Failed deletion was not found.");
+    } else if (parsed.data.kind === "invite") {
+      const normalizedEmail = parsed.data.email.toLowerCase();
+      const { error } = await database.rpc("manage_beta_invite_atomic", { p_email: normalizedEmail, p_status: parsed.data.action === "activate" ? "ACTIVE" : "REMOVED", p_responsible_operator: parsed.data.responsibleOperator, p_operator_email: operator.email, p_now: new Date().toISOString() });
+      if (error) throw new Error(error.message);
+      if (parsed.data.action === "remove") {
+        for (let page = 1; page <= 5; page += 1) {
+          const { data: accounts, error: accountsError } = await database.auth.admin.listUsers({ page, perPage: 200 });
+          if (accountsError) throw new Error(accountsError.message);
+          const account = accounts.users.find((candidate) => candidate.email?.toLowerCase() === normalizedEmail);
+          if (account) { await database.auth.admin.signOut(account.id, "global"); break; }
+          if (accounts.users.length < 200) break;
+        }
+      }
     } else if (parsed.data.kind === "notification") {
       const { data: notification, error } = await database.rpc("prepare_notification_retry_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() }).single();
       if (error || !notification) throw new Error(error?.message ?? "Notification not found.");
       await deliverNotification(notification as NotificationPayload);
     } else if (parsed.data.action === "acknowledge") {
       const { error } = await database.rpc("acknowledge_verification_job_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
+      if (error) throw new Error(error.message);
+    } else if (parsed.data.action === "expire") {
+      const { error } = await database.rpc("resolve_verification_job_atomic", { p_job_id: parsed.data.id, p_operator_email: operator.email, p_reason: parsed.data.reason || "Closed after operator review.", p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
     } else {
       const { data: retried, error: retryError } = await database.rpc("retry_verification_job_atomic", { p_failed_job_id: parsed.data.id, p_operator_email: operator.email }).single();
@@ -109,10 +136,13 @@ export async function PATCH(request: Request) {
       const runnerUrl = process.env.RUNNER_URL; const secret = process.env.RUNNER_HMAC_SECRET;
       if (!runnerUrl || !secret) throw new Error("Runner dispatch is not configured.");
       const body = JSON.stringify({ jobId: job.jobId }); const signed = await signRunnerRequest(body, secret);
-      const dispatched = await fetch(`${runnerUrl.replace(/\/$/, "")}/v1/jobs`, { method: "POST", headers: { "content-type": "application/json", "x-mp-timestamp": signed.timestamp, "x-mp-signature": signed.signature }, body });
-      if (!dispatched.ok) {
-        await database.rpc("fail_verification_job_atomic", { p_job_id: job.jobId, p_attempt: 1, p_error: `Dispatch returned ${dispatched.status}`, p_event_type: "VERIFICATION_DISPATCH_FAILED" });
-        throw new Error(`Runner retry dispatch returned ${dispatched.status}.`);
+      try {
+        const dispatched = await fetch(`${runnerUrl.replace(/\/$/, "")}/v1/jobs`, { method: "POST", headers: { "content-type": "application/json", "x-mp-timestamp": signed.timestamp, "x-mp-signature": signed.signature }, body, signal: AbortSignal.timeout(8_000) });
+        if (!dispatched.ok) throw new Error(`Runner retry dispatch returned ${dispatched.status}.`);
+      } catch (dispatchError) {
+        const message = dispatchError instanceof Error ? dispatchError.message : "Runner retry dispatch failed.";
+        await database.rpc("fail_verification_job_atomic", { p_job_id: job.jobId, p_attempt: 1, p_error: message.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });
+        throw new Error(message);
       }
     }
     return NextResponse.json({ updated: true }, { headers: noStoreJsonHeaders() });

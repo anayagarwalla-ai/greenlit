@@ -8,6 +8,8 @@ export default function PrivacyPage() {
   const operator = process.env.NEXT_PUBLIC_OPERATOR_NAME;
   const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
   const paidGemini = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  const notificationProvider = process.env.NEXT_PUBLIC_NOTIFICATION_PROVIDER;
+  const operatorAddress = process.env.NEXT_PUBLIC_OPERATOR_ADDRESS;
   return (
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
@@ -30,7 +32,7 @@ export default function PrivacyPage() {
         <p>{paidGemini ? "MilestoneProof is configured for Gemini’s paid API service. Google’s current terms state that paid-service prompts and responses are not used to improve its products. The beta still prohibits secrets, regulated data, and material the user is not authorized to process." : "When Gemini’s unpaid API tier is used, Google’s current terms permit Google to use submitted content and generated responses to provide, improve, and develop its services, and human reviewers may process that content. Do not submit confidential, proprietary, sensitive, regulated, or personal information. In regions where Google requires paid API service, MilestoneProof uses its local source-grounded fallback instead."} See <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Google’s Gemini API terms</a>.</p>
 
         <h2>Purposes and providers</h2>
-        <p>Data is used only to draft acceptance criteria, run confirmed checks, produce evidence, create a review packet, record a decision, prevent abuse, and maintain a reproducible audit trail. Infrastructure providers are Google (AI when eligible), Vercel (web hosting), Cloudflare (queued browser verification), and Supabase (database and private evidence storage). Each receives only the data needed for its role.</p>
+        <p>Data is used only to draft acceptance criteria, run confirmed checks, produce evidence, create a review packet, record a decision, prevent abuse, and maintain a reproducible audit trail. Infrastructure providers are Google (AI when eligible), Vercel (web hosting), Cloudflare (queued browser verification), and Supabase (database and private evidence storage).{notificationProvider ? ` ${notificationProvider} delivers transactional decision notices and receives the agency address, reviewer business email, decision type, packet ID, and decision time needed for that notice.` : " Decision notices remain in-app unless a disclosed notification provider is configured."} Each provider receives only the data needed for its role.</p>
 
         <h2>Synthetic walkthrough</h2>
         <p>The guided walkthrough uses only the included synthetic SOW and seeded outcomes. It does not call the Cloudflare browser runner, create evidence artifacts, append transaction events, send its sample decision to the server, or create a downloadable transaction export. A reviewer name and email entered in that walkthrough remain only in local browser storage for the sample receipt.</p>
@@ -39,6 +41,7 @@ export default function PrivacyPage() {
         <div className="legal-table">
           <div><strong>Original SOW content</strong><span>Not retained server-side; unfinished extracted text remains in local browser storage until New import or site-data deletion</span></div>
           <div><strong>Review bearer token</strong><span>72 hours by default; an agency may extend it, up to 14 days from creation</span></div>
+          <div><strong>Reviewer receipt session</strong><span>30 days after a final decision; the original review bearer link still expires</span></div>
           <div><strong>Screenshot evidence</strong><span>90 days unless a legal hold applies</span></div>
           <div><strong>Approval and audit record</strong><span>Four years by default, configurable when a different legal or contractual period applies</span></div>
           <div><strong>Privacy-request record</strong><span>24 months</span></div>
@@ -56,7 +59,7 @@ export default function PrivacyPage() {
         <p>The beta is directed to U.S. business users aged 18 or older. Material changes will update the effective date and be presented before new collection where required.</p>
 
         <h2>Operator and contact</h2>
-        <p>{operator ? <><strong>{operator}</strong> operates MilestoneProof.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published here.</>} {supportEmail ? <>Privacy and support questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Until a support address is published, use the <Link href="/privacy-request">privacy request form</Link>.</>}</p>
+        <p>{operator ? <><strong>{operator}</strong> operates MilestoneProof{operatorAddress ? ` at ${operatorAddress}` : ""}.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published here.</>} {supportEmail ? <>Privacy and support questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Until a support address is published, use the <Link href="/privacy-request">privacy request form</Link>.</>}</p>
       </article>
     </main>
   );

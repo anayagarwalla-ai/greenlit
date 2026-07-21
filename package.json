@@ -10,6 +10,9 @@
     "test": "pnpm --filter @milestoneproof/contracts test && pnpm --filter @milestoneproof/web test && pnpm --filter @milestoneproof/runner test",
     "test:e2e": "playwright test",
     "lint": "pnpm --filter @milestoneproof/web lint",
+    "ops:backup": "node scripts/backup-production.mjs",
+    "ops:restore-check": "node scripts/verify-backup.mjs",
+    "ops:legacy-sources": "node scripts/legacy-source-inventory.mjs",
     "runner:dev": "pnpm --filter @milestoneproof/runner dev",
     "runner:deploy": "pnpm --filter @milestoneproof/runner run deploy"
   },

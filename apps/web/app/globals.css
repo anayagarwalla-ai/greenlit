@@ -144,7 +144,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .dialog-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(11,24,18,.68); backdrop-filter: blur(3px); }.dialog { width: min(480px, 100%); padding: 25px; background: var(--white); border-radius: 6px; box-shadow: 8px 8px 0 var(--lime-dark); }.dialog h2 { margin: 0; font-family: var(--display); font-size: 27px; font-weight: 500; }.dialog > p { margin: 8px 0 20px; color: var(--muted); font-size: 11px; line-height: 1.5; }.form-field { display: grid; gap: 6px; margin-top: 12px; }.form-field label { font-size: 9px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }.form-field input,.form-field textarea { width: 100%; border: 1px solid #bbbfb9; border-radius: 4px; background: white; padding: 11px; color: var(--ink); }.form-field textarea { resize: vertical; min-height: 78px; }.dialog-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 9px; }
 
 .receipt-shell { min-height: 100vh; background: #deddd8; padding: 35px 20px 80px; }.receipt-toolbar { width: min(850px,100%); margin: 0 auto 17px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }.receipt-toolbar__actions { display: flex; flex-wrap: wrap; gap: 8px; }.receipt-page { position: relative; width: min(850px,100%); min-height: 1100px; margin: 0 auto; padding: 60px 62px; background: var(--white); box-shadow: 0 10px 45px rgba(0,0,0,.14); }.receipt-page:before { content:""; position:absolute; inset:12px; border:1px solid #dcdbd5; pointer-events:none; }.receipt-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 27px; border-bottom: 2px solid var(--ink); }.receipt-head h1 { margin: 17px 0 0; font-family: var(--display); font-size: 38px; font-weight: 500; letter-spacing: -.04em; }.receipt-stamp { width: 110px; height: 110px; display: grid; place-items: center; text-align: center; border: 2px solid var(--green); border-radius: 50%; color: var(--green); font-size: 10px; font-weight: 950; letter-spacing: .09em; transform: rotate(-8deg); }.receipt-facts { display: grid; grid-template-columns: 1fr 1fr 1fr; margin: 27px 0; border: 1px solid var(--line); }.receipt-facts div { padding: 15px; }.receipt-facts div + div { border-left: 1px solid var(--line); }.receipt-facts span,.receipt-section-title { display:block; color:var(--muted); font-size:8px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; }.receipt-facts strong { display:block; margin-top:6px; overflow-wrap: anywhere; font-size:12px; }.receipt-criteria { margin-top: 18px; }.receipt-criterion { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); }.receipt-criterion strong { font-size: 10px; }.receipt-criterion small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }.receipt-approval { margin-top: 28px; padding: 21px; display: grid; grid-template-columns: 1fr auto; align-items: center; background: var(--paper); border-left: 3px solid var(--green); }.receipt-approval h3 { margin: 6px 0 4px; font-family: var(--display); font-size: 21px; font-weight: 500; }.receipt-approval p { margin:0; color:var(--muted); font-size:9px; }.receipt-sign { font-family:var(--display); font-style:italic; font-size:21px; }.hash-block { margin-top: 28px; padding-top: 17px; border-top: 1px solid var(--ink); display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }.hash-block p { word-break:break-all; margin:6px 0 0; font:8px/1.5 ui-monospace,monospace; color:#626a64; }.receipt-disclaimer { margin-top:30px; color:#7e837f; font-size:8px; line-height:1.5; }.receipt-page__foot { position:absolute; bottom:30px; left:62px; right:62px; display:flex; justify-content:space-between; font-size:8px; color:#888d89; }
-.toast { position: fixed; z-index: 46; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: var(--ink); color: white; border-radius: 4px; box-shadow: 4px 4px 0 var(--lime-dark); font-size: 10px; font-weight: 750; }
+.toast { position: fixed; z-index: 19; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: var(--ink); color: white; border-radius: 4px; box-shadow: 4px 4px 0 var(--lime-dark); font-size: 10px; font-weight: 750; }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .criteria-panel .panel-header p { display: flex; align-items: center; gap: 4px; }
@@ -184,6 +184,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .operator-controls input,.operator-controls textarea { width: 100%; padding: 8px; border: 1px solid var(--line); background: white; }
 .operator-controls textarea { min-height: 70px; resize: vertical; }
 .operator-inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.operator-invite-form { padding: 16px 18px; display: grid; grid-template-columns: minmax(180px,1fr) minmax(180px,1fr) auto; gap: 10px; align-items: end; border-top: 1px solid var(--line); }
+.operator-invite-form label { display: grid; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 850; }
+.operator-invite-form input { min-height: 44px; padding: 9px 10px; border: 1px solid var(--line); background: white; }
+@media (max-width: 680px) { .operator-invite-form { grid-template-columns: 1fr; } }
 
 /* Beta-readiness accessibility and responsive corrections. */
 .skip-link { position: fixed; z-index: 1000; left: 12px; top: 10px; padding: 10px 14px; transform: translateY(-150%); background: var(--ink); color: white; border: 2px solid var(--lime); font-weight: 850; }
@@ -198,9 +202,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .evidence-unavailable span { font-size: 10px; }
 .review-source-quote { margin: 7px 0; padding-left: 10px; border-left: 3px solid var(--lime-dark); color: #4e5a53; font-size: 10px; line-height: 1.5; }
 .review-evidence { margin-top: 10px; }
-.review-evidence summary { min-height: 36px; display: inline-flex; align-items: center; color: var(--green); cursor: pointer; font-size: 10px; font-weight: 850; }
+.review-evidence summary { min-height: 44px; display: inline-flex; align-items: center; color: var(--green); cursor: pointer; font-size: 10px; font-weight: 850; }
 .review-evidence img { width: min(520px,100%); height: auto; margin: 8px 0; display: block; border: 1px solid var(--line); }
 .review-evidence code { margin-top: 4px; display: block; overflow-wrap: anywhere; color: #4e5a53; font-size: 8px; }
+.evidence-image-link { display: inline-block; max-width: 100%; }
+.evidence-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.evidence-download { min-height: 44px; }
 .dialog { max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
 .feedback-backdrop { position: fixed; z-index: 30; inset: 0; padding: 16px; display: grid; place-items: end; background: rgba(11,24,18,.55); }
 .feedback-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
@@ -216,6 +223,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .receipt-disclaimer { color: #505a53; }
 .operator-section article small { color: #5f6861; }
 .confirm-control,.dialog-close { min-width: 44px; min-height: 44px; }
+.button--small,.feedback-trigger,.operator-section select { min-height: 44px; }
 .mini-action,.text-action { min-height: 44px; display: inline-flex; align-items: center; }
 .attestation input,.decision-consent input,.mapping-consent input { min-width: 20px; min-height: 20px; }
 .change-request-note { margin-bottom: 16px; }
@@ -238,7 +246,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .app-shell .feedback-widget { bottom: 72px; }
 }
 
-@media (max-width: 390px), (min-resolution: 2dppx) and (max-width: 500px) {
+@media (max-width: 412px), (min-resolution: 2dppx) and (max-width: 500px) {
   .app-topbar { align-items: flex-start; }
   .app-topbar__right { width: 100%; justify-content: space-between; }
   .app-topbar__right .button { min-height: 40px; }
@@ -267,6 +275,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .operator-record-matches { margin-top: 12px; padding: 10px; display: grid; gap: 5px; border: 1px solid var(--line); background: #f7f6f1; }
 .operator-record-matches b,.operator-record-matches span { font-size: 9px; line-height: 1.4; }
 .operator-record-matches span { color: var(--muted); }
+.operator-hold { margin-top: 8px; padding: 10px; display: grid; gap: 4px; border-left: 3px solid var(--amber); background: var(--amber-soft); font-size: 9px; }
 .operator-checkbox { grid-template-columns: auto 1fr!important; align-items: center; }
 .operator-checkbox input { width: 20px; min-height: 20px; }
 .operator-correction { padding: 12px; display: grid; gap: 9px; border: 1px solid var(--line); }
@@ -350,7 +359,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .criteria-layout > .panel:first-child { overflow: auto; -webkit-overflow-scrolling: touch; }
 }
 
-@media (max-width: 390px) {
+@media (max-width: 412px) {
   .site-header {
     width: calc(100% - 24px);
     height: auto;
@@ -370,6 +379,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .app-topbar__right { width: 100%; justify-content: space-between; flex-wrap: nowrap; }
   .app-topbar__right .demo-badge,.app-topbar__right .avatar { display: none; }
   .app-account-link,.app-topbar__right .button { min-height: 44px; }
+  .dashboard-header { align-items: stretch; flex-direction: column; }
+  .dashboard-header > div { width: 100%; align-items: center; flex-direction: row; flex-wrap: wrap; justify-content: space-between; overflow-wrap: anywhere; }
+  .dashboard-header .brand { flex: 0 0 auto; }
 }
 
 /* Final specificity overrides for beta accessibility fixes. */
@@ -378,3 +390,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .document-line > span { color: #656d67; }
 .side-nav button { color: #30463b; }
 .side-nav button:disabled { color: #78827b; }
+.receipt-page__foot,.approval-success .receipt-id { color: #4f5a52; }
+.evidence-consent { margin-top: 16px; }

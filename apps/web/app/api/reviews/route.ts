@@ -4,6 +4,9 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, REVIEW_EXPIRY_HOURS, sha256 } from "@/lib/recordkeeping";
 import { getOwnerIdentity } from "@/lib/owner-auth";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
+import { assertReviewSnapshotIntegrity } from "@/lib/review-session";
+import { logProductEvent } from "@/lib/operations";
 
 const schema = z.object({ recordId: z.string().uuid(), runId: z.string().uuid() });
 
@@ -13,11 +16,12 @@ export async function POST(request: Request) {
   try {
     const database = requireSupabaseAdmin();
     const owner = await getOwnerIdentity();
-    if (!owner.userId && !owner.ownerTokenHash) return NextResponse.json({ error: "Sign in to create a client review." }, { status: 401, headers: noStoreJsonHeaders() });
-    const quota = await consumeRateLimit(request, "review-packet-day", 20, 86_400, owner.userId ?? owner.ownerTokenHash);
+    if (!owner.userId || !owner.user) return NextResponse.json({ error: "Sign in to create a client review." }, { status: 401, headers: noStoreJsonHeaders() });
+    if (!await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+    const quota = await consumeRateLimit(request, "review-packet-day", 20, 86_400, owner.userId);
     if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
     const { data: record, error: recordError } = await database.from("transaction_records").select("*").eq("id", parsed.data.recordId).single();
-    const authorized = record && (record.owner_user_id === owner.userId || record.owner_token_hash === owner.ownerTokenHash);
+    const authorized = record && record.owner_user_id === owner.userId;
     const { data: run, error: runError } = await database.from("verification_jobs_v2").select("*").eq("id", parsed.data.runId).eq("record_id", parsed.data.recordId).single();
     if (recordError || runError || !authorized || !run) return NextResponse.json({ error: "The passing verification record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
     if (!["READY_FOR_REVIEW", "IN_REVIEW"].includes(record.status) || record.last_run_id !== run.id) return NextResponse.json({ error: "Only the milestone's current passing run can be sent for review. Refresh and try again." }, { status: 409, headers: noStoreJsonHeaders() });
@@ -29,6 +33,9 @@ export async function POST(request: Request) {
     const completeCoverage = checks.length > 0 && results.length === checks.length && artifacts.length === checks.length && new Set(resultIds).size === checks.length && checkIds.every((id) => resultIds.includes(id) && artifacts.some((artifact) => artifact.criterionId === id && /^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")));
     if (run.status !== "COMPLETED" || !completeCoverage || !run.manifest_sha256 || results.some((result) => (result as { status?: string }).status !== "PASS")) return NextResponse.json({ error: "Only a complete passing run with matching stored evidence can be sent for review." }, { status: 409, headers: noStoreJsonHeaders() });
     if (run.criteria_revision !== record.criteria_revision) return NextResponse.json({ error: "The criteria changed since this run completed. Rerun verification before sending for review." }, { status: 409, headers: noStoreJsonHeaders() });
+    const { data: activePacket, error: activePacketError } = await database.from("review_packets_v2").select("public_id,expires_at").eq("record_id", record.id).is("decision", null).is("revoked_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+    if (activePacketError) throw new Error(activePacketError.message);
+    if (activePacket) return NextResponse.json({ error: "An active client-review link already exists. Revoke it before creating a replacement link.", activePacketId: activePacket.public_id, expiresAt: activePacket.expires_at }, { status: 409, headers: noStoreJsonHeaders() });
 
     const packetPublicId = publicRecordId("REVIEW");
     const token = randomToken();
@@ -51,8 +58,10 @@ export async function POST(request: Request) {
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));
+    assertReviewSnapshotIntegrity(snapshot, snapshotSha256);
     const { error } = await database.rpc("create_review_packet_atomic", { p_record_id: record.id, p_run_id: run.id, p_public_id: packetPublicId, p_snapshot: snapshot, p_snapshot_sha256: snapshotSha256, p_bearer_token_hash: sha256(token), p_expires_at: expiresAt, p_actor_hash: requestActorHash(request), p_criteria_revision: record.criteria_revision });
     if (error) throw new Error(`Review packet could not be recorded: ${error.message}`);
+    await logProductEvent({ eventType: "REVIEW_LINK_CREATED", ownerUserId: owner.userId, recordId: record.id, properties: { criteriaCount: record.confirmed_criteria.length, status: "ACTIVE" } });
     const origin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     return NextResponse.json({ packetId: packetPublicId, reviewUrl: `${origin}/review/${packetPublicId}#t=${token}`, expiresAt, snapshotSha256 }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {

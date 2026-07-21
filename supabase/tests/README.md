@@ -35,6 +35,12 @@ for f in supabase/migrations/*.sql; do
   psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 -f "$f"
 done
 
+# Grant the scratch service role access to objects created by the migrations.
+psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 -c "
+  grant all on all tables in schema auth, storage, public to service_role;
+  grant all on all sequences in schema public to service_role;
+  grant execute on all functions in schema auth, storage, public to service_role;"
+
 # 5. Run the functional checks (raises on any failed assertion)
 psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
   -f supabase/tests/01_atomic_rpc_functional_checks.sql

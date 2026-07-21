@@ -8,8 +8,8 @@ import { EVIDENCE_RETENTION_DAYS, noStoreJsonHeaders, sha256 } from "@/lib/recor
 const schema = z.object({
   criterionId: z.string().min(1).max(80),
   kind: z.enum(["SCREENSHOT", "NETWORK", "AXE", "MANIFEST"]),
-  mimeType: z.enum(["image/png", "application/json"]),
-  base64: z.string().max(2_500_000),
+  mimeType: z.enum(["image/jpeg", "image/png", "application/json"]),
+  base64: z.string().max(1_200_000),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
@@ -28,8 +28,9 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const checkIds = new Set(((job.checks ?? []) as Array<{ criterionId?: string }>).map((check) => check.criterionId));
     if (!checkIds.has(parsed.data.criterionId)) return NextResponse.json({ error: "Artifact criterion is not in the frozen check manifest." }, { status: 422, headers: noStoreJsonHeaders() });
     const bytes = Buffer.from(parsed.data.base64, "base64");
+    if (bytes.byteLength > 850_000) return NextResponse.json({ error: "Evidence screenshot exceeds the beta storage limit." }, { status: 413, headers: noStoreJsonHeaders() });
     if (sha256(bytes) !== parsed.data.sha256) return NextResponse.json({ error: "Evidence hash mismatch." }, { status: 422, headers: noStoreJsonHeaders() });
-    const extension = parsed.data.mimeType === "image/png" ? "png" : "json";
+    const extension = parsed.data.mimeType === "image/jpeg" ? "jpg" : parsed.data.mimeType === "image/png" ? "png" : "json";
     const storagePath = `${job.record_id}/${jobId}/${parsed.data.criterionId}-${parsed.data.kind.toLowerCase()}.${extension}`;
     const { error: uploadError } = await database.storage.from("evidence").upload(storagePath, bytes, { contentType: parsed.data.mimeType, upsert: true, cacheControl: "300" });
     if (uploadError) throw new Error(`Evidence upload failed: ${uploadError.message}`);

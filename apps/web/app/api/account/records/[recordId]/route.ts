@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { getOptionalUser } from "@/lib/supabase-server";
-import { betaAccessAllowed } from "@/lib/beta-access";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 
@@ -12,7 +12,7 @@ const patchSchema = z.object({
 
 async function ownerRecord(recordId: string) {
   const user = await getOptionalUser();
-  if (!user || !betaAccessAllowed(user)) return { user: null, record: null };
+  if (!user || !await betaAccessAllowedFresh(user)) return { user: null, record: null };
   const database = requireSupabaseAdmin();
   const { data: record } = await database.from("transaction_records").select("*").eq("id", recordId).eq("owner_user_id", user.id).maybeSingle();
   return { user, record, database };

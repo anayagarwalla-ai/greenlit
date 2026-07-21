@@ -84,6 +84,8 @@ export function buildCheck(criterion: AnalysisCriterion, draft: CheckDraft, inde
   };
   let candidate: unknown;
   if (criterion.checkType === "element_state") {
+    if (!draft.elementRef.trim()) throw new Error(`${criterion.id} element reference is required.`);
+    if (draft.assertion === "count" && (!Number.isInteger(Number(draft.expectedCount)) || Number(draft.expectedCount) < 0 || Number(draft.expectedCount) > 100)) throw new Error(`${criterion.id} expected count must be a whole number from 0 to 100.`);
     candidate = {
       ...base,
       type: "element_state",
@@ -92,17 +94,24 @@ export function buildCheck(criterion: AnalysisCriterion, draft: CheckDraft, inde
       ...(draft.assertion === "count" ? { expectedCount: Number(draft.expectedCount) } : {}),
     };
   } else if (criterion.checkType === "link_destination") {
+    if (!draft.elementRef.trim()) throw new Error(`${criterion.id} element reference is required.`);
     candidate = { ...base, type: "link_destination", elementRef: draft.elementRef.trim(), expectedPath: safePath(draft.expectedPath, `${criterion.id} expected destination`) };
   } else if (criterion.checkType === "form_submission") {
     const fields = draft.fields.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
       const split = line.indexOf("=");
       if (split < 1) throw new Error(`${criterion.id} form values must use one Label=value pair per line.`);
-      return { label: line.slice(0, split).trim(), value: line.slice(split + 1).trim() };
+      const label = line.slice(0, split).trim();
+      const value = line.slice(split + 1).trim();
+      if (!label || !value) throw new Error(`${criterion.id} form values require both a label and value on every line.`);
+      return { label, value };
     });
+    if (fields.length === 0) throw new Error(`${criterion.id} form values require at least one Label=value pair.`);
+    if (!draft.submitRef.trim()) throw new Error(`${criterion.id} submit element is required.`);
     const expectedPostPath = safePath(draft.expectedPostPath, `${criterion.id} POST path`, true);
     const successText = draft.successText.trim() || undefined;
     const successPath = safePath(draft.successPath, `${criterion.id} success path`, true);
     if (!successText && !successPath && !expectedPostPath) throw new Error(`${criterion.id} needs a success message, success path, or expected POST path so it cannot pass without evidence.`);
+    if (expectedPostPath && (!Number.isInteger(Number(draft.expectedStatus)) || Number(draft.expectedStatus) < 200 || Number(draft.expectedStatus) > 399)) throw new Error(`${criterion.id} expected status must be between 200 and 399.`);
     if (!draft.mutationAcknowledged) throw new Error(`${criterion.id} requires confirmation that the staging form may receive the test submission.`);
     candidate = {
       ...base,
@@ -116,6 +125,7 @@ export function buildCheck(criterion: AnalysisCriterion, draft: CheckDraft, inde
       ownerAcknowledgedMutation: true,
     };
   } else if (criterion.checkType === "viewport_layout") {
+    if (!Number.isFinite(Number(draft.maxOverflow)) || Number(draft.maxOverflow) < 0 || Number(draft.maxOverflow) > 20) throw new Error(`${criterion.id} maximum horizontal overflow must be from 0 to 20 pixels.`);
     const viewports = draft.viewports === "mobile"
       ? [{ width: 390, height: 844, label: "Mobile" }]
       : draft.viewports === "desktop"
@@ -141,24 +151,26 @@ export function buildCheck(criterion: AnalysisCriterion, draft: CheckDraft, inde
 
 function MappingFields({ criterion, draft, update, error }: { criterion: AnalysisCriterion; draft: CheckDraft; update: (patch: Partial<CheckDraft>) => void; error: string }) {
   const errorId = `${criterion.id}-mapping-error`;
+  const invalid = (...markers: string[]) => Boolean(error) && markers.some((marker) => error.toLowerCase().includes(marker));
+  const describedBy = (...markers: string[]) => invalid(...markers) ? errorId : undefined;
   return (
     <div className="mapping-fields">
       {error && <p className="analysis-error mapping-wide" id={errorId} role="alert">{error}</p>}
-      <label>{criterion.id} page path<input aria-label={`${criterion.id} page path`} aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} value={draft.path} onChange={(event) => update({ path: event.target.value })} placeholder="/contact" /></label>
-      {(criterion.checkType === "element_state" || criterion.checkType === "link_destination") && <label>{criterion.id} element reference<input aria-label={`${criterion.id} element reference`} value={draft.elementRef} onChange={(event) => update({ elementRef: event.target.value })} placeholder="button:Get started" /><small>Exact accessible role:name, such as link:Contact us.</small></label>}
-      {criterion.checkType === "element_state" && <><label>{criterion.id} assertion<select aria-label={`${criterion.id} assertion`} value={draft.assertion} onChange={(event) => update({ assertion: event.target.value as CheckDraft["assertion"] })}><option value="visible">Visible</option><option value="enabled">Enabled</option><option value="count">Exact count</option></select></label>{draft.assertion === "count" && <label>{criterion.id} expected count<input aria-label={`${criterion.id} expected count`} type="number" min="0" max="100" value={draft.expectedCount} onChange={(event) => update({ expectedCount: event.target.value })} /></label>}</>}
-      {criterion.checkType === "link_destination" && <label>{criterion.id} expected same-origin path<input aria-label={`${criterion.id} expected same-origin path`} value={draft.expectedPath} onChange={(event) => update({ expectedPath: event.target.value })} placeholder="/contact" /></label>}
+      <label>{criterion.id} page path<input aria-label={`${criterion.id} page path`} aria-invalid={invalid("page path")} aria-describedby={describedBy("page path")} value={draft.path} onChange={(event) => update({ path: event.target.value })} placeholder="/contact" /></label>
+      {(criterion.checkType === "element_state" || criterion.checkType === "link_destination") && <label>{criterion.id} element reference<input aria-label={`${criterion.id} element reference`} aria-invalid={invalid("element reference")} aria-describedby={describedBy("element reference")} value={draft.elementRef} onChange={(event) => update({ elementRef: event.target.value })} placeholder="button:Get started" /><small>Exact accessible role:name, such as link:Contact us.</small></label>}
+      {criterion.checkType === "element_state" && <><label>{criterion.id} assertion<select aria-label={`${criterion.id} assertion`} aria-invalid={invalid("assertion")} aria-describedby={describedBy("assertion")} value={draft.assertion} onChange={(event) => update({ assertion: event.target.value as CheckDraft["assertion"] })}><option value="visible">Visible</option><option value="enabled">Enabled</option><option value="count">Exact count</option></select></label>{draft.assertion === "count" && <label>{criterion.id} expected count<input aria-label={`${criterion.id} expected count`} aria-invalid={invalid("expected count")} aria-describedby={describedBy("expected count")} type="number" min="0" max="100" value={draft.expectedCount} onChange={(event) => update({ expectedCount: event.target.value })} /></label>}</>}
+      {criterion.checkType === "link_destination" && <label>{criterion.id} expected same-origin path<input aria-label={`${criterion.id} expected same-origin path`} aria-invalid={invalid("expected destination")} aria-describedby={describedBy("expected destination")} value={draft.expectedPath} onChange={(event) => update({ expectedPath: event.target.value })} placeholder="/contact" /></label>}
       {criterion.checkType === "form_submission" && <>
-        <label className="mapping-wide">{criterion.id} test values<textarea aria-label={`${criterion.id} test values`} value={draft.fields} onChange={(event) => update({ fields: event.target.value })} placeholder={"Email=qa@example.com\nMessage=MilestoneProof beta test"} /><small>One accessible field label and test value per line.</small></label>
-        <label>{criterion.id} submit element<input aria-label={`${criterion.id} submit element`} value={draft.submitRef} onChange={(event) => update({ submitRef: event.target.value })} placeholder="button:Send" /></label>
-        <label>{criterion.id} success message<input aria-label={`${criterion.id} success message`} value={draft.successText} onChange={(event) => update({ successText: event.target.value })} placeholder="Thanks, we received it" /></label>
-        <label>{criterion.id} success page path<input aria-label={`${criterion.id} success page path`} value={draft.successPath} onChange={(event) => update({ successPath: event.target.value })} placeholder="/thank-you (optional)" /></label>
-        <label>{criterion.id} expected POST path<input aria-label={`${criterion.id} expected POST path`} value={draft.expectedPostPath} onChange={(event) => update({ expectedPostPath: event.target.value })} placeholder="/api/leads (optional)" /></label>
-        <label>{criterion.id} expected status<input aria-label={`${criterion.id} expected status`} type="number" min="200" max="399" value={draft.expectedStatus} disabled={!draft.expectedPostPath.trim()} onChange={(event) => update({ expectedStatus: event.target.value })} /></label>
+        <label className="mapping-wide">{criterion.id} test values<textarea aria-label={`${criterion.id} test values`} aria-invalid={invalid("form values")} aria-describedby={describedBy("form values")} value={draft.fields} onChange={(event) => update({ fields: event.target.value })} placeholder={"Email=qa@example.com\nMessage=MilestoneProof beta test"} /><small>One accessible field label and test value per line.</small></label>
+        <label>{criterion.id} submit element<input aria-label={`${criterion.id} submit element`} aria-invalid={invalid("submit element")} aria-describedby={describedBy("submit element")} value={draft.submitRef} onChange={(event) => update({ submitRef: event.target.value })} placeholder="button:Send" /></label>
+        <label>{criterion.id} success message<input aria-label={`${criterion.id} success message`} aria-invalid={invalid("success message")} aria-describedby={describedBy("success message")} value={draft.successText} onChange={(event) => update({ successText: event.target.value })} placeholder="Thanks, we received it" /></label>
+        <label>{criterion.id} success page path<input aria-label={`${criterion.id} success page path`} aria-invalid={invalid("success path")} aria-describedby={describedBy("success path")} value={draft.successPath} onChange={(event) => update({ successPath: event.target.value })} placeholder="/thank-you (optional)" /></label>
+        <label>{criterion.id} expected POST path<input aria-label={`${criterion.id} expected POST path`} aria-invalid={invalid("post path")} aria-describedby={describedBy("post path")} value={draft.expectedPostPath} onChange={(event) => update({ expectedPostPath: event.target.value })} placeholder="/api/leads (optional)" /></label>
+        <label>{criterion.id} expected status<input aria-label={`${criterion.id} expected status`} aria-invalid={invalid("expected status")} aria-describedby={describedBy("expected status")} type="number" min="200" max="399" value={draft.expectedStatus} disabled={!draft.expectedPostPath.trim()} onChange={(event) => update({ expectedStatus: event.target.value })} /></label>
         <label className="mapping-consent mapping-wide"><input type="checkbox" checked={draft.mutationAcknowledged} onChange={(event) => update({ mutationAcknowledged: event.target.checked })} /><span>I own or am authorized to test this staging form and accept the labeled test submission.</span></label>
       </>}
-      {criterion.checkType === "viewport_layout" && <><label>{criterion.id} viewports<select aria-label={`${criterion.id} viewports`} value={draft.viewports} onChange={(event) => update({ viewports: event.target.value as CheckDraft["viewports"] })}><option value="both">Mobile + desktop</option><option value="mobile">Mobile only</option><option value="desktop">Desktop only</option></select></label><label>{criterion.id} maximum horizontal overflow (px)<input aria-label={`${criterion.id} maximum horizontal overflow`} type="number" min="0" max="20" value={draft.maxOverflow} onChange={(event) => update({ maxOverflow: event.target.value })} /></label></>}
-      {criterion.checkType === "axe_scan" && <><label>{criterion.id} optional submit element<input aria-label={`${criterion.id} optional submit element`} value={draft.submitRef} onChange={(event) => update({ submitRef: event.target.value })} placeholder="Leave blank for a page scan" /><small>Use only to expose validation messages before scanning.</small></label>{draft.submitRef.trim() && <label className="mapping-consent mapping-wide"><input type="checkbox" checked={draft.mutationAcknowledged} onChange={(event) => update({ mutationAcknowledged: event.target.checked })} /><span>I authorize this staging interaction.</span></label>}</>}
+      {criterion.checkType === "viewport_layout" && <><label>{criterion.id} viewports<select aria-label={`${criterion.id} viewports`} aria-invalid={invalid("viewport")} aria-describedby={describedBy("viewport")} value={draft.viewports} onChange={(event) => update({ viewports: event.target.value as CheckDraft["viewports"] })}><option value="both">Mobile + desktop</option><option value="mobile">Mobile only</option><option value="desktop">Desktop only</option></select></label><label>{criterion.id} maximum horizontal overflow (px)<input aria-label={`${criterion.id} maximum horizontal overflow`} aria-invalid={invalid("maximum horizontal overflow")} aria-describedby={describedBy("maximum horizontal overflow")} type="number" min="0" max="20" value={draft.maxOverflow} onChange={(event) => update({ maxOverflow: event.target.value })} /></label></>}
+      {criterion.checkType === "axe_scan" && <><label>{criterion.id} optional submit element<input aria-label={`${criterion.id} optional submit element`} aria-invalid={invalid("submit element")} aria-describedby={describedBy("submit element")} value={draft.submitRef} onChange={(event) => update({ submitRef: event.target.value })} placeholder="Leave blank for a page scan" /><small>Use only to expose validation messages before scanning.</small></label>{draft.submitRef.trim() && <label className="mapping-consent mapping-wide"><input type="checkbox" checked={draft.mutationAcknowledged} onChange={(event) => update({ mutationAcknowledged: event.target.checked })} /><span>I authorize this staging interaction.</span></label>}</>}
     </div>
   );
 }
@@ -183,6 +195,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
+  const [evidenceConsent, setEvidenceConsent] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -215,8 +228,10 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
     try {
       if (!signedInEmail) throw new Error("Sign in with your business email before creating retained evidence.");
       if (!receipt || !verifiedOrigin) throw new Error("Verify this staging origin first.");
+      if (!evidenceConsent) throw new Error("Confirm the staging evidence and retention notice before running checks.");
       if (!buildLabel.trim()) throw new Error("Add a build label so this evidence can be tied to a release.");
       if (automated.length === 0) throw new Error("This scope has no browser-verifiable criteria. Keep the manual items for client review, then add at least one objective browser check before running evidence.");
+      if (automated.length > 6) throw new Error("The closed beta supports at most six browser checks per run. Move additional promises to client review or split the milestone.");
       const checks: CheckSpec[] = [];
       const errors: Record<string, string> = {};
       automated.forEach((criterion, index) => {
@@ -246,6 +261,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
           <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/milestoneproof.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>
           <button className="button button--outline" type="button" disabled={busy || !signedInEmail || !target || !token} onClick={() => void verify()}>{busy ? <LoaderCircle className="spin" size={15} /> : <ShieldCheck size={15} />}{busy ? "Checking token…" : "Verify staging origin"}</button>
           {verifiedOrigin && <div className="origin-verified"><CheckCircle2 size={15} /><span><strong>{verifiedOrigin}</strong> verified for this account for 30 minutes.</span></div>}
+          <label className="mapping-consent evidence-consent"><input type="checkbox" checked={evidenceConsent} onChange={(event) => setEvidenceConsent(event.target.checked)} /><span>I am authorized to capture this public staging build. It contains no confidential data or real personal data. Screenshots will be shared with the reviewer and retained privately for 90 days. Cross-origin scripts, images, and fonts are blocked, so this staging build must render with same-origin resources.</span></label>
         </div>
 
         <div className="setup-section">
@@ -256,9 +272,9 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
           </div>
         </div>
 
-        <div className="handoff-actions"><button className="button button--lime" type="button" disabled={!signedInEmail || busy} onClick={run}>Run verified checks <Play size={15} /></button><button className="button button--outline" type="button" onClick={onBack}>Back to criteria</button></div>
+        <div className="handoff-actions"><button className="button button--lime" type="button" disabled={!signedInEmail || busy || !evidenceConsent} onClick={run}>Run verified checks <Play size={15} /></button><button className="button button--outline" type="button" onClick={onBack}>Back to criteria</button></div>
       </section>
-      <aside className="panel handoff-checklist"><h3>Evidence boundary</h3><div><CheckCircle2 size={15} /><span><strong>Account-bound origin proof</strong>The signed receipt cannot be reused by another account or hostname.</span></div><div><CircleDot size={15} /><span><strong>Same-origin checks only</strong>Paths cannot navigate to external sites or internal networks.</span></div><div><CircleDot size={15} /><span><strong>Explicit form consent</strong>Potential mutations require a separate authorization.</span></div><div className="boundary-callout"><LockKeyhole size={15} /><div><strong>Need a reliable fallback?</strong><p>The synthetic walkthrough never claims retained evidence.</p><button className="text-action" onClick={onDemo}>Open guided demo <ExternalLink size={12} /></button></div></div></aside>
+      <aside className="panel handoff-checklist"><h3>Evidence boundary</h3><div><CheckCircle2 size={15} /><span><strong>Account-bound origin proof</strong>The signed receipt cannot be reused by another account or hostname.</span></div><div><CircleDot size={15} /><span><strong>Same-origin resources only</strong>Navigation and page resources cannot leave the verified origin or reach internal networks.</span></div><div><CircleDot size={15} /><span><strong>Explicit form consent</strong>Potential mutations require a separate authorization.</span></div><div className="boundary-callout"><LockKeyhole size={15} /><div><strong>Need a reliable fallback?</strong><p>The synthetic walkthrough never claims retained evidence.</p><button className="text-action" onClick={onDemo}>Open guided demo <ExternalLink size={12} /></button></div></div></aside>
     </div>
   );
 }

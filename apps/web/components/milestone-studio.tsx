@@ -370,6 +370,12 @@ export function MilestoneStudio() {
           if (cancelled) return;
           const record = resumed.record;
           const savedWorkspace = record.workspace_state && typeof record.workspace_state === "object" ? record.workspace_state as Partial<WorkspaceDraft> : null;
+          let localWorkspace: Partial<WorkspaceDraft> | null = null;
+          try {
+            const localRaw = readProjectDraft(email, savedWorkspace?.draftId || record.id);
+            const parsedLocal = localRaw ? JSON.parse(localRaw) as Partial<WorkspaceDraft> : null;
+            if (parsedLocal?.version === 4 && parsedLocal.recordId === record.id) localWorkspace = parsedLocal;
+          } catch { /* A local convenience copy must never block the retained record. */ }
           const restoredCriteria = (savedWorkspace?.version === 4 && Array.isArray(savedWorkspace.criteria) ? savedWorkspace.criteria : record.confirmed_criteria ?? []) as AnalysisCriterion[];
           const latest = resumed.runs?.[0];
           const latestReview = resumed.reviews?.[0];
@@ -378,10 +384,13 @@ export function MilestoneStudio() {
           const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
           setRetainedFixtureRecord(isImportedFixture);
           setBusiness(savedWorkspace?.version === 4 && savedWorkspace.business ? savedWorkspace.business : { agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
-          setSourceName(savedWorkspace?.version === 4 ? savedWorkspace.sourceName ?? record.source_name : record.source_name);
-          setSourceText(savedWorkspace?.version === 4 && savedWorkspace.sourceText?.trim()
-            ? savedWorkspace.sourceText
+          setSourceName(localWorkspace?.sourceName ?? (savedWorkspace?.version === 4 ? savedWorkspace.sourceName ?? record.source_name : record.source_name));
+          setSourceText(localWorkspace?.sourceText?.trim()
+            ? localWorkspace.sourceText
+            : savedWorkspace?.version === 4 && savedWorkspace.sourceText?.trim()
+              ? savedWorkspace.sourceText
             : restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+          if (localWorkspace?.selectedFileMeta) { setSelectedFileMeta(localWorkspace.selectedFileMeta); setSelectedFile(base64ToFile(localWorkspace.selectedFileMeta)); }
           setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
           setConfirmed(savedWorkspace?.version === 4 ? savedWorkspace.confirmed ?? {} : Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
           setAttested(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.attested) : true);
@@ -491,9 +500,16 @@ export function MilestoneStudio() {
     phaseHeading.current?.focus({ preventScroll: true });
   }, [phase]);
 
-  const preserveDraft = (markForSignIn = false) => {
+  const preserveDraft = async (markForSignIn = false) => {
     if (sourceMode === "demo" || !draftId) return;
-    saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)), markForSignIn && !sessionEmail);
+    const snapshot = workspaceSnapshot(true);
+    let durableFile = snapshot.selectedFileMeta;
+    if (selectedFile && selectedFile.size <= MAX_PERSISTED_FILE_BYTES && (!durableFile || durableFile.name !== selectedFile.name)) {
+      const base64 = await fileToBase64(selectedFile);
+      durableFile = { name: selectedFile.name, type: selectedFile.type, base64 };
+      setSelectedFileMeta(durableFile);
+    }
+    saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
   };
 
   const reset = () => {
@@ -584,6 +600,17 @@ export function MilestoneStudio() {
     const missingBusiness = businessEntries.find(([, value]) => !value.trim());
     if (missingBusiness) {
       setAnalysisError(`Enter the ${missingBusiness[0]} before Gemini analysis.`);
+      return;
+    }
+    const overlongBusiness = [
+      ["agency or vendor", business.agencyName, 120],
+      ["client", business.clientName, 120],
+      ["project", business.projectName, 180],
+      ["milestone", business.milestoneTitle, 180],
+    ] as const;
+    const overlong = overlongBusiness.find(([, value, maximum]) => value.trim().length > maximum);
+    if (overlong) {
+      setAnalysisError(`Keep the ${overlong[0]} at ${overlong[2]} characters or fewer before Gemini analysis.`);
       return;
     }
     const amountMinor = Math.round(Number(business.amountDollars) * 100);
@@ -786,6 +813,23 @@ export function MilestoneStudio() {
       if (!recordId) throw new Error("The retained milestone record is unavailable.");
       const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
       const payload = await response.json();
+      if (response.status === 409 && payload.activePacketId) {
+        setReviewPacketId(payload.activePacketId);
+        setReviewCreated(true);
+        const replace = window.confirm("A client-review link is already active, but its secret cannot be recovered after reload. Revoke that link and create a replacement?");
+        if (!replace) throw new Error("The existing review link remains active. You can revoke or extend it from the dashboard.");
+        const revoked = await fetch(`/api/account/reviews/${encodeURIComponent(payload.activePacketId)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revoke" }) });
+        const revokedPayload = await revoked.json();
+        if (!revoked.ok) throw new Error(revokedPayload.error ?? "The existing review link could not be revoked.");
+        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
+        const replacementPayload = await replacement.json();
+        if (!replacement.ok) throw new Error(replacementPayload.error ?? "The replacement review link could not be created.");
+        setReviewUrl(replacementPayload.reviewUrl);
+        setReviewPacketId(replacementPayload.packetId);
+        setPhase("shared");
+        setToast("Old review revoked; replacement link created");
+        return;
+      }
       if (!response.ok) throw new Error(payload.error ?? "The client review could not be created.");
       setReviewUrl(payload.reviewUrl);
       setReviewPacketId(payload.packetId);
@@ -847,7 +891,7 @@ export function MilestoneStudio() {
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
-          <Link className="app-account-link" onClick={() => preserveDraft(!sessionEmail)} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
+          <Link className="app-account-link" onClick={(event) => { event.preventDefault(); void preserveDraft(!sessionEmail).then(() => window.location.assign(sessionEmail ? "/dashboard" : signInHref)); }} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
           <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
         </div>
@@ -901,7 +945,7 @@ export function MilestoneStudio() {
               sourceText={sourceText}
               setSourceText={setSourceText}
               selectedFile={selectedFile}
-              setSelectedFile={setSelectedFile}
+              setSelectedFile={(file) => { if (file && file.size > MAX_PERSISTED_FILE_BYTES) { setSelectedFile(null); setAnalysisError("Keep uploads under 1.5 MB so the complete draft can survive sign-in safely."); } else { setSelectedFile(file); setAnalysisError(""); } }}
               attested={attested}
               setAttested={setAttested}
               aiDisclosureAccepted={aiDisclosureAccepted}
@@ -967,7 +1011,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   onDemo: () => void;
   signedInEmail: string;
   signInHref: Route;
-  onSignIn: () => void;
+  onSignIn: () => Promise<void>;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -990,7 +1034,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={onSignIn} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
+            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn().then(() => window.location.assign(signInHref)); }} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
             <span>or</span>
             <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
           </div>
@@ -1002,17 +1046,17 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <input ref={fileInput} className="sr-only" tabIndex={-1} type="file" aria-label="Upload a PDF, TXT, or Markdown file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
         <button className={`upload-drop ${selectedFile ? "has-file" : ""}`} type="button" disabled={analyzing} onClick={() => fileInput.current?.click()}>
           <span className="upload-icon"><FileUp size={20} /></span>
-          <span><strong>{selectedFile ? selectedFile.name : "Choose a PDF, TXT, or Markdown file"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(0)} KB · click to replace` : "Selectable text · 3 MB maximum"}</small></span>
+          <span><strong>{selectedFile ? selectedFile.name : "Choose a PDF, TXT, or Markdown file"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(0)} KB · click to replace` : "Selectable text · 1.5 MB maximum"}</small></span>
           {selectedFile && <CheckCircle2 size={18} />}
         </button>
         {selectedFile && <button className="clear-file" type="button" onClick={() => setSelectedFile(null)}>Remove file and use pasted text</button>}
 
         <fieldset className="business-details" disabled={analyzing}>
           <legend>Business record details</legend>
-          <label htmlFor="agency-name">Agency or vendor<input id="agency-name" aria-invalid={Boolean(error && !business.agencyName.trim())} aria-describedby={error && !business.agencyName.trim() ? "agency-name-error" : undefined} value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required />{error && !business.agencyName.trim() && <small id="agency-name-error">Agency or vendor is required.</small>}</label>
-          <label htmlFor="client-name">Client<input id="client-name" aria-invalid={Boolean(error && !business.clientName.trim())} aria-describedby={error && !business.clientName.trim() ? "client-name-error" : undefined} value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required />{error && !business.clientName.trim() && <small id="client-name-error">Client is required.</small>}</label>
-          <label htmlFor="project-name">Project<input id="project-name" aria-invalid={Boolean(error && !business.projectName.trim())} aria-describedby={error && !business.projectName.trim() ? "project-name-error" : undefined} value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required />{error && !business.projectName.trim() && <small id="project-name-error">Project is required.</small>}</label>
-          <label htmlFor="milestone-title">Milestone<input id="milestone-title" aria-invalid={Boolean(error && !business.milestoneTitle.trim())} aria-describedby={error && !business.milestoneTitle.trim() ? "milestone-title-error" : undefined} value={business.milestoneTitle} onChange={(event) => updateBusiness("milestoneTitle", event.target.value)} required />{error && !business.milestoneTitle.trim() && <small id="milestone-title-error">Milestone is required.</small>}</label>
+          <label htmlFor="agency-name">Agency or vendor<input id="agency-name" maxLength={120} aria-invalid={Boolean(error && (!business.agencyName.trim() || business.agencyName.trim().length > 120))} aria-describedby={error && (!business.agencyName.trim() || business.agencyName.trim().length > 120) ? "agency-name-error" : undefined} value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required />{error && (!business.agencyName.trim() || business.agencyName.trim().length > 120) && <small id="agency-name-error">Agency or vendor is required and must be 120 characters or fewer.</small>}</label>
+          <label htmlFor="client-name">Client<input id="client-name" maxLength={120} aria-invalid={Boolean(error && (!business.clientName.trim() || business.clientName.trim().length > 120))} aria-describedby={error && (!business.clientName.trim() || business.clientName.trim().length > 120) ? "client-name-error" : undefined} value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required />{error && (!business.clientName.trim() || business.clientName.trim().length > 120) && <small id="client-name-error">Client is required and must be 120 characters or fewer.</small>}</label>
+          <label htmlFor="project-name">Project<input id="project-name" maxLength={180} aria-invalid={Boolean(error && (!business.projectName.trim() || business.projectName.trim().length > 180))} aria-describedby={error && (!business.projectName.trim() || business.projectName.trim().length > 180) ? "project-name-error" : undefined} value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required />{error && (!business.projectName.trim() || business.projectName.trim().length > 180) && <small id="project-name-error">Project is required and must be 180 characters or fewer.</small>}</label>
+          <label htmlFor="milestone-title">Milestone<input id="milestone-title" maxLength={180} aria-invalid={Boolean(error && (!business.milestoneTitle.trim() || business.milestoneTitle.trim().length > 180))} aria-describedby={error && (!business.milestoneTitle.trim() || business.milestoneTitle.trim().length > 180) ? "milestone-title-error" : undefined} value={business.milestoneTitle} onChange={(event) => updateBusiness("milestoneTitle", event.target.value)} required />{error && (!business.milestoneTitle.trim() || business.milestoneTitle.trim().length > 180) && <small id="milestone-title-error">Milestone is required and must be 180 characters or fewer.</small>}</label>
           <label htmlFor="milestone-value">Milestone value<input id="milestone-value" type="number" min="0" step="0.01" aria-invalid={Boolean(error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()))} aria-describedby={error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()) ? "milestone-value-error" : undefined} value={business.amountDollars} onChange={(event) => updateBusiness("amountDollars", event.target.value)} required />{error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()) && <small id="milestone-value-error">Enter a non-negative value with at most two decimal places.</small>}</label>
           <label htmlFor="milestone-currency">Currency<select id="milestone-currency" value={business.currency} onChange={(event) => updateBusiness("currency", event.target.value)}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
         </fieldset>
@@ -1033,7 +1077,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work. A signed-out draft handoff remains available for 24 hours on this device.</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>

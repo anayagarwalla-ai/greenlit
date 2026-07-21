@@ -1,5 +1,10 @@
 # MilestoneProof Beta Readiness — Implementation Status
 
+> Superseded on 2026-07-21 by the post-review launch-safety pass. The current
+> status is in
+> `docs/audits/milestoneproof-fresh-beta-audit-2026-07-21/IMPLEMENTATION_STATUS.md`;
+> older “not reached” and deployment statements below are historical.
+
 Tracking implementation of every locally-achievable item in
 `MilestoneProof-Beta-Readiness-Audit.pdf` (2026-07-20), starting from commit
 `a356ca1` plus the uncommitted Codex draft (auth/beta-access hardening,

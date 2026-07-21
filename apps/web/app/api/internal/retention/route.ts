@@ -15,9 +15,16 @@ export async function GET(request: Request) {
   if (!process.env.CRON_SECRET) return NextResponse.json({ error: "Retention maintenance is not configured." }, { status: 503, headers: noStoreJsonHeaders() });
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
 
+  const database = requireSupabaseAdmin();
+  let maintenanceRunId: number | null = null;
   try {
-    const database = requireSupabaseAdmin();
     const now = new Date().toISOString();
+    const { data: maintenanceRun, error: maintenanceStartError } = await database.from("maintenance_runs").insert({ task: "retention-and-recovery", status: "RUNNING", started_at: now }).select("id").single();
+    if (maintenanceStartError) throw new Error(`Maintenance heartbeat could not start: ${maintenanceStartError.message}`);
+    maintenanceRunId = Number(maintenanceRun.id);
+    const staleBefore = new Date(Date.now() - 12 * 60_000).toISOString();
+    const { data: expiredJobs, error: staleJobError } = await database.rpc("expire_stale_verification_jobs_atomic", { p_stale_before: staleBefore, p_operator_email: "system:retention", p_limit: 50 });
+    if (staleJobError) throw new Error(`Stale verification recovery failed: ${staleJobError.message}`);
     const { data: stagedEvidence, error: evidenceStageError } = await database.rpc("stage_expired_evidence_deletion", { p_limit: 500, p_now: now });
     if (evidenceStageError) throw new Error(evidenceStageError.message);
     const byRecord = new Map<string, Array<{ id: string; storage_path: string | null }>>();
@@ -38,7 +45,7 @@ export async function GET(request: Request) {
         evidenceDeletionFailures += items.length;
         const message = cause instanceof Error ? cause.message : "Evidence deletion failed";
         const { error: failureError } = await database.rpc("fail_evidence_deletion_atomic", { p_ids: items.map((item) => item.id), p_record_id: recordId, p_error: message, p_processed_at: now });
-        if (failureError) throw new Error(`Evidence deletion failed and its retry state could not be recorded: ${failureError.message}`);
+        if (failureError) await database.from("operational_events").insert({ severity: "ERROR", service: "retention", event_type: "EVIDENCE_DELETION_STATE_FAILED", record_id: recordId, details: { error: failureError.message } });
       }
     }
 
@@ -62,11 +69,33 @@ export async function GET(request: Request) {
         recordDeletionFailures += 1;
         const message = cause instanceof Error ? cause.message : "Record deletion failed";
         const { error: failureError } = await database.rpc("fail_record_deletion_atomic", { p_record_id: record.id, p_error: message });
-        if (failureError) throw new Error(`Record deletion failed and its retry state could not be recorded: ${failureError.message}`);
+        if (failureError) await database.from("operational_events").insert({ severity: "ERROR", service: "retention", event_type: "RECORD_DELETION_STATE_FAILED", record_id: record.id, details: { error: failureError.message } });
       }
     }
 
-    const { data: expiredPrivacy, error: privacyReadError } = await database.from("privacy_requests_v2").select("id").lte("retention_until", now).limit(500);
+    const { data: accountDeletions, error: accountDeletionReadError } = await database.from("privacy_account_deletions").select("id,auth_user_id,email,status,attempts").in("status", ["PENDING", "FAILED"]).order("requested_at").limit(25);
+    if (accountDeletionReadError) throw new Error(accountDeletionReadError.message);
+    let deletedAccounts = 0;
+    let accountDeletionFailures = 0;
+    for (const accountDeletion of accountDeletions ?? []) {
+      const { count, error: recordCountError } = await database.from("transaction_records").select("id", { head: true, count: "exact" }).eq("owner_user_id", accountDeletion.auth_user_id);
+      if (recordCountError) throw new Error(recordCountError.message);
+      if ((count ?? 0) > 0) continue;
+      try {
+        const { error: deleteUserError } = await database.auth.admin.deleteUser(accountDeletion.auth_user_id);
+        if (deleteUserError && !/not found/i.test(deleteUserError.message)) throw new Error(deleteUserError.message);
+        const { error: queueUpdateError } = await database.from("privacy_account_deletions").update({ status: "COMPLETED", completed_at: new Date().toISOString(), attempts: Number(accountDeletion.attempts ?? 0) + 1, last_error: null }).eq("id", accountDeletion.id);
+        if (queueUpdateError) throw new Error(queueUpdateError.message);
+        deletedAccounts += 1;
+      } catch (cause) {
+        accountDeletionFailures += 1;
+        const message = cause instanceof Error ? cause.message : "Auth account deletion failed";
+        await database.from("privacy_account_deletions").update({ status: "FAILED", attempts: Number(accountDeletion.attempts ?? 0) + 1, last_error: message.slice(0, 1_000) }).eq("id", accountDeletion.id);
+        await database.from("operational_events").insert({ severity: "ERROR", service: "retention", event_type: "ACCOUNT_DELETION_FAILED", details: { queueId: accountDeletion.id, error: message.slice(0, 1_000) } });
+      }
+    }
+
+    const { data: expiredPrivacy, error: privacyReadError } = await database.from("privacy_requests_v2").select("id").in("status", ["COMPLETED", "DENIED"]).lte("retention_until", now).limit(500);
     if (privacyReadError) throw new Error(privacyReadError.message);
     const privacyIds = (expiredPrivacy ?? []).map((item) => item.id);
     if (privacyIds.length > 0) {
@@ -82,10 +111,21 @@ export async function GET(request: Request) {
     if (notificationError) throw new Error(notificationError.message);
     const { error: eventError, count: deletedOperationalEvents } = await database.from("operational_events").delete({ count: "exact" }).lte("retention_until", now);
     if (eventError) throw new Error(eventError.message);
+    const { error: operatorEventError, count: deletedOperatorEvents } = await database.from("operator_action_events").delete({ count: "exact" }).lte("retention_until", now);
+    if (operatorEventError) throw new Error(operatorEventError.message);
+    const { error: consentError, count: deletedConsentEvents } = await database.from("analysis_consent_events").delete({ count: "exact" }).lte("retention_until", now);
+    if (consentError) throw new Error(consentError.message);
+    const { error: productEventError, count: deletedProductEvents } = await database.from("product_events").delete({ count: "exact" }).lte("retention_until", now);
+    if (productEventError) throw new Error(productEventError.message);
+    const { error: maintenanceCleanupError, count: deletedMaintenanceRuns } = await database.from("maintenance_runs").delete({ count: "exact" }).lte("retention_until", now).neq("id", maintenanceRunId);
+    if (maintenanceCleanupError) throw new Error(maintenanceCleanupError.message);
     const notificationDelivery = await deliverPendingNotifications(20);
-
-    return NextResponse.json({ ok: true, deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, purgedRecords, recordDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, notificationDelivery, processedAt: now }, { headers: noStoreJsonHeaders() });
+    const summary = { expiredJobs: Number(expiredJobs ?? 0), deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, purgedRecords, recordDeletionFailures, deletedAccounts, accountDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, deletedOperatorEvents: deletedOperatorEvents ?? 0, deletedConsentEvents: deletedConsentEvents ?? 0, deletedProductEvents: deletedProductEvents ?? 0, deletedMaintenanceRuns: deletedMaintenanceRuns ?? 0, notificationDelivery, processedAt: now };
+    const { error: maintenanceCompleteError } = await database.from("maintenance_runs").update({ status: "SUCCEEDED", completed_at: new Date().toISOString(), summary }).eq("id", maintenanceRunId);
+    if (maintenanceCompleteError) throw new Error(`Maintenance heartbeat could not complete: ${maintenanceCompleteError.message}`);
+    return NextResponse.json({ ok: true, ...summary }, { headers: noStoreJsonHeaders() });
   } catch (error) {
+    if (maintenanceRunId !== null) await database.from("maintenance_runs").update({ status: "FAILED", completed_at: new Date().toISOString(), error: error instanceof Error ? error.message.slice(0, 1_000) : "Retention maintenance failed" }).eq("id", maintenanceRunId);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Retention maintenance failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

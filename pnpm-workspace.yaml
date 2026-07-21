@@ -7,6 +7,8 @@ overrides:
   # output. Next.js 16.2.10 still bundles a vulnerable transitive postcss;
   # force the patched version repo-wide rather than waiting on upstream.
   postcss: ">=8.5.10"
+  # GHSA-f88m-g3jw-g9cj: inherited libvips vulnerabilities through sharp.
+  sharp: ">=0.35.0"
 allowBuilds:
   '@google/genai': true
   esbuild: true

@@ -80,7 +80,7 @@ export function claimPendingAnonymousDraft(email: string): { draftId: string; ra
     if (!pending || typeof pending.draftId !== "string" || typeof pending.markedAt !== "number") return null;
     // A stale marker should never move an old shared-browser draft into a later
     // visitor's account.
-    if (Date.now() - pending.markedAt > 30 * 60_000) {
+    if (Date.now() - pending.markedAt > 24 * 60 * 60_000) {
       window.localStorage.removeItem(PENDING_CLAIM_KEY);
       return null;
     }

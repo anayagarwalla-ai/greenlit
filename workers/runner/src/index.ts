@@ -16,19 +16,22 @@ type JobMessage = { jobId: string; attempt: number };
 type EvidenceArtifact = {
   criterionId: string;
   kind: "SCREENSHOT";
-  mimeType: "image/png";
+  mimeType: "image/jpeg";
   base64: string;
   sha256: string;
 };
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
+const RUNNER_VERSION = "0.6.0";
+const JOB_DEADLINE_MS = 48_000;
+
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
 const axePageSource = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n${axe.source}`;
 const leaseSchema = z.object({
   jobId: z.string(),
   targetOrigin: z.string().url(),
-  checks: z.array(checkSpecSchema).min(1).max(40),
+  checks: z.array(checkSpecSchema).min(1).max(6),
   buildLabel: z.string(),
   originAddresses: z.array(z.string()).min(1),
 });
@@ -85,6 +88,13 @@ function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
+async function authenticatedRequest(request: Request, env: Env, body: string): Promise<boolean> {
+  const timestamp = request.headers.get("x-mp-timestamp") ?? "";
+  const supplied = request.headers.get("x-mp-signature") ?? "";
+  if (!/^\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 300_000) return false;
+  return constantTimeEqual(await signature(env.RUNNER_HMAC_SECRET, timestamp, body), supplied);
+}
+
 async function authenticatedFetch(env: Env, path: string, payload: unknown): Promise<Response> {
   const body = JSON.stringify(payload);
   const timestamp = Date.now().toString();
@@ -108,7 +118,26 @@ async function settlePage(page: import("@cloudflare/playwright").Page, origin: s
   await page.waitForLoadState("domcontentloaded", { timeout: 8_000 });
   await page.waitForLoadState("networkidle", { timeout: 4_000 }).catch(() => undefined);
   await page.waitForFunction(() => document.readyState === "complete" && Boolean(document.body), undefined, { timeout: 5_000 }).catch(() => undefined);
+  await page.evaluate(async () => {
+    const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+    if (fonts?.ready) await fonts.ready;
+  }).catch(() => undefined);
+  await page.waitForFunction(() => {
+    const root = document.documentElement;
+    return root.scrollWidth > 0 && root.scrollHeight > 0 && Boolean(document.querySelector("main,body>*"));
+  }, undefined, { timeout: 3_000 }).catch(() => undefined);
   assertVerifiedPage(page, origin);
+}
+
+async function waitForStableLayout(page: import("@cloudflare/playwright").Page) {
+  await page.waitForFunction(() => {
+    const root = document.documentElement;
+    const key = `${root.scrollWidth}:${root.scrollHeight}:${root.clientWidth}:${root.clientHeight}`;
+    const state = window as typeof window & { __mpLayoutKey?: string; __mpLayoutStable?: number };
+    state.__mpLayoutStable = state.__mpLayoutKey === key ? (state.__mpLayoutStable ?? 0) + 1 : 0;
+    state.__mpLayoutKey = key;
+    return (state.__mpLayoutStable ?? 0) >= 2;
+  }, undefined, { timeout: 3_000 }).catch(() => undefined);
 }
 
 async function executeCheck(page: import("@cloudflare/playwright").Page, origin: string, check: CheckSpec): Promise<CriterionResult> {
@@ -122,8 +151,11 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     if (check.type === "element_state") {
       const locator = await resolveLocator(page, check.elementRef);
       if (check.assertion === "count") {
+        const expectedCount = check.expectedCount ?? 0;
+        if (expectedCount > 0) await locator.first().waitFor({ state: "attached", timeout: 6_000 });
+        await waitForStableLayout(page);
         const count = await locator.count();
-        return result(count === check.expectedCount ? "PASS" : "FAIL", `${check.expectedCount} matching elements`, `${count} matching elements`);
+        return result(count === expectedCount ? "PASS" : "FAIL", `${expectedCount} matching elements`, `${count} matching elements`);
       }
       const unique = await requireUniqueMatch(locator, `Element reference ${check.elementRef}`);
       await unique.waitFor({ state: "attached", timeout: 6_000 });
@@ -161,6 +193,7 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       let worstOverflow = 0;
       for (const viewport of check.viewports) {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await waitForStableLayout(page);
         const overflow = await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth));
         worstOverflow = Math.max(worstOverflow, overflow);
       }
@@ -191,6 +224,7 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
 }
 
 async function runJob(env: Env, message: JobMessage): Promise<void> {
+  const deadline = Date.now() + JOB_DEADLINE_MS;
   const leaseResponse = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/lease`, { attempt: message.attempt });
   if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
   const lease = leaseSchema.parse(await leaseResponse.json());
@@ -201,6 +235,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
   const browserVersion = browser.version();
   try {
     for (const check of lease.checks) {
+      if (Date.now() >= deadline) throw new Error("The job reached the free-browser execution deadline before every check completed.");
       const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, {});
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
@@ -236,8 +271,8 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
         const checkResult = await executeCheck(page, lease.targetOrigin, check);
         await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
         await Promise.all(addressValidations);
-        const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
-        const evidence: EvidenceArtifact = { criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
+        const screenshot = new Uint8Array(await page.screenshot({ type: "jpeg", quality: 72 }));
+        const evidence = { criterionId: check.criterionId, kind: "SCREENSHOT" as const, mimeType: "image/jpeg" as const, base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
         const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);
         if (!uploaded.ok) throw new Error(`Evidence upload failed with ${uploaded.status}`);
         const payload = await uploaded.json() as { artifact: StoredEvidenceArtifact };
@@ -252,7 +287,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
     attempt: message.attempt,
     buildLabel: lease.buildLabel,
     browserVersion,
-    runnerVersion: "0.4.0",
+    runnerVersion: RUNNER_VERSION,
     startedAt,
     completedAt: new Date().toISOString(),
     results,
@@ -264,14 +299,23 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "milestoneproof-runner" });
+    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "milestoneproof-runner", version: RUNNER_VERSION, queueConfigured: Boolean(env.JOB_QUEUE), browserConfigured: Boolean(env.BROWSER), webCallbackConfigured: Boolean(env.WEB_APP_URL && env.RUNNER_HMAC_SECRET) });
+    if (request.method === "POST" && url.pathname === "/health/deep") {
+      const body = await request.text();
+      if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+      let browser: Awaited<ReturnType<typeof launchWithBackoff>> | null = null;
+      try {
+        browser = await launchWithBackoff(env.BROWSER);
+        return Response.json({ ok: true, service: "milestoneproof-runner", version: RUNNER_VERSION, browserVersion: browser.version() });
+      } catch (error) {
+        return Response.json({ ok: false, service: "milestoneproof-runner", version: RUNNER_VERSION, error: error instanceof Error ? error.message.slice(0, 200) : "Browser launch failed" }, { status: 503 });
+      } finally {
+        if (browser) await browser.close();
+      }
+    }
     if (request.method !== "POST" || url.pathname !== "/v1/jobs") return new Response("Not found", { status: 404 });
     const body = await request.text();
-    const timestamp = request.headers.get("x-mp-timestamp") ?? "";
-    const supplied = request.headers.get("x-mp-signature") ?? "";
-    if (!/^\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 300_000) return Response.json({ error: "Expired request" }, { status: 401 });
-    const expected = await signature(env.RUNNER_HMAC_SECRET, timestamp, body);
-    if (!constantTimeEqual(expected, supplied)) return Response.json({ error: "Invalid signature" }, { status: 401 });
+    if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Invalid or expired signature" }, { status: 401 });
     const job = jobSchema.safeParse(JSON.parse(body));
     if (!job.success) return Response.json({ error: "Invalid job" }, { status: 422 });
     await env.JOB_QUEUE.send({ jobId: job.data.jobId, attempt: 1 });
@@ -283,7 +327,12 @@ export default {
       catch (error) {
         const reason = error instanceof Error ? error.message : "unknown";
         console.error("Runner job failed", message.body.jobId, reason);
-        try { await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.body.jobId)}/fail`, { attempt: message.body.attempt, error: reason.slice(0, 300) }); } catch { /* best effort failure record */ }
+        try {
+          const failed = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.body.jobId)}/fail`, { attempt: message.body.attempt, error: reason.slice(0, 300) });
+          if (!failed.ok) console.error("Runner failure callback was rejected", message.body.jobId, failed.status);
+        } catch (callbackError) {
+          console.error("Runner failure callback was unavailable; the web reconciler will expire the job", message.body.jobId, callbackError instanceof Error ? callbackError.message : "unknown");
+        }
         message.ack();
       }
     }

@@ -13,3 +13,5 @@ artifacts/playwright-report
 *.log
 *.tsbuildinfo
 .DS_Store
+.env*
+docs/operations/*.json

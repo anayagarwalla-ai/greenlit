@@ -18,6 +18,12 @@ declare
   v_retry_result jsonb;
   v_purge boolean;
   v_count integer;
+  v_privacy_owner uuid := gen_random_uuid();
+  v_other_owner uuid := gen_random_uuid();
+  v_owned_record_id uuid;
+  v_reviewed_record_id uuid;
+  v_reviewed_job_id uuid;
+  v_privacy_request_id uuid := gen_random_uuid();
 begin
   insert into auth.users(id, email) values (v_owner, 'agency@example.test');
 
@@ -27,7 +33,7 @@ begin
     'Agency', 'Client', 'Project', 'Milestone', 1000, 'USD',
     'sow.txt', 'srchash1', '[{"id":"AC-01"}]'::jsonb, 'critHash1',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"criterionId":"AC-01"}]'::jsonb, '0.5.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
   v_record_id := (v_result->>'recordId')::uuid;
   v_job_id := (v_result->>'jobId')::uuid;
@@ -44,7 +50,7 @@ begin
       'Agency', 'Client', 'Project', 'Milestone', 1000, 'USD',
       'sow.txt', 'srchash1', '[{"id":"AC-01"}]'::jsonb, 'critHash1',
       'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-      '[{"criterionId":"AC-01"}]'::jsonb, '0.5.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+      '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
     );
     raise exception 'CHECK 2 FAILED: expected active-job guard to reject a concurrent queue attempt';
   exception when others then
@@ -109,15 +115,17 @@ begin
   raise notice 'CHECK 6 PASSED: revoke preserves other active reviews, then restores READY_FOR_REVIEW for replacement';
 
   -- 7) Decision, record state, audit event, and durable owner notification commit atomically.
-  perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'looks good', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash1', 'IN_APP');
+  perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'looks good', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash1', 'IN_APP', 'receiptSessionHash1', now() + interval '30 days');
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'APPROVED', 'record should be APPROVED after decision';
   assert exists (
     select 1 from operator_notifications
     where owner_user_id = v_owner and record_id = v_record_id and event_type = 'APPROVED'
   ), 'decision transaction should create its durable owner notification';
+  assert exists (select 1 from receipt_sessions_v2 where packet_id = v_packet_id and session_hash = 'receiptSessionHash1'), 'decision transaction should create narrow receipt access atomically';
+  assert exists (select 1 from review_packets_v2 where id = v_packet_id and legal_terms_accepted and receipt_sha256 = decision_event_hash), 'decision must retain legal acceptance and bind receipt to the decision audit event';
   begin
-    perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'again', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash2', 'IN_APP');
+    perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'again', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash2', 'IN_APP', 'receiptSessionHash2', now() + interval '30 days');
     raise exception 'CHECK 7 FAILED: a second decision on the same packet must be rejected';
   exception when others then
     if sqlerrm like 'CHECK 7 FAILED%' then raise; end if;
@@ -143,7 +151,7 @@ begin
     'Agency', 'Client', 'Project2', 'Milestone2', 2000, 'USD',
     'sow2.txt', 'srchash2', '[{"id":"AC-01"}]'::jsonb, 'critHash2',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"criterionId":"AC-01"}]'::jsonb, '0.5.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
   v_job2_id := (v_result->>'jobId')::uuid;
   perform fail_verification_job_atomic(v_job2_id, 1, 'synthetic failure', 'VERIFICATION_FAILED');
@@ -162,7 +170,7 @@ begin
     'Agency', 'Client', 'Project2', 'Milestone2', 2000, 'USD',
     'sow2.txt', 'srchash2-changed', '[{"id":"AC-01"}]'::jsonb, 'critHash2-changed',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"criterionId":"AC-01"}]'::jsonb, '0.5.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
   perform fail_verification_job_atomic((select id from verification_jobs_v2 where record_id = (v_result->>'recordId')::uuid and status in ('QUEUED','LEASED','RUNNING')), 1, 'synthetic failure 3', 'VERIFICATION_FAILED');
   begin
@@ -219,6 +227,37 @@ begin
   assert not exists (select 1 from transaction_records where id = v_record_id), 'record should be gone after purge';
   assert exists (select 1 from operational_events where event_type = 'TRANSACTION_RECORD_PURGED' and details->>'recordId' = v_record_id::text), 'finalization should leave a non-record operational receipt';
   raise notice 'CHECK 11c PASSED: staged record deletion finalizes atomically and retains an operational receipt';
+
+  -- 12) Privacy deletion removes only records owned by the requester. A
+  -- reviewer match must never delete another agency's legal transaction.
+  insert into auth.users(id,email) values(v_privacy_owner,'privacy-owner@example.test'),(v_other_owner,'other-agency@example.test');
+  v_result := queue_verification_job_atomic(
+    null,'MP-PRIVACY-OWNER',v_privacy_owner,'privacyhash1','IMPORTED_FIXTURE',
+    'Privacy Agency','Client','Owned project','Owned milestone',1000,'USD',
+    'owned.txt','ownedsource','[{"id":"AC-01"}]'::jsonb,'ownedcriteria',
+    'https://example.test','https://example.test/fixture/rc1','owned-build',
+    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb,'0.6.0','{}'::jsonb,'actorPrivacy','2026-07-20','[]'::jsonb
+  );
+  v_owned_record_id := (v_result->>'recordId')::uuid;
+  v_result := queue_verification_job_atomic(
+    null,'MP-PRIVACY-REVIEWER',v_other_owner,'privacyhash2','IMPORTED_FIXTURE',
+    'Other Agency','Client','Reviewed project','Reviewed milestone',1000,'USD',
+    'reviewed.txt','reviewedsource','[{"id":"AC-01"}]'::jsonb,'reviewedcriteria',
+    'https://example.test','https://example.test/fixture/rc1','reviewed-build',
+    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb,'0.6.0','{}'::jsonb,'actorOther','2026-07-20','[]'::jsonb
+  );
+  v_reviewed_record_id := (v_result->>'recordId')::uuid;
+  v_reviewed_job_id := (v_result->>'jobId')::uuid;
+  insert into review_packets_v2(record_id,run_id,public_id,snapshot,snapshot_sha256,bearer_token_hash,expires_at,criteria_revision,decision,reviewer_name,reviewer_email,intent_confirmed,electronic_records_consent,notice_version,decided_at)
+  values(v_reviewed_record_id,v_reviewed_job_id,'REVIEW-PRIVACY-TEST','{}','privacy-snapshot','privacy-bearer',now()+interval '48 hours',1,'APPROVED','Privacy Owner','privacy-owner@example.test',true,true,'2026-07-20',now());
+  insert into privacy_requests_v2(id,public_id,request_type,email,status,identity_verified_at)
+  values(v_privacy_request_id,'PRIVACY-TEST','DELETION','privacy-owner@example.test','VERIFYING',now());
+  v_count := schedule_privacy_deletion_atomic(v_privacy_request_id,'operator@example.test',now());
+  assert v_count = 1, 'only the requester-owned record should be scheduled';
+  assert (select privacy_deletion_requested_at is not null and retention_until<=now() from transaction_records where id=v_owned_record_id), 'owner record should be due for hold-aware deletion';
+  assert (select privacy_deletion_requested_at is null and retention_until>now() from transaction_records where id=v_reviewed_record_id), 'reviewer match must not delete the other agency record';
+  assert exists(select 1 from privacy_account_deletions where auth_user_id=v_privacy_owner and status='PENDING'), 'Auth account cleanup should wait until owned records are gone';
+  raise notice 'CHECK 12 PASSED: privacy deletion isolates owner records and preserves reviewer-only legal records';
 
   raise notice '=== ALL FUNCTIONAL CHECKS PASSED ===';
 end $$;

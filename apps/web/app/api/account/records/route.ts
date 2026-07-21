@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
-import { betaAccessAllowed } from "@/lib/beta-access";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 
 export async function GET() {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in to open the agency dashboard." }, { status: 401, headers: noStoreJsonHeaders() });
-  if (!betaAccessAllowed(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet." }, { status: 403, headers: noStoreJsonHeaders() });
+  if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet." }, { status: 403, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();
     const { data: records, error } = await database.from("transaction_records")
@@ -43,6 +43,7 @@ export async function GET() {
 export async function PATCH() {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in to continue." }, { status: 401, headers: noStoreJsonHeaders() });
+  if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
   const database = requireSupabaseAdmin();
   const { error } = await database.from("operator_notifications").update({ read_at: new Date().toISOString() }).eq("owner_user_id", user.id).is("read_at", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });

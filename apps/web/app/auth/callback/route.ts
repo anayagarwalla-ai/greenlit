@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
-import { betaAccessAllowed } from "@/lib/beta-access";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { safeAuthNext } from "@/lib/auth-next";
 
 export async function GET(request: Request) {
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const { error } = await client.auth.exchangeCodeForSession(code);
   if (error) return NextResponse.redirect(new URL("/login?error=expired", url.origin));
   const { data } = await client.auth.getUser();
-  if (!data.user || !betaAccessAllowed(data.user)) {
+  if (!data.user || !await betaAccessAllowedFresh(data.user)) {
     await client.auth.signOut();
     return NextResponse.redirect(new URL("/login?error=not-invited", url.origin));
   }

@@ -45,7 +45,7 @@ describe("project draft storage", () => {
   it("does not claim a stale shared-browser draft", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "old-project", "old-draft", true);
-    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + 31 * 60_000);
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + 24 * 60 * 60_000 + 1);
     expect(claimPendingAnonymousDraft("agency@example.com")).toBeNull();
     expect(readProjectDraft(null, "old-project")).toBe("old-draft");
   });

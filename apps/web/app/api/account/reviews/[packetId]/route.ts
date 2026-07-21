@@ -3,12 +3,14 @@ import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { noStoreJsonHeaders, requestActorHash } from "@/lib/recordkeeping";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 
 const schema = z.object({ action: z.enum(["revoke", "extend"]) });
 
 export async function PATCH(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in to manage review links." }, { status: 401, headers: noStoreJsonHeaders() });
+  if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Choose a valid review action." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;

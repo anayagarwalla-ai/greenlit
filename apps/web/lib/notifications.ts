@@ -14,8 +14,15 @@ export type NotificationPayload = {
 export async function deliverNotification(notification: NotificationPayload) {
   const target = process.env.NOTIFICATION_WEBHOOK_URL;
   if (!target) return false;
+  const database = requireSupabaseAdmin();
+  const startedAt = new Date().toISOString();
+  const { data: claimed, error: claimError } = await database.rpc("begin_notification_delivery_atomic", { p_id: notification.id, p_now: startedAt }).maybeSingle();
+  if (claimError) throw new Error(`Notification delivery could not be claimed: ${claimError.message}`);
+  if (!claimed) return false;
+  const claim = claimed as NotificationPayload & { delivery_claim_id: string };
   let sent = false;
   let deliveryError = "";
+  let httpStatus: number | null = null;
   try {
     const response = await fetch(target, {
       method: "POST",
@@ -23,14 +30,12 @@ export async function deliverNotification(notification: NotificationPayload) {
       body: JSON.stringify({ event: "milestoneproof.client-decision", notification }),
       signal: AbortSignal.timeout(5_000),
     });
+    httpStatus = response.status;
     sent = response.ok;
     if (!response.ok) deliveryError = `Webhook returned HTTP ${response.status}`;
   } catch (cause) { deliveryError = cause instanceof Error ? cause.message.slice(0, 500) : "Notification delivery failed"; }
-  const database = requireSupabaseAdmin();
-  const { data: current, error: readError } = await database.from("operator_notifications").select("delivery_attempts").eq("id", notification.id).maybeSingle();
-  if (readError) throw new Error(`Notification delivery state could not be read: ${readError.message}`);
-  const { error: updateError } = await database.from("operator_notifications").update({ delivery_status: sent ? "SENT" : "FAILED", delivery_attempts: Number(current?.delivery_attempts ?? 0) + 1, delivery_error: sent ? null : deliveryError || "Webhook delivery failed", last_delivery_at: new Date().toISOString() }).eq("id", notification.id);
-  if (updateError) throw new Error(`Notification delivery state could not be recorded: ${updateError.message}`);
+  const { data: completed, error: updateError } = await database.rpc("complete_notification_delivery_atomic", { p_id: notification.id, p_claim_id: claim.delivery_claim_id, p_succeeded: sent, p_http_status: httpStatus, p_error: sent ? null : deliveryError || "Webhook delivery failed", p_now: new Date().toISOString() });
+  if (updateError || completed !== true) throw new Error(`Notification delivery state could not be recorded: ${updateError?.message ?? "claim no longer active"}`);
   return sent;
 }
 export async function deliverPendingNotifications(limit = 20) {

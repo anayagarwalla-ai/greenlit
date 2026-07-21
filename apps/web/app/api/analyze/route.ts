@@ -4,15 +4,17 @@ import { z } from "zod";
 import { isGroundedQuote, normalizeSourceText } from "@/lib/analysis";
 import { buildFallbackCriteria } from "@/lib/fallback-analysis";
 import { getOptionalUser } from "@/lib/supabase-server";
-import { betaAccessAllowed } from "@/lib/beta-access";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@/lib/rate-limit";
-import { logOperationalEvent } from "@/lib/operations";
+import { logOperationalEvent, logProductEvent } from "@/lib/operations";
+import { requireSupabaseAdmin } from "@/lib/database";
+import { RECORD_NOTICE_VERSION, requestActorHash } from "@/lib/recordkeeping";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
 const MAX_SOURCE_LENGTH = 45_000;
-const MAX_FILE_BYTES = 3_000_000;
+const MAX_FILE_BYTES = 1_500_000;
 const MAX_CRITERIA = 8;
 const GEMINI_TIMEOUT_MS = 8_000;
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
@@ -50,7 +52,7 @@ function isSupportedTextFile(file: File) {
 }
 
 async function extractFileText(file: File) {
-  if (file.size > MAX_FILE_BYTES) throw new InputError("Keep uploads under 3 MB.", "FILE_TOO_LARGE", 413);
+  if (file.size > MAX_FILE_BYTES) throw new InputError("Keep uploads under 1.5 MB so the complete draft can survive sign-in safely.", "FILE_TOO_LARGE", 413);
   if (file.size === 0) throw new InputError("The selected file is empty.", "EMPTY_FILE");
 
   const name = file.name.toLowerCase();
@@ -137,7 +139,7 @@ function analysisResponse({
   });
 }
 
-function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt?: number) {
+async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt: number | undefined, ownerUserId: string) {
   const criteria = buildFallbackCriteria(input.text);
   if (criteria.length === 0) {
     return NextResponse.json({
@@ -146,6 +148,7 @@ function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_con
     }, { status: 422 });
   }
 
+  await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId, properties: { mode: "fallback", reason, criteriaCount: criteria.length } });
   return analysisResponse({
     input,
     criteria,
@@ -165,7 +168,7 @@ export async function POST(request: Request) {
   const startedAt = performance.now();
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
-  if (!betaAccessAllowed(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
+  if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
   let input: AnalysisInput;
   try {
     input = await readInput(request);
@@ -173,6 +176,24 @@ export async function POST(request: Request) {
     if (error instanceof InputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
     return NextResponse.json({ error: "The SOW could not be read. Try pasting the text instead.", code: "SOURCE_READ_FAILED" }, { status: 422 });
+  }
+  try {
+    const database = requireSupabaseAdmin();
+    const { error: consentError } = await database.from("analysis_consent_events").insert({
+      owner_user_id: user.id,
+      actor_hash: requestActorHash(request),
+      country_code: request.headers.get("x-vercel-ip-country") ?? null,
+      source_mode: request.headers.get("content-type")?.includes("multipart/form-data") ? "UPLOAD" : "PASTE",
+      source_byte_size: new TextEncoder().encode(input.text).byteLength,
+      notice_version: RECORD_NOTICE_VERSION,
+      provider_notice_version: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid" ? "gemini-paid-2026-07" : "gemini-unpaid-2026-07",
+      accepted_terms: true,
+      accepted_data_notice: true,
+    });
+    if (consentError) throw new Error(consentError.message);
+  } catch (consentError) {
+    await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { ownerUserId: user.id, error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
+    return NextResponse.json({ error: "Your consent record could not be retained, so the SOW was not sent to Gemini. Try again later.", code: "CONSENT_RECORD_FAILED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
   // Quota is only consumed once the request body is fully read and validated
   // above, so a malformed or oversized request never costs the account or
@@ -184,10 +205,10 @@ export async function POST(request: Request) {
   if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return fallbackResponse(input, "not_configured", startedAt);
+  if (!apiKey) return fallbackResponse(input, "not_configured", startedAt, undefined, user.id);
   const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
   const paidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
-  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt);
+  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt, undefined, user.id);
 
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
@@ -251,6 +272,7 @@ ${input.text}`,
       .filter((criterion) => criterion.grounded);
     if (criteria.length === 0) throw new Error("Gemini returned no source-grounded criteria");
 
+    await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId: user.id, properties: { mode: "gemini", criteriaCount: criteria.length } });
     return analysisResponse({
       input,
       criteria,
@@ -262,6 +284,6 @@ ${input.text}`,
   } catch (error) {
     console.error("Gemini analysis failed", error instanceof Error ? error.message : "unknown error");
     await logOperationalEvent({ severity: "WARN", service: "web", eventType: "GEMINI_ANALYSIS_FALLBACK", details: { model, reason: error instanceof Error ? error.message.slice(0, 300) : "unknown" } });
-    return fallbackResponse(input, "unavailable", startedAt, providerStartedAt);
+    return fallbackResponse(input, "unavailable", startedAt, providerStartedAt, user.id);
   }
 }

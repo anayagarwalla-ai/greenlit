@@ -1,0 +1,64 @@
+name: release-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: milestoneproof_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare isolated Supabase-compatible database
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -c "create role anon; create role authenticated; create role service_role bypassrls;"
+          createdb milestoneproof_test
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/00_local_supabase_stub.sql
+          psql -v ON_ERROR_STOP=1 -c "grant usage on schema auth,storage,extensions,public to service_role; grant all on all tables in schema auth,storage,public to service_role; grant all on all sequences in schema public to service_role; grant execute on all functions in schema auth,storage,public to service_role;"
+      - name: Apply every migration in order
+        run: for migration in supabase/migrations/*.sql; do psql -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Grant the scratch service role access to migrated objects
+        run: psql -v ON_ERROR_STOP=1 -c "grant usage on schema auth,storage,extensions,public to service_role; grant all on all tables in schema auth,storage,public to service_role; grant all on all sequences in schema public to service_role; grant execute on all functions in schema auth,storage,public to service_role;"
+      - name: Run state-machine assertions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/01_atomic_rpc_functional_checks.sql

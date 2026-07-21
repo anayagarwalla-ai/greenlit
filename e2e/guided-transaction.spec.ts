@@ -17,6 +17,7 @@ test("guided transaction reaches a client decision and printable receipt", async
   await page.getByLabel("Your full name").fill("Sample Reviewer");
   await page.getByLabel("Business email").fill("reviewer@example.test");
   await page.getByLabel(/I intend to approve/).check();
+  await page.getByLabel(/I accept the Terms/).check();
   await page.getByLabel(/I understand this is a synthetic walkthrough/).check();
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(page.getByRole("heading", { name: "Milestone approved." })).toBeVisible();

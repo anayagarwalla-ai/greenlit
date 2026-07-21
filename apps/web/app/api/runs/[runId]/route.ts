@@ -16,12 +16,12 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
     if (error || !run) return NextResponse.json({ error: "Verification run not found." }, { status: 404, headers: noStoreJsonHeaders() });
 
     const owner = await getOwnerIdentity();
-    if (!owner.userId && !owner.ownerTokenHash) return NextResponse.json({ error: "Sign in to access this verification run." }, { status: 401, headers: noStoreJsonHeaders() });
+    if (!owner.userId) return NextResponse.json({ error: "Sign in to access this verification run." }, { status: 401, headers: noStoreJsonHeaders() });
     const { data: record } = await database.from("transaction_records")
       .select("public_id, owner_user_id, owner_token_hash, agency_name, client_name, project_name, milestone_title, amount_minor, currency, source_name, source_sha256, confirmed_criteria, revision, status")
       .eq("id", run.record_id)
       .single();
-    if (!record || (record.owner_user_id !== owner.userId && record.owner_token_hash !== owner.ownerTokenHash)) return NextResponse.json({ error: "This account cannot access the run." }, { status: 403, headers: noStoreJsonHeaders() });
+    if (!record || record.owner_user_id !== owner.userId) return NextResponse.json({ error: "This account cannot access the run." }, { status: 403, headers: noStoreJsonHeaders() });
 
     const artifacts = await Promise.all(((run.artifacts ?? []) as Array<Record<string, unknown>>).map(async (artifact) => {
       const storagePath = typeof artifact.storagePath === "string" ? artifact.storagePath : null;
