@@ -12,9 +12,8 @@ major_version = 17
 [auth]
 enabled = true
 site_url = "http://localhost:3000"
-enable_anonymous_sign_ins = true
+enable_anonymous_sign_ins = false
 
 [storage]
 enabled = true
 file_size_limit = "10MiB"
-

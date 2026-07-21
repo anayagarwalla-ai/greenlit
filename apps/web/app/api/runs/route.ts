@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
+import { resolve4, resolve6 } from "node:dns/promises";
 import { z } from "zod";
 import { checkSpecSchema, type CheckSpec } from "@milestoneproof/contracts";
 import { signRunnerRequest } from "@/lib/hmac";
 import { fixtureChecks } from "@/lib/demo-checks";
 import { demoCriteria, demoMilestone } from "@/lib/demo";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, sha256 } from "@/lib/recordkeeping";
+import { canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, sha256 } from "@/lib/recordkeeping";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 import { getOwnerIdentity } from "@/lib/owner-auth";
 import { verifyOriginProof } from "@/lib/origin-proof";
 import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@/lib/rate-limit";
-import { validateStagingUrl } from "@/lib/security";
+import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security";
 import { betaAccessAllowed } from "@/lib/beta-access";
 import { logOperationalEvent } from "@/lib/operations";
 
@@ -60,17 +61,14 @@ export async function POST(request: Request) {
     const owner = await getOwnerIdentity();
     if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
     if (!owner.user || !betaAccessAllowed(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
-    const quota = await consumeRateLimit(request, "verification-run-day", 8, 86_400, owner.userId);
-    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
-    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
-    const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "milestoneproof-global-browser-capacity");
-    if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
+    if (body.sourceMode === "demo") return NextResponse.json({ error: "Synthetic demo data cannot create a retained transaction. Use the guided walkthrough instead." }, { status: 422, headers: noStoreJsonHeaders() });
     const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     const customTarget = Boolean(body.targetUrl || body.checks || body.originReceipt);
     let targetOrigin = appOrigin;
     let buildUrl = `${appOrigin}/fixture/${body.version}`;
     let buildLabel = `launch-${body.version}`;
     let checks: CheckSpec[] = fixtureChecks(body.version);
+    let originAddresses: string[] = [];
     if (customTarget) {
       if (!body.targetUrl || !body.originReceipt || !body.buildLabel || !body.checks) return NextResponse.json({ error: "Verify the staging origin and complete every automated check mapping." }, { status: 422, headers: noStoreJsonHeaders() });
       const target = validateStagingUrl(body.targetUrl);
@@ -86,6 +84,9 @@ export async function POST(request: Request) {
       checks = body.checks;
       buildUrl = targetOrigin;
       buildLabel = body.buildLabel;
+      const [v4, v6] = await Promise.all([resolve4(target.url.hostname).catch(() => []), resolve6(target.url.hostname).catch(() => [])]);
+      originAddresses = [...v4, ...v6].sort();
+      assertSafeResolvedAddresses(originAddresses);
     } else {
       const criteriaById = new Map(body.criteria.map((criterion) => [criterion.id, criterion]));
       const invalidFixtureCheck = checks.find((check) => {
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
     }
     const sourceHash = body.sourceSha256;
     const criteriaHash = sha256(canonicalJson(body.criteria));
-    let recordId = body.recordId;
+    const recordId = body.recordId;
     let recordPublicId: string;
     let ownerToken: string | null = null;
 
@@ -112,71 +113,33 @@ export async function POST(request: Request) {
       recordPublicId = record.public_id;
       const { data: activeJob } = await database.from("verification_jobs_v2").select("id, status").eq("record_id", recordId).in("status", ["QUEUED", "LEASED", "RUNNING"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (activeJob) return NextResponse.json({ runId: activeJob.id, recordId, recordPublicId, status: activeJob.status, resumed: true }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${activeJob.id}` } });
-      const nextRevision = (record.criteria_revision ?? 1) + (record.status === "CHANGES_REQUESTED" ? 1 : 0);
-      const { error: recordUpdateError } = await database.from("transaction_records").update({
-        mode: customTarget ? "CUSTOM_TARGET" : "IMPORTED_FIXTURE",
-        agency_name: body.agencyName, client_name: body.clientName, project_name: body.projectName,
-        milestone_title: body.milestoneTitle, amount_minor: body.amountMinor, currency: body.currency,
-        source_name: body.sourceName, source_sha256: sourceHash, confirmed_criteria: body.criteria,
-        target_origin: targetOrigin, criteria_revision: nextRevision, status: "READY",
-        workspace_state: { criteria: body.criteria, checks, buildLabel, targetOrigin },
-      }).eq("id", recordId);
-      if (recordUpdateError) throw new Error(`Milestone record could not be updated: ${recordUpdateError.message}`);
-      if (record.status === "CHANGES_REQUESTED") {
-        await appendAuditEvent({ recordId, eventType: "MILESTONE_REVISED", actorType: "OWNER", actorHash, payload: { revision: nextRevision, sourceSha256: sourceHash, criteriaSha256: criteriaHash, criteriaCount: body.criteria.length } });
-      }
+      if (!["READY", "NEEDS_WORK", "CHANGES_REQUESTED", "READY_FOR_REVIEW"].includes(record.status)) return NextResponse.json({ error: `This milestone cannot start a new run while it is ${record.status.toLowerCase().replaceAll("_", " ")}.` }, { status: 409, headers: noStoreJsonHeaders() });
     } else {
       recordPublicId = publicRecordId("MP");
       ownerToken = randomToken();
-      const { data: record, error } = await database.from("transaction_records").insert({
-        public_id: recordPublicId,
-        owner_token_hash: sha256(ownerToken),
-        owner_user_id: owner.userId,
-        mode: customTarget ? "CUSTOM_TARGET" : body.sourceMode === "demo" ? "GUIDED_DEMO" : "IMPORTED_FIXTURE",
-        agency_name: body.agencyName,
-        client_name: body.clientName,
-        project_name: body.projectName,
-        milestone_title: body.milestoneTitle,
-        amount_minor: body.amountMinor,
-        currency: body.currency,
-        source_name: body.sourceName,
-        source_sha256: sourceHash,
-        confirmed_criteria: body.criteria,
-        target_origin: targetOrigin,
-        status: "READY",
-        workspace_state: { criteria: body.criteria, checks, buildLabel, targetOrigin },
-      }).select("id").single();
-      if (error || !record) throw new Error(`Milestone record could not be created: ${error?.message ?? "unknown error"}`);
-      recordId = record.id;
-      try {
-        await appendAuditEvent({ recordId: record.id, eventType: "MILESTONE_FROZEN", actorType: "OWNER", actorHash, payload: { publicId: recordPublicId, revision: 1, sourceSha256: sourceHash, criteriaSha256: criteriaHash, criteriaCount: body.criteria.length, criteriaConfirmedByOwner: true, ownerTermsAccepted: true, noticeVersion: body.noticeVersion } });
-      } catch (auditError) {
-        // A record without its first audit event is not a valid transaction.
-        // This exact, childless setup row is safe to remove; if the event was
-        // actually committed, the audit-event foreign key prevents deletion.
-        await database.from("transaction_records").delete().eq("id", record.id);
-        throw auditError;
-      }
     }
+    const quota = await consumeRateLimit(request, "verification-run-day", 8, 86_400, owner.userId, { failClosed: true });
+    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
+    const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "milestoneproof-global-browser-capacity", { failClosed: true });
+    if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
 
-    const durableRecordId = recordId;
-    if (!durableRecordId) throw new Error("The milestone record identifier is missing.");
+    const workspaceState = { criteria: body.criteria, checks, buildLabel, targetOrigin, business: { agency: body.agencyName, client: body.clientName, project: body.projectName, milestone: body.milestoneTitle, amountMinor: body.amountMinor, currency: body.currency }, sourceName: body.sourceName, sourceSha256: sourceHash };
+    const { data: queued, error: queueError } = await database.rpc("queue_verification_job_atomic", {
+      p_record_id: recordId ?? null, p_record_public_id: recordPublicId, p_owner_user_id: owner.userId,
+      p_owner_token_hash: sha256(ownerToken ?? randomToken()), p_mode: customTarget ? "CUSTOM_TARGET" : "IMPORTED_FIXTURE",
+      p_agency_name: body.agencyName, p_client_name: body.clientName, p_project_name: body.projectName,
+      p_milestone_title: body.milestoneTitle, p_amount_minor: body.amountMinor, p_currency: body.currency,
+      p_source_name: body.sourceName, p_source_sha256: sourceHash, p_criteria: body.criteria,
+      p_criteria_sha256: criteriaHash, p_target_origin: targetOrigin, p_build_url: buildUrl,
+      p_build_label: buildLabel, p_checks: checks, p_runner_version: "0.5.0", p_workspace_state: workspaceState,
+      p_actor_hash: actorHash, p_notice_version: body.noticeVersion, p_origin_addresses: originAddresses,
+    });
+    if (queueError || !queued) throw new Error(`Verification could not be queued atomically: ${queueError?.message ?? "unknown error"}`);
+    const durableRecordId = String((queued as { recordId: string }).recordId);
+    const jobId = String((queued as { jobId: string }).jobId);
 
-    const { data: job, error: jobError } = await database.from("verification_jobs_v2").insert({
-      record_id: durableRecordId,
-      status: "QUEUED",
-      target_origin: targetOrigin,
-      build_url: buildUrl,
-      build_label: buildLabel,
-      checks,
-      runner_version: "0.4.0",
-    }).select("id").single();
-    if (jobError || !job) throw new Error(`Verification job could not be recorded: ${jobError?.message ?? "unknown error"}`);
-
-    await database.from("transaction_records").update({ status: "VERIFYING" }).eq("id", durableRecordId);
-    await appendAuditEvent({ recordId: durableRecordId, eventType: "VERIFICATION_QUEUED", actorType: "OWNER", actorHash, payload: { jobId: job.id, buildLabel, targetOrigin, checkCount: checks.length, customTarget } });
-
-    const payload = JSON.stringify({ jobId: job.id });
+    const payload = JSON.stringify({ jobId });
     const signed = await signRunnerRequest(payload, secret);
     const dispatched = await fetch(`${runnerUrl.replace(/\/$/, "")}/v1/jobs`, {
       method: "POST",
@@ -184,14 +147,12 @@ export async function POST(request: Request) {
       body: payload,
     });
     if (!dispatched.ok) {
-      await database.from("verification_jobs_v2").update({ status: "FAILED", last_error: `Dispatch returned ${dispatched.status}`, completed_at: new Date().toISOString() }).eq("id", job.id);
-      await database.from("transaction_records").update({ status: "READY" }).eq("id", durableRecordId);
-      await appendAuditEvent({ recordId: durableRecordId, eventType: "VERIFICATION_DISPATCH_FAILED", actorType: "SYSTEM", payload: { jobId: job.id, status: dispatched.status } });
-      await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "RUNNER_DISPATCH_FAILED", recordId: durableRecordId, details: { jobId: job.id, status: dispatched.status } });
+      await database.rpc("fail_verification_job_atomic", { p_job_id: jobId, p_attempt: 1, p_error: `Dispatch returned ${dispatched.status}`, p_event_type: "VERIFICATION_DISPATCH_FAILED" });
+      await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "RUNNER_DISPATCH_FAILED", recordId: durableRecordId, details: { jobId, status: dispatched.status } });
       return NextResponse.json({ error: "The verification runner did not accept the job. Please retry." }, { status: 502, headers: noStoreJsonHeaders() });
     }
 
-    const response = NextResponse.json({ runId: job.id, recordId: durableRecordId, recordPublicId, status: "QUEUED" }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${job.id}` } });
+    const response = NextResponse.json({ runId: jobId, recordId: durableRecordId, recordPublicId, status: "QUEUED" }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${jobId}` } });
     if (ownerToken) response.cookies.set("mp_owner", ownerToken, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 24 * 60 * 60 });
     return response;
   } catch (error) {

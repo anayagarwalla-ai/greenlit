@@ -14,9 +14,17 @@ export async function consumeRateLimit(
   limit: number,
   windowSeconds: number,
   identity?: string | null,
+  options?: { failClosed?: boolean },
 ): Promise<RateLimitResult> {
+  const failClosed = options?.failClosed ?? false;
   const database = getSupabaseAdmin();
-  if (!database) return { allowed: true, retryAfterSeconds: windowSeconds };
+  if (!database) {
+    // Only local/dev environments run without Supabase configured at all;
+    // production always configures it, so this branch never masks a real
+    // outage there.
+    if (failClosed && process.env.NODE_ENV === "production") return { allowed: false, retryAfterSeconds: windowSeconds };
+    return { allowed: true, retryAfterSeconds: windowSeconds };
+  }
   let actor: string;
   try {
     actor = identity ? sha256(`user:${identity}`) : requestActorHash(request);
@@ -32,7 +40,10 @@ export async function consumeRateLimit(
   });
   if (error) {
     console.error("Rate limit unavailable", scope, error.message);
-    return { allowed: true, retryAfterSeconds: windowSeconds };
+    // Protected/high-cost routes (runner capacity, Gemini capacity, origin
+    // network probes) must fail closed when the quota store is unreachable
+    // rather than silently granting unlimited access.
+    return { allowed: !failClosed, retryAfterSeconds: windowSeconds };
   }
   const elapsed = Math.floor(Date.now() / 1000) % windowSeconds;
   return { allowed: Boolean(data), retryAfterSeconds: Math.max(1, windowSeconds - elapsed) };
@@ -42,5 +53,12 @@ export function rateLimitedResponse(retryAfterSeconds: number) {
   return Response.json(
     { error: "This beta has reached its current request allowance. Please retry after the limit resets.", code: "RATE_LIMITED" },
     { status: 429, headers: { "Retry-After": String(retryAfterSeconds), "Cache-Control": "no-store" } },
+  );
+}
+
+export function degradedRateLimitResponse() {
+  return Response.json(
+    { error: "This action is temporarily unavailable while the request-limit service recovers. Please retry shortly.", code: "RATE_LIMIT_UNAVAILABLE" },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
   );
 }

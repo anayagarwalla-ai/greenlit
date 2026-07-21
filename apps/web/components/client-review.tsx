@@ -71,6 +71,30 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const decisionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const packetRef = useRef<PacketResponse | null>(packet);
+
+  useEffect(() => {
+    packetRef.current = packet;
+    if (packet?.decision) decisionHeadingRef.current?.focus({ preventScroll: true });
+  }, [packet, packet?.decision]);
+
+  useEffect(() => {
+    // Evidence screenshot URLs are short-lived signed URLs (5 minutes) so the
+    // private storage bucket is never exposed directly. Refresh them in the
+    // background — without disturbing the rest of the page — so a client who
+    // lingers on this page doesn't see broken images before making a decision.
+    if (demo) return;
+    const interval = window.setInterval(() => {
+      if (!packetRef.current || packetRef.current.decision) return;
+      void fetch(`/api/reviews/${encodeURIComponent(packetId)}`).then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json() as PacketResponse;
+        setPacket((current) => current && !current.decision ? { ...current, snapshot: { ...current.snapshot, run: { ...current.snapshot.run, artifacts: payload.snapshot.run.artifacts ?? current.snapshot.run.artifacts ?? [] } } } : current);
+      }).catch(() => undefined);
+    }, 3.5 * 60_000);
+    return () => window.clearInterval(interval);
+  }, [demo, packetId]);
 
   useEffect(() => {
     if (demo) return;
@@ -128,10 +152,9 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         setPacket((current) => current ? { ...current, decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt, receiptSha256: "synthetic-walkthrough-no-hash" } : current);
         setDialog(null);
         if (decision === "APPROVED") {
-          try {
-            window.localStorage.setItem("milestoneproof-approved-url", "/receipt/demo");
-            window.localStorage.setItem("milestoneproof-demo-decision", JSON.stringify({ reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt }));
-          } catch { /* optional walkthrough convenience */ }
+          // Demo-only, ephemeral hand-off between the two synthetic
+          // walkthrough pages — never a real bearer token or account data.
+          try { window.localStorage.setItem("milestoneproof-demo-decision", JSON.stringify({ reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt })); } catch { /* optional walkthrough convenience */ }
         }
         return;
       }
@@ -140,9 +163,6 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
       if (!response.ok) throw new Error(payload.error ?? "The decision could not be recorded.");
       setPacket((current) => current ? { ...current, decision: payload.decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt: payload.decidedAt, receiptSha256: payload.receiptSha256 } : current);
       setDialog(null);
-      if (payload.decision === "APPROVED") {
-        try { window.localStorage.setItem("milestoneproof-approved-url", payload.receiptUrl); } catch { /* optional workspace convenience */ }
-      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "The decision could not be recorded.");
     } finally { setSubmitting(false); }
@@ -178,7 +198,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
             })}</div>
           </section>
           <div className="review-footer"><p><ShieldCheck size={12} /> {demo ? "This local sample decision is not sent to the server, retained, hash-chained, or usable as a transaction record." : `Your decision is timestamped and bound to snapshot ${packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.`}</p><div className="review-footer__actions"><button className="button button--outline" aria-expanded={dialog === "changes"} onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" aria-expanded={dialog === "approve"} onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
-        </> : <section className="panel approval-success"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
+        </> : <section className="panel approval-success" role="status" aria-live="polite"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2 ref={decisionHeadingRef} tabIndex={-1}>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
       </div>
 
       {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>

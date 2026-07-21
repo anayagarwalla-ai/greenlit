@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 
 const leaseRequestSchema = z.object({ attempt: z.number().int().min(1).max(5) });
 
@@ -16,19 +16,10 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   const { jobId } = await context.params;
   try {
     const database = requireSupabaseAdmin();
-    const { data: job, error } = await database.from("verification_jobs_v2")
-      .select("id, record_id, status, target_origin, checks, build_label")
-      .eq("id", jobId)
-      .single();
-    if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    if (!new Set(["QUEUED", "LEASED", "RUNNING"]).has(job.status)) return NextResponse.json({ error: `Job cannot be leased from ${job.status}.` }, { status: 409, headers: noStoreJsonHeaders() });
-
-    const startedAt = new Date().toISOString();
-    const { error: updateError } = await database.from("verification_jobs_v2").update({ status: "RUNNING", attempt: parsed.data.attempt, started_at: startedAt, last_error: null }).eq("id", jobId);
-    if (updateError) throw new Error(updateError.message);
-    await appendAuditEvent({ recordId: job.record_id, eventType: "VERIFICATION_STARTED", actorType: "RUNNER", payload: { jobId, attempt: parsed.data.attempt, buildLabel: job.build_label } });
-
-    return NextResponse.json({ jobId, targetOrigin: job.target_origin, checks: job.checks, buildLabel: job.build_label, startedAt }, { headers: noStoreJsonHeaders() });
+    const { data: job, error } = await database.rpc("lease_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt }).single();
+    if (error || !job) return NextResponse.json({ error: error?.message ?? "Job could not be leased." }, { status: error?.message?.includes("not found") ? 404 : 409, headers: noStoreJsonHeaders() });
+    const leased = job as { target_origin: string; checks: unknown; build_label: string; started_at: string };
+    return NextResponse.json({ jobId, targetOrigin: leased.target_origin, checks: leased.checks, buildLabel: leased.build_label, startedAt: leased.started_at }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Lease failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }

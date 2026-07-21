@@ -43,6 +43,7 @@ import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, no
 import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
+import { clearLegacyGlobalDraftState, draftStorageKey } from "@/lib/client-storage";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
 type SourceMode = "live" | "demo";
@@ -100,13 +101,20 @@ const checkLabels: Record<CheckType, string> = {
 };
 const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
 const geminiPaidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
-const DRAFT_STORAGE_KEY = "milestoneproof-workspace-draft-v2";
+// Uploaded files under this size are persisted (base64) alongside the draft
+// so an uploaded-PDF draft survives sign-in exactly like pasted text does.
+// Larger files are intentionally not persisted to stay well under browsers'
+// per-origin localStorage quota.
+const MAX_PERSISTED_FILE_BYTES = 1_500_000;
+
+type PersistedFile = { name: string; type: string; base64: string };
 
 type WorkspaceDraft = {
-  version: 2;
+  version: 3;
   phase: Phase;
   sourceText: string;
   sourceName: string;
+  selectedFileMeta: PersistedFile | null;
   business: BusinessDetails;
   attested: boolean;
   aiDisclosureAccepted: boolean;
@@ -119,9 +127,28 @@ type WorkspaceDraft = {
   latestRun: RunResponse | null;
   customRun: CustomRunConfiguration | null;
   retainedFixtureRecord?: boolean;
-  reviewUrl: string;
+  // The review bearer token lives only in React state for the current tab
+  // (see `reviewUrl` below) — it is never written to localStorage. Only the
+  // non-secret packet id is persisted so a resumed session can look up its
+  // current decision through the owner's authenticated session.
   reviewPacketId: string;
 };
+
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  return btoa(binary);
+}
+
+function base64ToFile(meta: PersistedFile): File {
+  const binary = atob(meta.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new File([bytes], meta.name, { type: meta.type });
+}
 
 function fixtureCompatible(source: string) {
   return demoCriteria.every((item) => isGroundedQuote(source, item.source));
@@ -182,6 +209,7 @@ export function MilestoneStudio() {
   const [sourceText, setSourceText] = useState("");
   const [sourceName, setSourceName] = useState("Pasted SOW");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileMeta, setSelectedFileMeta] = useState<PersistedFile | null>(null);
   const [attested, setAttested] = useState(false);
   const [aiDisclosureAccepted, setAiDisclosureAccepted] = useState(false);
   const [adultBusinessUseAttested, setAdultBusinessUseAttested] = useState(false);
@@ -202,8 +230,6 @@ export function MilestoneStudio() {
   const [copied, setCopied] = useState(false);
   const [lastVerificationPhase, setLastVerificationPhase] = useState<VerificationPhase | null>(null);
   const [reviewCreated, setReviewCreated] = useState(false);
-  const [approvalRecorded, setApprovalRecorded] = useState(false);
-  const [receiptUrl, setReceiptUrl] = useState("");
   const [recordId, setRecordId] = useState<string | null>(null);
   const [latestRun, setLatestRun] = useState<RunResponse | null>(null);
   const [runError, setRunError] = useState("");
@@ -234,94 +260,138 @@ export function MilestoneStudio() {
   }, [toast]);
 
   useEffect(() => {
-    const draftRestoreTimer = window.setTimeout(() => {
+    // Legacy global (non-account-scoped) keys could hold another account's
+    // SOW/business details or — critically — a client review bearer-token
+    // URL. Never trust or carry them forward now that drafts are scoped per
+    // signed-in account.
+    clearLegacyGlobalDraftState();
+    let cancelled = false;
+
+    const restoreLocalDraft = (email: string) => {
       try {
-        const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+        const raw = window.localStorage.getItem(draftStorageKey(email));
         const draft = raw ? JSON.parse(raw) as WorkspaceDraft : null;
-        if (draft?.version === 2) {
-        setPhase(draft.phase === "analyzing" ? "intake" : draft.phase.startsWith("running") ? (draft.latestRun ? (draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1") : "handoff") : draft.phase);
-        setSourceText(draft.sourceText ?? "");
-        setSourceName(draft.sourceName ?? "Pasted SOW");
-        setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
-        setAttested(Boolean(draft.attested));
-        setAiDisclosureAccepted(Boolean(draft.aiDisclosureAccepted));
-        setAdultBusinessUseAttested(Boolean(draft.adultBusinessUseAttested));
-        setCriteria(Array.isArray(draft.criteria) ? draft.criteria : []);
-        setConfirmed(draft.confirmed ?? {});
-        setModel(draft.model ?? "Gemini");
-        setAnalysisNotice(draft.analysisNotice ?? "");
-        setRecordId(draft.recordId ?? null);
-        setLatestRun(draft.latestRun ?? null);
-        setCustomRun(draft.customRun ?? null);
-        setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
-        setReviewUrl(draft.reviewUrl ?? "");
-        setReviewPacketId(draft.reviewPacketId ?? "");
-        if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
+        if (draft?.version === 3) {
+          const restoredPhase: Phase = draft.phase === "analyzing"
+            ? "intake"
+            : draft.phase.startsWith("running")
+              ? (draft.latestRun ? (draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1") : "handoff")
+              // The review bearer token is never persisted, so a "shared"
+              // phase can never be safely restored — fall back to the last
+              // verification result and let the agency re-share if needed.
+              : draft.phase === "shared"
+                ? (draft.latestRun ? "run2" : "criteria")
+                : draft.phase;
+          setPhase(restoredPhase);
+          setSourceText(draft.sourceText ?? "");
+          setSourceName(draft.sourceName ?? "Pasted SOW");
+          if (draft.selectedFileMeta) { setSelectedFileMeta(draft.selectedFileMeta); setSelectedFile(base64ToFile(draft.selectedFileMeta)); }
+          setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
+          setAttested(Boolean(draft.attested));
+          setAiDisclosureAccepted(Boolean(draft.aiDisclosureAccepted));
+          setAdultBusinessUseAttested(Boolean(draft.adultBusinessUseAttested));
+          setCriteria(Array.isArray(draft.criteria) ? draft.criteria : []);
+          setConfirmed(draft.confirmed ?? {});
+          setModel(draft.model ?? "Gemini");
+          setAnalysisNotice(draft.analysisNotice ?? "");
+          setRecordId(draft.recordId ?? null);
+          setLatestRun(draft.latestRun ?? null);
+          setCustomRun(draft.customRun ?? null);
+          setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
+          setReviewPacketId(draft.reviewPacketId ?? "");
+          setReviewCreated(Boolean(draft.reviewPacketId));
+          if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
         }
       } catch { /* A corrupt convenience draft must never block the workspace. */ }
-      draftHydrated.current = true;
-    }, 0);
-    void fetch("/api/account/session", { cache: "no-store" })
-      .then((response) => response.json())
-      .then(async (payload) => {
-        setSessionEmail(payload.user?.email ?? "");
-        const resumeId = new URL(window.location.href).searchParams.get("record");
-        if (!payload.user?.email || !resumeId) return;
-        const response = await fetch(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" });
-        const resumed = await response.json();
-        if (!response.ok) throw new Error(resumed.error ?? "The retained workspace could not be restored.");
-        const record = resumed.record;
-        const restoredCriteria = (record.confirmed_criteria ?? []) as AnalysisCriterion[];
-        const latest = resumed.runs?.[0];
-        const latestReview = resumed.reviews?.[0];
-        setRecordId(record.id);
-        const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
-        setRetainedFixtureRecord(isImportedFixture);
-        setBusiness({ agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
-        setSourceName(record.source_name);
-        setSourceText(restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
-        setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
-        setConfirmed(Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
-        setAttested(true); setAiDisclosureAccepted(true); setAdultBusinessUseAttested(true);
-        setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
-        if (latest) {
-          const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
-          setLatestRun(run);
-          const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
-          if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
-          else if (isImportedFixture) setCustomRun(null);
-          if (["QUEUED", "LEASED", "RUNNING"].includes(latest.status)) setPhase("running1");
-          else if (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW") { setPhase("run2"); setLastVerificationPhase("run2"); }
-          else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
-        } else setPhase("criteria");
-        setToast("Retained project restored");
-      })
-      .catch(() => undefined);
-    const syncApproval = () => {
-      try {
-        const stored = window.localStorage.getItem("milestoneproof-approved-url") ?? "";
-        setReceiptUrl(stored);
-        setApprovalRecorded(Boolean(stored));
-      } catch { /* optional workspace convenience */ }
     };
-    const approvalSyncTimer = window.setTimeout(syncApproval, 0);
-    window.addEventListener("focus", syncApproval);
-    window.addEventListener("storage", syncApproval);
+
+    const restore = async () => {
+      let email = "";
+      try {
+        const response = await fetch("/api/account/session", { cache: "no-store" });
+        const payload = await response.json();
+        email = payload.user?.email ?? "";
+      } catch { /* treated as signed out below */ }
+      if (cancelled) return;
+      setSessionEmail(email);
+
+      const resumeId = new URL(window.location.href).searchParams.get("record");
+      if (email && resumeId) {
+        try {
+          const response = await fetch(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" });
+          const resumed = await response.json();
+          if (!response.ok) throw new Error(resumed.error ?? "The retained workspace could not be restored.");
+          if (cancelled) return;
+          const record = resumed.record;
+          const restoredCriteria = (record.confirmed_criteria ?? []) as AnalysisCriterion[];
+          const latest = resumed.runs?.[0];
+          const latestReview = resumed.reviews?.[0];
+          setRecordId(record.id);
+          const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
+          setRetainedFixtureRecord(isImportedFixture);
+          setBusiness({ agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
+          setSourceName(record.source_name);
+          setSourceText(restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+          setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
+          setConfirmed(Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
+          setAttested(true); setAiDisclosureAccepted(true); setAdultBusinessUseAttested(true);
+          setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
+          // An approved record is a terminal, finalized state — send the
+          // agency straight to its receipt instead of reopening it inside
+          // the intake/verification workflow.
+          if (record.status === "APPROVED") {
+            const approvedPacket = (resumed.reviews as Array<{ decision?: string | null; public_id: string }> ?? []).find((item) => item.decision === "APPROVED");
+            if (approvedPacket) { window.location.assign(`/receipt/${approvedPacket.public_id}`); return; }
+          }
+          if (latest) {
+            const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
+            setLatestRun(run);
+            const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
+            if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
+            else if (isImportedFixture) setCustomRun(null);
+            const openReview = (resumed.reviews as Array<{ decision?: string | null; public_id: string }> ?? []).find((item) => !item.decision);
+            if (openReview) { setReviewPacketId(openReview.public_id); setReviewCreated(true); }
+            if (["QUEUED", "LEASED", "RUNNING"].includes(latest.status)) setPhase("running1");
+            else if (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW") { setPhase("run2"); setLastVerificationPhase("run2"); }
+            else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
+          } else setPhase("criteria");
+          setToast("Retained project restored");
+          draftHydrated.current = true;
+          return;
+        } catch {
+          // Fall through to the local-draft restore below.
+        }
+      }
+      if (cancelled) return;
+      restoreLocalDraft(email);
+      draftHydrated.current = true;
+    };
+    void restore();
+
     return () => {
-      window.clearTimeout(draftRestoreTimer);
-      window.clearTimeout(approvalSyncTimer);
-      window.removeEventListener("focus", syncApproval);
-      window.removeEventListener("storage", syncApproval);
+      cancelled = true;
       analysisController.current?.abort("workspace-unmounted");
       runController.current?.abort("workspace-unmounted");
     };
   }, []);
 
   useEffect(() => {
+    if (!selectedFile || selectedFile.size > MAX_PERSISTED_FILE_BYTES) {
+      const timer = window.setTimeout(() => setSelectedFileMeta(null), 0);
+      return () => window.clearTimeout(timer);
+    }
+    let cancelled = false;
+    void fileToBase64(selectedFile).then((base64) => {
+      if (!cancelled) setSelectedFileMeta({ name: selectedFile.name, type: selectedFile.type, base64 });
+    });
+    return () => { cancelled = true; };
+  }, [selectedFile]);
+
+  useEffect(() => {
     if (!draftHydrated.current || sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId };
-    try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* Browser storage is an optional local recovery layer. */ }
-  }, [phase, sourceMode, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId]);
+    const draft: WorkspaceDraft = { version: 3, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId };
+    try { window.localStorage.setItem(draftStorageKey(sessionEmail), JSON.stringify(draft)); } catch { /* Browser storage is an optional local recovery layer. */ }
+  }, [phase, sourceMode, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId, sessionEmail]);
 
   useEffect(() => {
     if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
@@ -354,8 +424,8 @@ export function MilestoneStudio() {
 
   const preserveDraft = () => {
     if (sourceMode === "demo") return;
-    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewUrl, reviewPacketId };
-    try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* optional */ }
+    const draft: WorkspaceDraft = { version: 3, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId };
+    try { window.localStorage.setItem(draftStorageKey(sessionEmail), JSON.stringify(draft)); } catch { /* optional */ }
   };
 
   const reset = () => {
@@ -370,6 +440,7 @@ export function MilestoneStudio() {
     setSourceText("");
     setSourceName("Pasted SOW");
     setSelectedFile(null);
+    setSelectedFileMeta(null);
     setAttested(false);
     setAiDisclosureAccepted(false);
     setAdultBusinessUseAttested(false);
@@ -380,8 +451,6 @@ export function MilestoneStudio() {
     setCopied(false);
     setLastVerificationPhase(null);
     setReviewCreated(false);
-    setApprovalRecorded(false);
-    setReceiptUrl("");
     setRecordId(null);
     setLatestRun(null);
     setRunError("");
@@ -391,11 +460,8 @@ export function MilestoneStudio() {
     setCustomRun(null);
     setRetainedFixtureRecord(false);
     setBusiness({ agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
-    try {
-      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
-      window.localStorage.removeItem("milestoneproof-approved-url");
-      window.localStorage.removeItem("milestoneproof-demo-decision");
-    } catch { /* optional workspace convenience */ }
+    try { window.localStorage.removeItem(draftStorageKey(sessionEmail)); } catch { /* optional workspace convenience */ }
+    clearLegacyGlobalDraftState();
     setToast("Ready for a new SOW");
   };
 
@@ -419,8 +485,6 @@ export function MilestoneStudio() {
     setAnalysisNotice("");
     setLastVerificationPhase(null);
     setReviewCreated(false);
-    setApprovalRecorded(false);
-    setReceiptUrl("");
     setRecordId(null);
     setLatestRun(null);
     setRunError("");
@@ -428,10 +492,7 @@ export function MilestoneStudio() {
     setReviewPacketId("");
     setCustomRun(null);
     setRetainedFixtureRecord(false);
-    try {
-      window.localStorage.removeItem("milestoneproof-approved-url");
-      window.localStorage.removeItem("milestoneproof-demo-decision");
-    } catch { /* optional workspace convenience */ }
+    clearLegacyGlobalDraftState();
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
@@ -673,6 +734,28 @@ export function MilestoneStudio() {
     }
   };
 
+  const openClientReview = () => {
+    // The bearer token is only ever held in memory for the tab that created
+    // it — never persisted — so if it's gone (e.g. after a reload) a fresh
+    // review packet is minted rather than trying to resurrect the old link.
+    if (reviewUrl) setPhase("shared");
+    else void share();
+  };
+
+  const openApprovalRecord = async () => {
+    if (!reviewPacketId) return;
+    if (sourceMode === "demo") { window.location.assign("/receipt/demo"); return; }
+    try {
+      const response = await fetch(`/api/reviews/${encodeURIComponent(reviewPacketId)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "This review record is unavailable.");
+      if (payload.decision === "APPROVED") window.location.assign(`/receipt/${reviewPacketId}`);
+      else setToast(payload.decision === "CHANGES_REQUESTED" ? "The client requested changes — no approval receipt yet." : "Awaiting the client's decision — no approval receipt yet.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "This review record is unavailable.");
+    }
+  };
+
   const projectLabel = sourceText ? business.projectName : "New milestone proof";
   const workspaceTitle = phase === "intake" || phase === "analyzing"
     ? "Import the promises worth proving"
@@ -708,8 +791,8 @@ export function MilestoneStudio() {
           <nav className="side-nav">
             <button className={currentStep === 1 ? "is-active" : ""} disabled={criteria.length === 0 && sourceMode !== "demo"} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
             <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase && latestRun && <span>{latestPassCount}/{latestRun.results.length}</span>}</button>
-            <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={() => setPhase("shared")}><Send size={15} /><span>Client review</span></button>
-            <button disabled={!approvalRecorded || !receiptUrl} onClick={() => receiptUrl && window.location.assign(receiptUrl)}><FileCheck2 size={15} /><span>Approval record</span></button>
+            <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={openClientReview}><Send size={15} /><span>Client review</span></button>
+            <button disabled={!reviewPacketId} onClick={() => void openApprovalRecord()}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
           <div className="side-facts">
             <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
@@ -1093,7 +1176,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
               const result = resultByCriterion[item.id];
               const manual = !result && (item.supported === false || item.checkType === "manual");
               const resultPassed = result?.status === "PASS";
-              return <div className={`result-row ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>{manual ? "Expected: client judgment on the confirmed promise" : `Expected: ${result?.expected ?? "Recorded check"} · ${formatDuration(result?.durationMs ?? 0)}`}</span></div><span className="result-observed">{manual ? "Reserved for client review" : result?.observed ?? "No result returned"}</span><span className={`result-icon ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`}>{manual ? <PencilLine size={13} /> : resultPassed ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}</span></div>;
+              return <div className={`result-row ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`} key={item.id}><span className="criterion-id">{item.id}</span><div className="result-name"><strong>{item.title}</strong><span>{manual ? "Expected: client judgment on the confirmed promise" : `Expected: ${result?.expected ?? "Recorded check"} · ${formatDuration(result?.durationMs ?? 0)}`}</span></div><span className="result-observed">{manual ? "Reserved for client review" : result?.observed ?? "No result returned"}</span><span className={`result-icon ${!resultPassed && !manual ? "is-fail" : ""} ${manual ? "is-manual" : ""}`}>{manual ? <PencilLine size={13} aria-hidden="true" /> : resultPassed ? <Check size={13} strokeWidth={3} aria-hidden="true" /> : <X size={13} strokeWidth={3} aria-hidden="true" />}<span>{manual ? "Manual review" : resultPassed ? "Passed" : "Failed"}</span></span></div>;
             })}
           </div>
         </section>

@@ -117,3 +117,43 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   expect(submitted).not.toHaveProperty("checks");
   expect(submitted).not.toHaveProperty("originReceipt");
 });
+
+test("drafts are isolated per signed-in account and never leak across accounts on the same browser", async ({ page }) => {
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-a", email: "agency-a@example.test" } }) }));
+  await page.goto("/workspace");
+  await page.getByLabel("Paste SOW text").fill(source);
+  await page.getByLabel("Agency or vendor").fill("Agency A Confidential Co");
+  await expect(page.getByLabel("Agency or vendor")).toHaveValue("Agency A Confidential Co");
+
+  await page.unroute("**/api/account/session");
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-b", email: "agency-b@example.test" } }) }));
+  await page.goto("/workspace");
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue("");
+  await expect(page.getByLabel("Agency or vendor")).toHaveValue("");
+
+  await page.unroute("**/api/account/session");
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-a", email: "agency-a@example.test" } }) }));
+  await page.goto("/workspace");
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue(source);
+  await expect(page.getByLabel("Agency or vendor")).toHaveValue("Agency A Confidential Co");
+});
+
+test("resuming an approved record redirects straight to its receipt instead of a needs-work workflow phase", async ({ page }) => {
+  const recordId = "6e793117-cdeb-402a-b2b1-0d8359b4580f";
+  const packetId = "REVIEW-APPROVED1";
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "test-user", email: "agency@example.test" } }) }));
+  await page.route(`**/api/account/records/${recordId}`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    record: { id: recordId, public_id: "MP-TEST", mode: "IMPORTED_FIXTURE", status: "APPROVED", agency_name: "Northstar Studio", client_name: "Acme Outdoors", project_name: "Spring launch", milestone_title: "Spring launch", amount_minor: 1200050, currency: "USD", source_name: "Pasted SOW", confirmed_criteria: [], criteria_revision: 1 },
+    runs: [],
+    reviews: [{ public_id: packetId, decision: "APPROVED" }],
+  }) }));
+  await page.route(`**/api/reviews/${packetId}`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    packetId, decision: "APPROVED", reviewerName: "Test Reviewer", reviewerEmail: "reviewer@example.test", decidedAt: "2026-07-20T20:00:00.000Z", receiptSha256: "c".repeat(64),
+    snapshot: { recordPublicId: "MP-TEST", agencyName: "Northstar Studio", clientName: "Acme Outdoors", projectName: "Spring launch", milestoneTitle: "Spring launch", amountMinor: 1200050, currency: "USD", revision: 1, criteria: [], run: { runId: "run-1", buildLabel: "launch-rc2", buildUrl: "http://127.0.0.1:3008/fixture/rc2", results: [], manifestSha256: "d".repeat(64), browserVersion: "test", runnerVersion: "test", completedAt: "2026-07-20T20:00:00.000Z" } },
+    snapshotSha256: "e".repeat(64),
+  }) }));
+
+  await page.goto(`/workspace?record=${recordId}`);
+  await page.waitForURL(new RegExp(`/receipt/${packetId}`));
+  await expect(page.getByRole("heading", { name: "Milestone approval record" })).toBeVisible();
+});

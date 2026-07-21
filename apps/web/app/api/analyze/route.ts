@@ -166,11 +166,6 @@ export async function POST(request: Request) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
   if (!betaAccessAllowed(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
-  const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id);
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
-  const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
-  const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "milestoneproof-global-analysis-capacity");
-  if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
   let input: AnalysisInput;
   try {
     input = await readInput(request);
@@ -179,6 +174,14 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
     return NextResponse.json({ error: "The SOW could not be read. Try pasting the text instead.", code: "SOURCE_READ_FAILED" }, { status: 422 });
   }
+  // Quota is only consumed once the request body is fully read and validated
+  // above, so a malformed or oversized request never costs the account or
+  // the shared daily capacity pool.
+  const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
+  const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "milestoneproof-global-analysis-capacity", { failClosed: true });
+  if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return fallbackResponse(input, "not_configured", startedAt);

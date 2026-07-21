@@ -2,6 +2,7 @@ import { launch, type BrowserWorker } from "@cloudflare/playwright";
 import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@milestoneproof/contracts";
 import { z } from "zod";
 import axe from "axe-core";
+import { isUnsafeAddress, pathWithQueryAndHash } from "./security";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -70,6 +71,12 @@ async function launchWithBackoff(binding: BrowserWorker) {
   throw lastError instanceof Error ? lastError : new Error("Browser capacity is unavailable.");
 }
 
+async function requireUniqueMatch(locator: import("@cloudflare/playwright").Locator, description: string) {
+  const count = await locator.count();
+  if (count !== 1) throw new Error(`${description} must resolve to exactly one element; found ${count}.`);
+  return locator.first();
+}
+
 function constantTimeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;
@@ -113,33 +120,39 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     await settlePage(page, origin);
     if (check.type === "element_state") {
       const locator = await resolveLocator(page, check.elementRef);
-      await locator.first().waitFor({ state: "attached", timeout: 6_000 });
       if (check.assertion === "count") {
         const count = await locator.count();
         return result(count === check.expectedCount ? "PASS" : "FAIL", `${check.expectedCount} matching elements`, `${count} matching elements`);
       }
-      const actual = check.assertion === "visible" ? await locator.first().isVisible() : await locator.first().isEnabled();
+      const unique = await requireUniqueMatch(locator, `Element reference ${check.elementRef}`);
+      await unique.waitFor({ state: "attached", timeout: 6_000 });
+      const actual = check.assertion === "visible" ? await unique.isVisible() : await unique.isEnabled();
       return result(actual ? "PASS" : "FAIL", `${check.assertion}: true`, `${check.assertion}: ${actual}`);
     }
     if (check.type === "link_destination") {
       const locator = await resolveLocator(page, check.elementRef);
-      await locator.first().waitFor({ state: "visible", timeout: 6_000 });
-      await locator.first().click();
+      const unique = await requireUniqueMatch(locator, `Element reference ${check.elementRef}`);
+      await unique.waitFor({ state: "visible", timeout: 6_000 });
+      await unique.click();
       await settlePage(page, origin);
       const observed = new URL(page.url());
-      const passed = observed.origin === origin && observed.pathname === check.expectedPath;
-      return result(passed ? "PASS" : "FAIL", `Activating the link opens same-origin ${check.expectedPath}`, `${observed.pathname}${observed.hash}`);
+      const passed = observed.origin === origin && pathWithQueryAndHash(observed) === check.expectedPath;
+      return result(passed ? "PASS" : "FAIL", `Activating the link opens same-origin ${check.expectedPath}`, pathWithQueryAndHash(observed));
     }
     if (check.type === "form_submission") {
       let observedStatus: number | undefined;
-      for (const field of check.fields) await page.getByLabel(field.label, { exact: true }).fill(field.value);
-      const responsePromise = check.expectedPostPath ? page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).origin === origin && new URL(response.url()).pathname === check.expectedPostPath, { timeout: 8_000 }) : null;
-      await (await resolveLocator(page, check.submitRef)).click();
+      for (const field of check.fields) {
+        const fieldLocator = await requireUniqueMatch(page.getByLabel(field.label, { exact: true }), `Field "${field.label}"`);
+        await fieldLocator.fill(field.value);
+      }
+      const responsePromise = check.expectedPostPath ? page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).origin === origin && pathWithQueryAndHash(new URL(response.url())) === check.expectedPostPath, { timeout: 8_000 }) : null;
+      const submitLocator = await requireUniqueMatch(await resolveLocator(page, check.submitRef), `Submit control ${check.submitRef}`);
+      await submitLocator.click();
       if (responsePromise) observedStatus = (await responsePromise).status();
       await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
       assertVerifiedPage(page, origin);
       const textPassed = check.successText ? await page.getByText(check.successText, { exact: false }).isVisible() : true;
-      const pathPassed = check.successPath ? new URL(page.url()).pathname === check.successPath : true;
+      const pathPassed = check.successPath ? pathWithQueryAndHash(new URL(page.url())) === check.successPath : true;
       const statusPassed = check.expectedStatus ? observedStatus === check.expectedStatus : true;
       return result(textPassed && pathPassed && statusPassed ? "PASS" : "FAIL", `Success UI${check.expectedStatus ? ` + HTTP ${check.expectedStatus}` : ""}`, `UI: ${textPassed ? "shown" : "missing"}${observedStatus ? `; HTTP ${observedStatus}` : ""}`);
     }
@@ -154,7 +167,8 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     }
     if (check.submitRef) {
       if (!check.ownerAcknowledgedMutation) return result("ERROR", "Owner-authorized accessibility precondition", "Mutation acknowledgement missing");
-      await (await resolveLocator(page, check.submitRef)).click();
+      const submitLocator = await requireUniqueMatch(await resolveLocator(page, check.submitRef), `Submit control ${check.submitRef}`);
+      await submitLocator.click();
       await page.waitForFunction(() => document.querySelectorAll("input[aria-describedby]").length > 0, undefined, { timeout: 3_000 });
     }
     // Playwright accepts a source string here and evaluates it directly in the
@@ -190,14 +204,36 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
       const page = await context.newPage();
+      let rebindingDetected: string | null = null;
       try {
         page.on("popup", (popup) => void popup.close());
+        // Constrain every request the page makes — top-level navigation,
+        // subresources (images/scripts/style), fetch/XHR, and frames — to
+        // the verified target origin. data:/blob: are same-document and
+        // carry no network egress risk.
         await page.route("**/*", async (route) => {
           const request = route.request();
-          if (request.isNavigationRequest() && new URL(request.url()).origin !== lease.targetOrigin) await route.abort("blockedbyclient");
-          else await route.continue();
+          let url: URL;
+          try { url = new URL(request.url()); } catch { await route.abort("blockedbyclient"); return; }
+          const benign = url.protocol === "data:" || url.protocol === "blob:";
+          if (!benign && url.origin !== lease.targetOrigin) { await route.abort("blockedbyclient"); return; }
+          await route.continue();
+        });
+        // DNS rebinding / TOCTOU defense: validate-origin only proves the
+        // hostname resolved safely *before* this check started. The browser
+        // performs its own resolution when it actually connects, so inspect
+        // the real server address of every response and abort the job the
+        // moment any connection lands on a private/loopback/link-local or
+        // otherwise reserved address, even if the pre-flight check passed.
+        page.on("response", (response) => {
+          void response.serverAddr().then((address) => {
+            if (address?.ipAddress && isUnsafeAddress(address.ipAddress)) {
+              rebindingDetected = `Connection resolved to an unsafe address (${address.ipAddress}) after origin validation.`;
+            }
+          }).catch(() => undefined);
         });
         const checkResult = await executeCheck(page, lease.targetOrigin, check);
+        if (rebindingDetected) throw new Error(rebindingDetected);
         const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
         const evidence: EvidenceArtifact = { criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
         const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);

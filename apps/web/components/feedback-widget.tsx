@@ -16,6 +16,7 @@ export function FeedbackWidget() {
   const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const emailIsValid = !email.trim() || emailPattern.test(email.trim());
 
@@ -28,6 +29,7 @@ export function FeedbackWidget() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Feedback could not be sent.");
       setStatus({ kind: "success", message: `Received as ${payload.feedbackId}. Thank you—we saved your report.` }); setMessage("");
+      window.setTimeout(() => successHeadingRef.current?.focus({ preventScroll: true }), 0);
     } catch (error) { setStatus({ kind: "error", message: error instanceof Error ? error.message : "Feedback could not be sent." }); }
     finally { setBusy(false); }
   };
@@ -52,8 +54,9 @@ export function FeedbackWidget() {
 
   if (pathname.startsWith("/review/") || pathname.startsWith("/receipt/")) return null;
   const close = () => setOpen(false);
-  return <div className={`feedback-widget ${pathname === "/" ? "feedback-widget--landing" : ""} ${open ? "is-open" : ""}`}>
-    {open && <div className="feedback-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) close(); }}><section ref={dialogRef} className="feedback-card" role="dialog" aria-modal="true" aria-labelledby="feedback-title"><button className="dialog-close" aria-label="Close feedback" onClick={close}><X size={16} /></button>{status?.kind === "success" ? <div className="feedback-success"><Check size={24} /><h2 id="feedback-title">Feedback received.</h2><p role="status">{status.message}</p><button className="button button--outline button--small" onClick={() => setStatus(null)}>Send another</button></div> : <><div className="legal-kicker">Closed beta feedback</div><h2 id="feedback-title">Tell us what got in your way.</h2><p>Include what you expected and what happened. Do not paste SOW content, credentials, or client data.</p><form onSubmit={submit}><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="BUG">Something broke</option><option value="CONFUSING">Something was confusing</option><option value="IDEA">Product idea</option><option value="OTHER">Other</option></select></label><label>What happened?<textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={10} required /></label><label>Email for follow-up (optional)<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>{status?.kind === "error" && <div className="form-message form-message--error" role="alert">{status.message}</div>}<button className="button button--ink button--small" disabled={busy || message.trim().length < 10 || !emailIsValid}>{busy ? "Sending…" : "Send feedback"}</button></form></>}</section></div>}
+  const placement = pathname === "/" ? "feedback-widget--landing" : pathname === "/login" ? "feedback-widget--login" : pathname === "/workspace" ? "" : "feedback-widget--offset";
+  return <div className={`feedback-widget ${placement} ${open ? "is-open" : ""}`}>
+    {open && <div className="feedback-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) close(); }}><section ref={dialogRef} className="feedback-card" role="dialog" aria-modal="true" aria-labelledby="feedback-title"><button className="dialog-close" aria-label="Close feedback" onClick={close}><X size={16} /></button>{status?.kind === "success" ? <div className="feedback-success"><Check size={24} /><h2 ref={successHeadingRef} tabIndex={-1} id="feedback-title">Feedback received.</h2><p role="status">{status.message}</p><button className="button button--outline button--small" onClick={() => setStatus(null)}>Send another</button></div> : <><div className="legal-kicker">Closed beta feedback</div><h2 id="feedback-title">Tell us what got in your way.</h2><p>Include what you expected and what happened. Do not paste SOW content, credentials, or client data.</p><form onSubmit={submit}><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="BUG">Something broke</option><option value="CONFUSING">Something was confusing</option><option value="IDEA">Product idea</option><option value="OTHER">Other</option></select></label><label>What happened?<textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={10} required /></label><label>Email for follow-up (optional)<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>{status?.kind === "error" && <div className="form-message form-message--error" role="alert">{status.message}</div>}<button className="button button--ink button--small" disabled={busy || message.trim().length < 10 || !emailIsValid}>{busy ? "Sending…" : "Send feedback"}</button></form></>}</section></div>}
     <button ref={triggerRef} className="feedback-trigger" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>{status?.kind === "success" ? <Check size={15} /> : <MessageSquareText size={15} />}{open ? "Close" : "Beta feedback"}</button>
   </div>;
 }

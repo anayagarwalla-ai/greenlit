@@ -4,7 +4,7 @@ import { SiteHeader } from "@/components/site-header";
 
 const proofRows = [
   ["AC-01", "Hero and CTA visible", "Passed"],
-  ["AC-02", "CTA reaches /contact", "Passed"],
+  ["AC-02", "CTA reaches contact section", "Passed"],
   ["AC-04", "Contact form creates lead", "Passed"],
   ["AC-06", "No mobile overflow", "Passed"],
 ];
@@ -34,7 +34,7 @@ export default function Home() {
             <div className="proof-card">
               <div className="proof-card__header">
                 <div>
-                  <span className="micro-label">Milestone</span>
+                  <span className="micro-label">Illustrative example · Milestone</span>
                   <h2>Spring launch</h2>
                 </div>
                 <span className="seal"><Check size={17} strokeWidth={3} /> VERIFIED</span>

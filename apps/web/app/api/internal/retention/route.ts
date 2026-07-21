@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { deliverPendingNotifications } from "@/lib/notifications";
 
 export const runtime = "nodejs";
@@ -25,18 +25,21 @@ export async function GET(request: Request) {
       .limit(500);
     if (evidenceReadError) throw new Error(evidenceReadError.message);
 
-    const evidencePaths = (expiredEvidence ?? []).flatMap((item) => item.storage_path ? [item.storage_path] : []);
-    if (evidencePaths.length > 0) {
-      const { error } = await database.storage.from("evidence").remove(evidencePaths);
-      if (error) throw new Error(`Expired evidence could not be removed: ${error.message}`);
-    }
-    const evidenceIds = (expiredEvidence ?? []).map((item) => item.id);
-    if (evidenceIds.length > 0) {
-      const { error } = await database.from("evidence_artifacts_v2").delete().in("id", evidenceIds);
-      if (error) throw new Error(error.message);
-      const byRecord = new Map<string, number>();
-      for (const item of expiredEvidence ?? []) byRecord.set(item.record_id, (byRecord.get(item.record_id) ?? 0) + 1);
-      for (const [recordId, count] of byRecord) await appendAuditEvent({ recordId, eventType: "EVIDENCE_RETENTION_EXPIRED", actorType: "SYSTEM", payload: { deletedArtifactCount: count, processedAt: now } });
+    // Group by record so storage removal + the DB delete + its audit event
+    // all happen per-record: storage is only ever removed for artifacts we
+    // are about to (and then atomically do) delete from the database.
+    const byRecord = new Map<string, Array<{ id: string; storage_path: string | null }>>();
+    for (const item of expiredEvidence ?? []) byRecord.set(item.record_id, [...(byRecord.get(item.record_id) ?? []), { id: item.id, storage_path: item.storage_path }]);
+    let deletedEvidenceCount = 0;
+    for (const [recordId, items] of byRecord) {
+      const paths = items.flatMap((item) => item.storage_path ? [item.storage_path] : []);
+      if (paths.length > 0) {
+        const { error } = await database.storage.from("evidence").remove(paths);
+        if (error) throw new Error(`Expired evidence could not be removed: ${error.message}`);
+      }
+      const { data: purgedCount, error: purgeError } = await database.rpc("purge_expired_evidence_atomic", { p_ids: items.map((item) => item.id), p_record_id: recordId, p_processed_at: now });
+      if (purgeError) throw new Error(purgeError.message);
+      deletedEvidenceCount += Number(purgedCount ?? 0);
     }
 
     const { data: expiredRecords, error: recordsError } = await database.from("transaction_records")
@@ -47,6 +50,13 @@ export async function GET(request: Request) {
     if (recordsError) throw new Error(recordsError.message);
     let purgedRecords = 0;
     for (const record of expiredRecords ?? []) {
+      // A hold on ANY of this record's evidence artifacts must protect the
+      // artifact's storage file, not just the database row — check before
+      // removing anything from Storage. purge_expired_transaction_record
+      // re-checks holds on the DB side before deleting, but by the time it
+      // ran the storage files would already be gone if we didn't check here.
+      const { data: heldArtifacts } = await database.from("evidence_artifacts_v2").select("id").eq("record_id", record.id).eq("legal_hold", true).limit(1);
+      if ((heldArtifacts ?? []).length > 0) continue;
       const { data: remainingArtifacts } = await database.from("evidence_artifacts_v2").select("storage_path").eq("record_id", record.id);
       const paths = (remainingArtifacts ?? []).flatMap((item) => item.storage_path ? [item.storage_path] : []);
       if (paths.length > 0) {
@@ -76,7 +86,7 @@ export async function GET(request: Request) {
     if (eventError) throw new Error(eventError.message);
     const notificationDelivery = await deliverPendingNotifications(20);
 
-    return NextResponse.json({ ok: true, deletedEvidence: evidenceIds.length, purgedRecords, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, notificationDelivery, processedAt: now }, { headers: noStoreJsonHeaders() });
+    return NextResponse.json({ ok: true, deletedEvidence: deletedEvidenceCount, purgedRecords, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, notificationDelivery, processedAt: now }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Retention maintenance failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }

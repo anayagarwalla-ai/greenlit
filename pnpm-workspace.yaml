@@ -2,6 +2,11 @@ packages:
   - "apps/*"
   - "packages/*"
   - "workers/*"
+overrides:
+  # GHSA-qx2v-qp2m-jg93: PostCSS XSS via unescaped </style> in stringified
+  # output. Next.js 16.2.10 still bundles a vulnerable transitive postcss;
+  # force the patched version repo-wide rather than waiting on upstream.
+  postcss: ">=8.5.10"
 allowBuilds:
   '@google/genai': true
   esbuild: true

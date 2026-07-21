@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Bell, Check, Clipboard, Clock3, ExternalLink, FileCheck2, LoaderCircle, LogOut, ShieldCheck } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatTimestamp } from "@/lib/format";
+import { clearAccountDraftState } from "@/lib/client-storage";
 
 type Run = { id: string; status: string; build_label: string; build_url: string; last_error?: string | null; completed_at?: string | null; created_at: string };
 type Review = { public_id: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewer_name?: string | null; reviewer_email?: string | null; reviewer_note?: string | null; decided_at?: string | null; expires_at: string; revoked_at?: string | null; created_at: string };
@@ -65,6 +66,10 @@ export function AgencyDashboard() {
   };
 
   const signOut = async () => {
+    // Clear this account's local draft/review-state before the session
+    // cookie is dropped, so a second agency on the same browser can never
+    // inherit it.
+    clearAccountDraftState(data?.user.email);
     await fetch("/api/account/session", { method: "DELETE" });
     window.location.assign("/");
   };

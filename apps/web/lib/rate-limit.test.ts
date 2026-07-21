@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { positiveIntegerSetting } from "./rate-limit";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { consumeRateLimit, positiveIntegerSetting } from "./rate-limit";
 
 describe("beta capacity settings", () => {
   it("accepts positive safe integers", () => {
@@ -12,5 +12,36 @@ describe("beta capacity settings", () => {
     expect(positiveIntegerSetting("2.5", 20)).toBe(20);
     expect(positiveIntegerSetting("0", 20)).toBe(20);
     expect(positiveIntegerSetting("-1", 20)).toBe(20);
+  });
+});
+
+describe("consumeRateLimit fail-closed behavior on protected routes", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("fails closed in production when the quota store is not configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const request = new Request("https://example.test/api/runs");
+    const result = await consumeRateLimit(request, "verification-run-day", 8, 86_400, "user-1", { failClosed: true });
+    expect(result.allowed).toBe(false);
+  });
+
+  it("stays fail-open in local development when the quota store is simply not configured", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const request = new Request("https://example.test/api/runs");
+    const result = await consumeRateLimit(request, "verification-run-day", 8, 86_400, "user-1", { failClosed: true });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("defaults to fail-open when failClosed is not requested", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const request = new Request("https://example.test/api/feedback");
+    const result = await consumeRateLimit(request, "beta-feedback-day", 10, 86_400, "user-1");
+    expect(result.allowed).toBe(true);
   });
 });

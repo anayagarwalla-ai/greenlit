@@ -139,10 +139,12 @@ export function buildCheck(criterion: AnalysisCriterion, draft: CheckDraft, inde
   return parsed.data;
 }
 
-function MappingFields({ criterion, draft, update }: { criterion: AnalysisCriterion; draft: CheckDraft; update: (patch: Partial<CheckDraft>) => void }) {
+function MappingFields({ criterion, draft, update, error }: { criterion: AnalysisCriterion; draft: CheckDraft; update: (patch: Partial<CheckDraft>) => void; error: string }) {
+  const errorId = `${criterion.id}-mapping-error`;
   return (
     <div className="mapping-fields">
-      <label>{criterion.id} page path<input aria-label={`${criterion.id} page path`} value={draft.path} onChange={(event) => update({ path: event.target.value })} placeholder="/contact" /></label>
+      {error && <p className="analysis-error mapping-wide" id={errorId} role="alert">{error}</p>}
+      <label>{criterion.id} page path<input aria-label={`${criterion.id} page path`} aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} value={draft.path} onChange={(event) => update({ path: event.target.value })} placeholder="/contact" /></label>
       {(criterion.checkType === "element_state" || criterion.checkType === "link_destination") && <label>{criterion.id} element reference<input aria-label={`${criterion.id} element reference`} value={draft.elementRef} onChange={(event) => update({ elementRef: event.target.value })} placeholder="button:Get started" /><small>Exact accessible role:name, such as link:Contact us.</small></label>}
       {criterion.checkType === "element_state" && <><label>{criterion.id} assertion<select aria-label={`${criterion.id} assertion`} value={draft.assertion} onChange={(event) => update({ assertion: event.target.value as CheckDraft["assertion"] })}><option value="visible">Visible</option><option value="enabled">Enabled</option><option value="count">Exact count</option></select></label>{draft.assertion === "count" && <label>{criterion.id} expected count<input aria-label={`${criterion.id} expected count`} type="number" min="0" max="100" value={draft.expectedCount} onChange={(event) => update({ expectedCount: event.target.value })} /></label>}</>}
       {criterion.checkType === "link_destination" && <label>{criterion.id} expected same-origin path<input aria-label={`${criterion.id} expected same-origin path`} value={draft.expectedPath} onChange={(event) => update({ expectedPath: event.target.value })} placeholder="/contact" /></label>}
@@ -179,6 +181,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
   const [drafts, setDrafts] = useState<Record<string, CheckDraft>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -208,12 +211,23 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
 
   const run = () => {
     setError("");
+    setFieldErrors({});
     try {
       if (!signedInEmail) throw new Error("Sign in with your business email before creating retained evidence.");
       if (!receipt || !verifiedOrigin) throw new Error("Verify this staging origin first.");
       if (!buildLabel.trim()) throw new Error("Add a build label so this evidence can be tied to a release.");
       if (automated.length === 0) throw new Error("This scope has no browser-verifiable criteria. Keep the manual items for client review, then add at least one objective browser check before running evidence.");
-      const checks = automated.map((criterion, index) => buildCheck(criterion, drafts[criterion.id] ?? initialDraft(), index));
+      const checks: CheckSpec[] = [];
+      const errors: Record<string, string> = {};
+      automated.forEach((criterion, index) => {
+        try { checks.push(buildCheck(criterion, drafts[criterion.id] ?? initialDraft(), index)); }
+        catch (cause) { errors[criterion.id] = cause instanceof Error ? cause.message : "Complete this mapping."; }
+      });
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        const count = Object.keys(errors).length;
+        throw new Error(`${count} check mapping${count > 1 ? "s" : ""} need${count > 1 ? "" : "s"} attention below.`);
+      }
       onRun({ targetUrl: verifiedOrigin, originReceipt: receipt, buildLabel: buildLabel.trim(), checks });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Complete the verification mapping."); }
   };
@@ -237,7 +251,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
         <div className="setup-section">
           <div className="setup-section__head"><span>2</span><div><h3>Map safe typed checks</h3><p>References use accessible role:name labels—not brittle CSS selectors or generated code.</p></div></div>
           <div className="mapping-list">
-            {automated.map((criterion) => <article className="mapping-card" key={criterion.id}><div className="mapping-card__head"><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><span>{criterion.checkType.replaceAll("_", " ")}</span></div></div><MappingFields criterion={criterion} draft={drafts[criterion.id] ?? initialDraft()} update={(patch) => setDrafts((current) => ({ ...current, [criterion.id]: { ...(current[criterion.id] ?? initialDraft()), ...patch } }))} /></article>)}
+            {automated.map((criterion) => <article className={`mapping-card ${fieldErrors[criterion.id] ? "has-warning" : ""}`} key={criterion.id}><div className="mapping-card__head"><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><span>{criterion.checkType.replaceAll("_", " ")}</span></div></div><MappingFields criterion={criterion} draft={drafts[criterion.id] ?? initialDraft()} error={fieldErrors[criterion.id] ?? ""} update={(patch) => setDrafts((current) => ({ ...current, [criterion.id]: { ...(current[criterion.id] ?? initialDraft()), ...patch } }))} /></article>)}
             {criteria.filter((item) => !item.supported || item.checkType === "manual").map((criterion) => <article className="mapping-card mapping-card--manual" key={criterion.id}><div className="mapping-card__head"><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><span>Client-reviewed promise · no automated evidence claim</span></div></div></article>)}
           </div>
         </div>

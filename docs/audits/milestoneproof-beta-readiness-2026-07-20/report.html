@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en-US" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MilestoneProof Beta Readiness Audit</title>
+  <meta name="author" content="MilestoneProof product audit">
+  <meta name="subject" content="Production beta-readiness findings and release checklist">
+  <style>
+
+@page {
+  size: Letter;
+  margin: 17mm 17mm 19mm 17mm;
+  
+  @bottom-center { content: counter(page); color: var(--muted); font-family: var(--font-ui); font-size: 8pt; }
+}
+
+:root {
+
+  --font-body: Inter, Arial, sans-serif;
+  --font-ui: Inter, Arial, sans-serif;
+  --font-mono: SFMono-Regular, Consolas, monospace;
+  --fs-body: 10.5pt;
+  --fs-small: 8.7pt;
+  --fs-h1: 27pt;
+  --fs-h2: 16pt;
+  --fs-h3: 12pt;
+  --lh-body: 1.5;
+  --lh-heading: 1.14;
+  --lh-tight: 1.08;
+  --space-1: 2mm;
+  --space-2: 4mm;
+  --space-3: 8mm;
+  --space-4: 12mm;
+  --space-5: 18mm;
+  --radius: 2mm;
+  --text: #102A20;
+  --muted: #5D6B64;
+  --accent: #15704A;
+  --accent-2: #B6E52E;
+  --warm: #D97706;
+  --surface: #F5F4EE;
+  --surface-2: #EEF5FF;
+  --rule: #C9CEC7;
+  --table-header: #123047;
+
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  hyphens: auto;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+body {
+  margin: 0;
+  background: white;
+}
+
+main {
+  max-width: 68ch;
+}
+
+h1,
+h2,
+h3,
+.eyebrow,
+.subtitle,
+table,
+.metric-card,
+.caption,
+.meta {
+  font-family: var(--font-ui);
+}
+
+h1,
+h2,
+h3 {
+  break-after: avoid;
+  line-height: var(--lh-heading);
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--fs-h1);
+  letter-spacing: 0;
+  max-width: 18ch;
+}
+
+h2 {
+  font-size: var(--fs-h2);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+h3 {
+  font-size: var(--fs-h3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+p {
+  margin: 0 0 var(--space-2);
+}
+
+.hero {
+  border-top: 4mm solid var(--accent);
+  padding-top: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 13pt;
+  line-height: 1.35;
+  margin-top: var(--space-2);
+  max-width: 48ch;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  margin-top: var(--space-2);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.metric-card {
+  background: var(--surface);
+  border: 0.35pt solid var(--rule);
+  border-top: 2pt solid var(--accent);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  break-inside: avoid;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  color: var(--text);
+  font-size: 19pt;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-top: var(--space-1);
+}
+
+.metric-delta {
+  color: var(--accent-2);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  margin-top: var(--space-1);
+}
+
+section,
+figure,
+table,
+.callout {
+  break-inside: avoid;
+}
+
+blockquote,
+.callout {
+  background: var(--surface-2);
+  border-left: 3pt solid var(--accent-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.callout-title {
+  color: var(--accent-2);
+  font-family: var(--font-ui);
+  font-weight: 800;
+  margin-bottom: var(--space-1);
+}
+
+ul,
+ol {
+  padding-left: 1.2em;
+  margin: 0 0 var(--space-3);
+}
+
+li {
+  margin-bottom: var(--space-1);
+  padding-left: 0.1em;
+}
+
+li::marker {
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-weight: 800;
+}
+
+table {
+  border-collapse: collapse;
+  margin: var(--space-3) 0;
+  width: 100%;
+}
+
+th {
+  background: var(--table-header);
+  color: white;
+  font-size: var(--fs-small);
+  line-height: 1.2;
+  padding: var(--space-2);
+  text-align: left;
+}
+
+td {
+  border: 0.35pt solid var(--rule);
+  padding: var(--space-2);
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) td {
+  background: var(--surface);
+}
+
+figure {
+  margin: var(--space-4) 0;
+}
+
+figure img {
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.caption,
+figcaption {
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--fs-small);
+  margin-top: var(--space-1);
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+code {
+  background: var(--surface);
+  border-radius: 1mm;
+  padding: 0 1.2mm;
+}
+
+pre {
+  background: var(--surface);
+  border: 0.35pt solid var(--rule);
+  border-radius: var(--radius);
+  font-size: 8.5pt;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  padding: var(--space-3);
+  white-space: pre-wrap;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: 1fr 0.72fr;
+  gap: var(--space-4);
+}
+
+.pagebreak {
+  break-before: page;
+}
+
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <p class="eyebrow">Production product audit · July 20, 2026</p>
+      <h1>MilestoneProof Beta Readiness Audit</h1>
+      <p class="subtitle">What must be fixed before inviting external agency testers</p>
+      <p class="meta">Prepared for Anay Agarwalla | Production beta-readiness findings and release checklist</p>
+    </header>
+    <aside class="callout"><div class="callout-title">Release verdict</div><p><strong>Not ready for external beta yet.</strong> MilestoneProof is strong enough for private demonstrations, but security, record integrity, retention, resumability, and mobile interaction defects should be corrected before outside agencies rely on it.</p></aside><section class="metrics"><article class="metric-card"><div class="metric-label">Current release</div><div class="metric-value">Blocked</div><div class="metric-delta">External beta</div></article><article class="metric-card"><div class="metric-label">Code reviewed</div><div class="metric-value">a356ca1</div><div class="metric-delta">Clean worktree</div></article><article class="metric-card"><div class="metric-label">Unit tests</div><div class="metric-value">48 passed</div><div class="metric-delta">7 contracts + 41 web</div></article></section><section><h2>Audit scope</h2><p>This was a read-only walkthrough of the live production site and current codebase. It covered desktop and 320px layouts, public pages, legal pages, magic-link sign-in, intake, draft recovery, guided verification, a retained project, client evidence review, approval receipts, and the operator console. No application data or code was changed, and no additional Gemini or Cloudflare run was consumed.</p></section><h2>Current flow health</h2><table><thead><tr><th scope="col">Product flow</th><th scope="col">Status</th><th scope="col">Main reason</th></tr></thead><tbody><tr><td>Landing and legal</td><td>BLOCKED</td><td>Operator identity and support address are unpublished</td></tr><tr><td>Sign-in and intake</td><td>NEEDS WORK</td><td>Pasted drafts survive, but uploaded files and account isolation do not</td></tr><tr><td>Criteria and verification</td><td>BLOCKED</td><td>Review-state integrity and runner network-security gaps</td></tr><tr><td>Resume and change requests</td><td>BLOCKED</td><td>Complete workspaces and approved states do not restore safely</td></tr><tr><td>Client evidence review</td><td>MOSTLY READY</td><td>Presentation is strong; stale reviews and expiring evidence remain unsafe</td></tr><tr><td>Receipts and operations</td><td>BLOCKED</td><td>Retention, legal holds, privacy processing, and print defects</td></tr></tbody></table><div class="pagebreak"></div><section><h2>1. Publish a qualified legal operator</h2><p>The live Privacy Notice and Terms still state that the operator&#x27;s legal identity and support address are pending and that external beta invitations must not begin in that state. Publish the actual adult or entity operating the service and a monitored support/privacy address.</p>
+<p>Because the current product requires an 18+ retained-workflow attestation, an authorized adult must be the legal operator or account holder and handle real agreements, privacy requests, and client decisions. The existing retained approval bearing a minor&#x27;s name should remain clearly identified as test data or be replaced with an adult-authorized test.</p></section><section><h2>2. Close the authentication bypass</h2><p>The repository enables anonymous Supabase authentication while unused legacy tables and storage policies allow authenticated users, including anonymous users, to write old product records or upload PDFs. Disable anonymous/public signup in production, remove or revoke the legacy schema and source bucket, and verify the live Supabase configuration.</p>
+<p>Beta access must also be enforced after magic-link exchange. A removed tester can remain authenticated, be rejected by the dashboard API, and become trapped between login and dashboard redirects.</p></section><section><h2>3. Enforce a safe record state machine</h2><p>An old passing run or review link can currently act on a newer project state. The server must refuse new runs against IN_REVIEW or APPROVED records; create reviews only from the current last_run_id; require criteria revision, checks, and evidence to match; invalidate open review packets when criteria or verified evidence changes; and prevent a stale client decision from overwriting a newer record.</p>
+<p>Reviews, receipts, and exports must use criteria_revision rather than the unchanged legacy revision value.</p></section><section><h2>4. Protect drafts and client-review tokens</h2><p>One global browser-storage entry currently contains the SOW, business information, verification settings, and sometimes a bearer-token review URL. It is not account-scoped and is not cleared on sign-out. Another agency using the same browser could inherit that information.</p>
+<p>Namespace drafts by user and project, clear them on sign-out, and keep client bearer tokens out of global localStorage. Uploaded PDF drafts must also survive sign-in; only pasted text does today.</p></section><section><h2>5. Finish runner network isolation</h2><p>The verification worker blocks cross-origin top-level navigation but still permits off-origin scripts, images, frames, fetches, and XHR. DNS is validated without pinning the approved address to the browser connection. A tested page could probe internal resources or exploit DNS rebinding.</p>
+<p>Constrain every request to the verified origin or a deliberately small allowlist, revalidate redirects and DNS at request time, and require unique locator matches rather than silently using the first matching element.</p></section><section><h2>6. Make retention and legal holds reliable</h2><p>A legal hold on a transaction does not currently protect its screenshot artifacts, while record deletion can remove an individually held artifact. Some deletion and job transitions can also complete before their required audit event.</p>
+<p>Parent and artifact holds must both be honored. Deletion plus its audit record must be atomic. Queueing, leasing, job failure, retry, criteria revision, link revocation, and retention should receive the same transactional treatment.</p></section><section><h2>7. Make projects genuinely resumable</h2><p>The backend exposes workspace snapshots, but the interface does not save them. Cross-device resume reconstructs only part of the project and can lose the full source, edited rationale, mappings, progress, and review state.</p>
+<p>An approved record also reopens in the wrong workflow phase. The approval destination is one global browser value, so one project can open another project&#x27;s receipt. Persist and restore the complete workspace by record, including the current review link, decision, evidence, and receipt state.</p></section><section><h2>8. Make privacy and operator workflows operational</h2><p>The operator console tracks request status, owner, and notes, but it cannot verify a requester, locate their records, export them, correct them, delete them, apply a hold, or record the final response. Build or document a tested fulfillment process and maintain a durable log of each operator action.</p>
+<p>Retries need active-job, revision, and idempotency guards so they cannot repeat a form submission or overwrite an approved record. Notification insertion and delivery failures must also be recorded rather than disappearing.</p></section><h2>Backend and product correctness before a broader beta</h2><ul><li>Keep finalized receipts accessible after the original review packet expires.</li><li>Refresh short-lived screenshot URLs while a client remains on the review page.</li><li>Correct link and form checks containing query strings or URL fragments.</li><li>Validate maximum business-field lengths before spending Gemini quota.</li><li>Consume scarce runner capacity only after the request, ownership proof, mappings, and origin are valid.</li><li>Fail closed or degrade safely when the rate-limit database is unavailable.</li><li>Reject demo source mode on retained-run APIs so demos can never create legal records.</li><li>Move the Acme test fixture away from /contact to an unmistakable fixture route.</li><li>Update the dependency tree to resolve the reported moderate PostCSS security advisory.</li><li>If a notification webhook is enabled, disclose its provider and the reviewer metadata it receives.</li></ul><h2>Mobile and professional polish</h2><ul><li>Reflow landing, dashboard, and operator headers at 320px and high zoom.</li><li>Move or collapse the feedback trigger so it cannot cover landing, login, intake, or toast actions.</li><li>Make the receipt toolbar wrap and long verified-target URLs break safely.</li><li>Replace the visible Page 0 and validate true multi-page receipt pagination.</li><li>Increase the size and readability of mobile workflow-step labels.</li></ul><section class="two-column"><div><figure><img src="/Users/anayagarwalla/Documents/blueprinthackathon/docs/audits/milestoneproof-beta-readiness-2026-07-20/assets/login-mobile-320.png" alt="320-pixel-wide sign-in page with the feedback trigger overlapping the primary sign-in button."><figcaption>At 320px, the feedback trigger blocks the sign-in action.</figcaption></figure></div><div><figure><img src="/Users/anayagarwalla/Documents/blueprinthackathon/docs/audits/milestoneproof-beta-readiness-2026-07-20/assets/home-mobile-320.png" alt="320-pixel-wide MilestoneProof landing page with crowded header controls and overlapping feedback trigger."><figcaption>The landing header and guided-demo CTA also collide at narrow widths.</figcaption></figure></div></section><div class="pagebreak"></div><h2>Accessibility corrections</h2><ul><li>Make the skip link target the actual focusable main content.</li><li>Associate every verification-mapping error with its exact field using aria-invalid and aria-describedby.</li><li>Add explicit Passed and Failed text to every verification result row.</li><li>Move focus and announce successful client approvals through a live region.</li><li>Move focus into the feedback success state after submission.</li><li>Increase inactive workflow-step contrast and replace the 8px mobile label size.</li><li>Correct remaining low-contrast sidebar, helper, divider, receipt, and step-number text.</li><li>Increase small text actions, evidence summaries, and feedback controls toward 44 by 44 pixels.</li><li>Extend forced-colors support to the outlined approval-limbo heading.</li></ul><h2>Testing and release operations</h2><ul><li>Add real integration coverage for invitations, magic links, Gemini, origin verification, incomplete results, evidence integrity, stale reviews, decisions, change requests, receipts, exports, retention, legal holds, retries, and runner SSRF protection.</li><li>Run one complete retained production transaction using an authorized adult reviewer.</li><li>Verify that the retention cron and CRON_SECRET execute successfully.</li><li>Verify backups and export recovery.</li><li>Review every beta-allowlisted and administrator email address.</li><li>Remove or clearly label current QA feedback, privacy requests, failed jobs, and retained test transactions before inviting agencies.</li></ul><aside class="callout"><div class="callout-title">Release gate</div><p>Do not treat a green interface as a valid transaction unless the record, current criteria revision, passing run, evidence manifest, active review packet, decision, receipt, and audit chain all refer to the same immutable project state.</p></aside><section><h2>Validated strengths</h2><p>The product does not need a visual restart. Its desktop identity, evidence presentation, legal-page styling, review experience, and receipt design are strong. The work should remain targeted.</p></section><ul><li>New real imports begin blank.</li><li>Required business fields are checked before normal Gemini analysis.</li><li>Pasted drafts survive sign-in.</li><li>Criteria can be added, removed, duplicated, reordered, edited, and grounded in exact SOW quotations.</li><li>The guided demo reliably completes both the failing and corrected verification runs.</li><li>Job completion rejects missing results and mismatched evidence.</li><li>Real screenshots are privately stored and individually hashed.</li><li>Client review presents exact quotations, observed values, screenshots, and manifest hashes clearly.</li><li>Currency cents and transaction-specific receipt metadata are preserved.</li><li>Lint, typecheck, and all 48 current unit tests pass.</li><li>No production application console errors were observed during the walkthrough.</li></ul><figure><img src="/Users/anayagarwalla/Documents/blueprinthackathon/docs/audits/milestoneproof-beta-readiness-2026-07-20/assets/client-evidence-expanded.png" alt="MilestoneProof client review page with expanded screenshot evidence, exact source quotation, observed result, artifact hash, and evidence manifest information."><figcaption>Client evidence is the product&#x27;s strongest completed experience: exact source context, observed values, screenshots, and cryptographic hashes are presented together.</figcaption></figure><div class="pagebreak"></div><figure><img src="/Users/anayagarwalla/Documents/blueprinthackathon/docs/audits/milestoneproof-beta-readiness-2026-07-20/assets/approval-record.png" alt="MilestoneProof approval record showing transaction metadata, criteria results, hashes, and approval details."><figcaption>The approval record is visually strong and transaction-specific, but the current screen footer exposes Page 0 and print pagination still needs validation.</figcaption></figure><section><h2>Audit limitations</h2><p>This audit deliberately avoided destructive or externally consequential actions. It did not submit a new real client decision, privacy request, feedback item, Gemini analysis, or Cloudflare verification job. The current automated suite is green but does not yet exercise the full retained production lifecycle or the security invariants listed in this report.</p></section><aside class="callout"><div class="callout-title">Recommended implementation order</div><ol><li>Legal operator and production authentication configuration. 2. State-machine and review integrity. 3. Draft isolation and server-backed resume. 4. Runner egress security. 5. Retention, holds, audit atomicity, and operator fulfillment. 6. Mobile and accessibility corrections. 7. Full lifecycle regression testing and an adult-authorized retained production transaction.</li></ol></aside><h2>External beta exit criteria</h2><ul><li>Adult operator identity, monitored support address, Privacy Notice, and Terms are published.</li><li>Anonymous access and unused legacy write paths are disabled and verified in production.</li><li>Only the current immutable criteria revision and passing run can be reviewed or approved.</li><li>Drafts, review links, receipts, and workspace snapshots are isolated by account and record.</li><li>Runner egress, redirects, DNS resolution, legal holds, retention, and audit writes pass adversarial tests.</li><li>Mobile, keyboard, screen-reader, and print defects in this report are closed.</li><li>A complete adult-authorized production transaction and the full regression suite pass without manual repair.</li></ul>
+  </main>
+</body>
+</html>
