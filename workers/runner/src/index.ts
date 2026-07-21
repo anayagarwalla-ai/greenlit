@@ -23,6 +23,7 @@ type EvidenceArtifact = {
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
+const axePageSource = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n${axe.source}`;
 const leaseSchema = z.object({
   jobId: z.string(),
   targetOrigin: z.string().url(),
@@ -159,7 +160,7 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     // Playwright accepts a source string here and evaluates it directly in the
     // page's main world. This is more reliable in Browser Rendering than a
     // script tag or init script, and does not depend on the target site's CSP.
-    await page.evaluate(axe.source);
+    await page.evaluate(axePageSource);
     const axeReady = await page.evaluate(() => typeof (window as typeof window & { axe?: { run?: unknown } }).axe?.run === "function");
     if (!axeReady) throw new Error("Axe could not be initialized in the verified page.");
     const accessibility = await page.evaluate(async ({ tags, impacts }) => {
