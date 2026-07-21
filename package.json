@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @milestoneproof/web dev",
     "build": "pnpm --filter @milestoneproof/contracts build && pnpm --filter @milestoneproof/web build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @milestoneproof/contracts build && pnpm --filter @milestoneproof/web typecheck && pnpm --filter @milestoneproof/runner typecheck",
     "test": "pnpm --filter @milestoneproof/contracts test && pnpm --filter @milestoneproof/web test && pnpm --filter @milestoneproof/runner test",
     "test:e2e": "playwright test",
     "lint": "pnpm --filter @milestoneproof/web lint",

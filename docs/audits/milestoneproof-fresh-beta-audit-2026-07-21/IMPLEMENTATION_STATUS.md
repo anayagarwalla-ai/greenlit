@@ -22,7 +22,7 @@ The audit's locally achievable product, security, privacy, accessibility, testin
 ## Verified locally
 
 - TypeScript, ESLint, production build, and whitespace checks pass.
-- Unit tests: contracts 7, web 74, runner 8.
+- Unit tests from a clean contracts build: contracts 4, web 74, runner 8.
 - Browser regression: 20 desktop/mobile tests pass; two retained-production tests are intentionally gated on real credentials/record IDs.
 - Every migration applies from zero on Postgres 18.
 - Twelve functional database checks pass, including state transitions, incomplete/stale protections, decision/receipt atomicity, retry lineage, legal holds, deletion recovery, and owner-versus-reviewer privacy deletion isolation.
