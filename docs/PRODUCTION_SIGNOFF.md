@@ -10,8 +10,8 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 
 ## Authentication and delivery
 
-- [ ] Supabase public signup is disabled and an uninvited Auth request is rejected in production.
-- [ ] Site URL and callback allowlist contain only the intended production URLs.
+- [x] Supabase public signup is disabled and an uninvited Auth request is rejected in production.
+- [x] Site URL and callback allowlist contain only the intended production URLs.
 - [ ] Custom SMTP is configured; SPF, DKIM, and DMARC pass; magic links reach a non-team agency mailbox.
 - [ ] A corporate link scanner does not consume the usable sign-in flow.
 - [ ] `BETA_ALLOWED_EMAILS` and `ADMIN_EMAILS` were reviewed by the adult operator; removed invitees are removed from Auth as appropriate.
@@ -19,20 +19,20 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 ## Secrets and deployments
 
 - [ ] `RECORD_HASH_SECRET` is separate from `RUNNER_HMAC_SECRET`; web and runner HMAC values match.
-- [ ] Gemini is labeled with the actual unpaid/paid service tier and no paid Cloudflare/Vercel/Supabase service was enabled accidentally.
-- [ ] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210003` versions.
+- [x] Gemini is labeled as unpaid and no paid Cloudflare/Vercel/Supabase service was enabled accidentally.
+- [x] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210004` versions.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.
 - [ ] Production migration history contains every file in `supabase/migrations` exactly once.
 
 ## Capacity, recovery, and retention
 
-- [ ] Run limit is 3/day, checks are capped at 6/run, and testers know what the capacity message means.
-- [ ] Retention cron has a successful heartbeat within 36 hours; notification and stale-job queues are empty.
+- [ ] Run limit is 8/day, checks are capped at 6/run, and testers know what the capacity message means.
+- [x] Retention cron has a successful heartbeat within 36 hours; notification and stale-job queues are empty.
 - [ ] Postgres and private evidence storage have encrypted off-site backups with restricted access.
 - [ ] A backup was restored into an isolated environment and one record, audit chain, and screenshot hash matched.
-- [ ] Protected `/api/health?deep=1` successfully launched the deployed browser binding; the result and timestamp were recorded without exposing `CRON_SECRET`.
+- [x] Protected `/api/health?deep=1` successfully launched the deployed browser binding; the result and timestamp were recorded without exposing `CRON_SECRET`.
 - [ ] Supabase Free pause-warning email is monitored; the adult operator and backup know how to resume and what testers see during a pause.
-- [ ] Production legacy source-document rows and bucket objects were inventoried, securely removed, and the result logged.
+- [x] Production legacy source-document rows and bucket objects were inventoried; both were empty, so there was nothing to remove.
 
 ## Acceptance transaction
 

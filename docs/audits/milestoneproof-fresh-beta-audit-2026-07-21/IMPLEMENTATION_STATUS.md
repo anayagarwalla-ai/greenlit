@@ -17,6 +17,7 @@ The audit's locally achievable product, security, privacy, accessibility, testin
 - Narrow/mobile/keyboard/contrast/touch-target/evidence semantics and inspection corrections covered by the desktop/mobile browser suite.
 - GitHub release gate, encrypted database/evidence backup tooling, isolated restore verification, and guarded legacy source inventory/purge tooling.
 - Dependency audit clean, including patched PostCSS and Sharp/libvips versions.
+- Application schema version `202607210004` safely backfills the one pre-hardening decision receipt to its existing immutable decision audit event; the retained production receipt now passes the same integrity checks as new receipts.
 
 ## Verified locally
 
@@ -28,4 +29,4 @@ The audit's locally achievable product, security, privacy, accessibility, testin
 
 ## External production sign-off still required
 
-These facts or external-provider actions cannot be fabricated in code: publish the father's/operator's legal identity, address, governing law/venue, and monitored support/privacy contact; configure/test production SMTP; confirm the hosting entitlement; choose a restricted off-site backup destination and perform/record a restore; review real invite/admin membership; inventory/purge any production legacy source data; verify the production migration ledger and Auth dashboard settings; and have the authorized adult complete the retained production acceptance transaction. Use `docs/PRODUCTION_SIGNOFF.md`.
+These facts or external-provider actions cannot be fabricated in code: publish the father's/operator's legal identity, address, governing law/venue, and monitored support/privacy contact; configure/test production SMTP; confirm the hosting entitlement; choose a restricted off-site backup destination and perform/record a restore; review real invite/admin membership; repair and verify the provider migration ledger; and have the authorized adult complete the retained production acceptance transaction. Use `docs/PRODUCTION_SIGNOFF.md`.

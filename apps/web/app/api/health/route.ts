@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
-const DATABASE_VERSION = "202607210003";
+const DATABASE_VERSION = "202607210004";
 const EXPECTED_RUNNER_VERSION = "0.6.0";
 
 export async function GET(request: Request) {
@@ -22,15 +22,17 @@ export async function GET(request: Request) {
     const heartbeatBefore = Date.now() - 36 * 60 * 60_000;
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const [databaseProbe, staleJobs, notifications, maintenance, evidence, dailyRuns] = await Promise.all([
+    const [databaseProbe, schemaVersion, staleJobs, notifications, maintenance, evidence, dailyRuns] = await Promise.all([
       database.from("transaction_records").select("id", { head: true, count: "exact" }).limit(1),
+      database.from("app_schema_versions").select("version").order("version", { ascending: false }).limit(1).maybeSingle(),
       database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).or("status.eq.QUEUED,status.eq.LEASED,status.eq.RUNNING").lt("created_at", staleBefore),
       database.from("operator_notifications").select("id", { head: true, count: "exact" }).eq("delivery_status", "FAILED"),
       database.from("maintenance_runs").select("status,completed_at").eq("task", "retention-and-recovery").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       database.rpc("evidence_storage_usage_bytes"),
       database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).gte("created_at", today.toISOString()),
     ]);
-    checks.database = { ok: !databaseProbe.error, detail: databaseProbe.error ? "query failed" : DATABASE_VERSION };
+    const currentDatabaseVersion = schemaVersion.data?.version ?? "missing";
+    checks.database = { ok: !databaseProbe.error && !schemaVersion.error && currentDatabaseVersion === DATABASE_VERSION, detail: databaseProbe.error || schemaVersion.error ? "query failed" : currentDatabaseVersion };
     checks.jobBacklog = { ok: !staleJobs.error && (staleJobs.count ?? 0) === 0, detail: staleJobs.error ? "query failed" : (staleJobs.count ?? 0) === 0 ? "clear" : "stale jobs require operator review" };
     checks.notifications = { ok: !notifications.error && (notifications.count ?? 0) === 0, detail: notifications.error ? "query failed" : (notifications.count ?? 0) === 0 ? "clear" : "delivery failures require operator review" };
     const lastMaintenance = maintenance.data?.completed_at ? new Date(maintenance.data.completed_at).getTime() : 0;
