@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     today.setUTCHours(0, 0, 0, 0);
     const [databaseProbe, staleJobs, notifications, maintenance, evidence, dailyRuns] = await Promise.all([
       database.from("transaction_records").select("id", { head: true, count: "exact" }).limit(1),
-      database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).in("status", ["QUEUED", "LEASED", "RUNNING"]).lt("created_at", staleBefore),
+      database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).or("status.eq.QUEUED,status.eq.LEASED,status.eq.RUNNING").lt("created_at", staleBefore),
       database.from("operator_notifications").select("id", { head: true, count: "exact" }).eq("delivery_status", "FAILED"),
       database.from("maintenance_runs").select("status,completed_at").eq("task", "retention-and-recovery").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       database.rpc("evidence_storage_usage_bytes"),
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     checks.retention = { ok: !maintenance.error && maintenance.data?.status === "SUCCEEDED" && lastMaintenance >= heartbeatBefore, detail: maintenance.error ? "query failed" : maintenance.data?.status === "SUCCEEDED" ? "heartbeat recorded" : "successful heartbeat missing" };
     const evidenceBytes = Number(evidence.data ?? 0);
     checks.evidenceStorage = { ok: !evidence.error && evidenceBytes < 850_000_000, detail: evidence.error ? "query failed" : evidenceBytes < 850_000_000 ? "within beta guardrail" : "approaching free storage limit" };
-    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 3)));
+    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 8)));
     checks.dailyCapacity = { ok: !dailyRuns.error && (dailyRuns.count ?? 0) < dailyLimit, detail: dailyRuns.error ? "query failed" : `${dailyRuns.count ?? 0}/${dailyLimit} runs used today` };
   }
 
