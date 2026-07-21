@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, FileCheck2, LockKeyhole, MessageSquareText, ShieldCheck, X } from "lucide-react";
 import { Brand } from "@/components/brand";
@@ -23,12 +24,12 @@ type ReviewSnapshot = {
   sourceSha256: string;
   revision: number;
   criteria: ReviewCriterion[];
-  run: { runId: string; buildLabel: string; results: ReviewResult[]; manifestSha256: string; completedAt: string; browserVersion: string; runnerVersion: string };
+  run: { runId: string; buildLabel: string; buildUrl?: string; results: ReviewResult[]; artifacts?: Array<{ criterionId: string; kind: string; sha256: string; byteSize?: number; url?: string | null }>; manifestSha256: string; completedAt: string; browserVersion: string; runnerVersion: string };
   expiresAt: string;
 };
 type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null };
 
-const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amountMinor / 100);
+const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / 100);
 
 function demoPacket(): PacketResponse {
   const completedAt = "2026-07-20T17:00:00.000Z";
@@ -166,9 +167,17 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
           <section className="panel review-proof">
             <div className="review-proof__head"><div><h2>What was promised—and what we observed</h2><p>{demo ? "Every result below is a seeded illustration of a passing run." : manualCount ? `${snapshot.run.results.length} promises have browser evidence; ${manualCount} require your judgment.` : "Every result below comes from the same verified staging run."}</p></div><span className="seal"><Check size={16} /> {demo ? "SAMPLE PASS" : manualCount ? "READY TO REVIEW" : "ALL VERIFIED"}</span></div>
             <div className="review-summary"><div><span>Result</span><strong>{snapshot.run.results.filter((result) => result.status === "PASS").length} of {snapshot.run.results.length} passed</strong></div><div><span>Verified</span><strong>{dateTime(snapshot.run.completedAt)}</strong></div><div><span>Build</span><strong>{snapshot.run.buildLabel}</strong></div><div><span>Source</span><strong>Revision {snapshot.revision}</strong></div></div>
-            <div className="review-list">{snapshot.criteria.map((criterion) => { const result = results[criterion.id]; const manual = !result; return <article className={`review-row ${manual ? "is-manual" : ""}`} key={criterion.id}><span className="criterion-id">{criterion.id}</span><div><h3>{criterion.title}</h3><p>{manual ? `Client review required · Source: “${criterion.sourceQuote}”` : `Expected: ${result.expected} · Observed: ${result.observed}`}</p></div><span className={`status-badge ${manual ? "status-badge--neutral" : "status-badge--pass"}`}>{manual ? <MessageSquareText size={11} /> : <CheckCircle2 size={11} />}{manual ? "Your judgment" : "Passed"}</span></article>; })}</div>
+            <div className="review-list">{snapshot.criteria.map((criterion) => {
+              const result = results[criterion.id]; const manual = !result;
+              const artifact = snapshot.run.artifacts?.find((item) => item.criterionId === criterion.id);
+              return <article className={`review-row ${manual ? "is-manual" : ""}`} key={criterion.id}>
+                <span className="criterion-id">{criterion.id}</span>
+                <div><h3>{criterion.title}</h3><blockquote className="review-source-quote"><span className="sr-only">Exact cited source: </span>“{criterion.sourceQuote}”</blockquote><p>{manual ? "Client judgment is required; no automated result is claimed." : <><strong>Expected:</strong> {result.expected}<br /><strong>Observed:</strong> {result.observed}</>}</p>{!manual && <details className="review-evidence"><summary>Inspect captured evidence and hashes</summary>{artifact?.url ? <Image unoptimized width={1280} height={720} src={artifact.url} alt={`Captured evidence for ${criterion.id}: ${criterion.title}`} /> : <p>Evidence unavailable. No screenshot can be displayed.</p>}<code>Artifact SHA-256: {artifact?.sha256 ?? "Unavailable"}</code><code>Run manifest SHA-256: {snapshot.run.manifestSha256}</code></details>}</div>
+                <span className={`status-badge ${manual ? "status-badge--neutral" : "status-badge--pass"}`}>{manual ? <MessageSquareText size={11} aria-hidden="true" /> : <CheckCircle2 size={11} aria-hidden="true" />}{manual ? "Manual review" : "Pass: verified"}</span>
+              </article>;
+            })}</div>
           </section>
-          <div className="review-footer"><p><ShieldCheck size={12} /> {demo ? "This local sample decision is not sent to the server, retained, hash-chained, or usable as a transaction record." : `Your decision is timestamped and bound to snapshot ${packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.`}</p><div className="review-footer__actions"><button className="button button--outline" onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
+          <div className="review-footer"><p><ShieldCheck size={12} /> {demo ? "This local sample decision is not sent to the server, retained, hash-chained, or usable as a transaction record." : `Your decision is timestamped and bound to snapshot ${packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.`}</p><div className="review-footer__actions"><button className="button button--outline" aria-expanded={dialog === "changes"} onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" aria-expanded={dialog === "approve"} onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
         </> : <section className="panel approval-success"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
       </div>
 

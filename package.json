@@ -8,11 +8,13 @@
     "build": "pnpm --filter @milestoneproof/contracts build && pnpm --filter @milestoneproof/web build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @milestoneproof/contracts test && pnpm --filter @milestoneproof/web test",
+    "test:e2e": "playwright test",
     "lint": "pnpm --filter @milestoneproof/web lint",
     "runner:dev": "pnpm --filter @milestoneproof/runner dev",
     "runner:deploy": "pnpm --filter @milestoneproof/runner run deploy"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "next": "16.2.10"
   }
 }

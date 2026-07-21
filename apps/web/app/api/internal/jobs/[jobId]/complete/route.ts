@@ -1,16 +1,17 @@
-import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { criterionResultSchema } from "@milestoneproof/contracts";
 import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, canonicalJson, EVIDENCE_RETENTION_DAYS, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
+import { canonicalJson, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
 
 const artifactSchema = z.object({
   criterionId: z.string().min(1).max(80),
   kind: z.enum(["SCREENSHOT", "NETWORK", "AXE", "MANIFEST"]),
   mimeType: z.string().min(1).max(100),
-  base64: z.string().max(2_500_000),
+  byteSize: z.number().int().positive(),
+  storagePath: z.string().min(1).max(500),
+  expiresAt: z.string().datetime(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
@@ -35,43 +36,33 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   const { jobId } = await context.params;
   try {
     const database = requireSupabaseAdmin();
-    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status").eq("id", jobId).single();
+    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
     if (job.status === "COMPLETED") return NextResponse.json({ jobId, accepted: true, status: "COMPLETED", duplicate: true }, { headers: noStoreJsonHeaders() });
 
-    const artifactMetadata: Array<Record<string, unknown>> = [];
-    const expiresAt = new Date(Date.now() + EVIDENCE_RETENTION_DAYS * 86_400_000).toISOString();
-    for (const artifact of parsed.data.artifacts) {
-      const bytes = Buffer.from(artifact.base64, "base64");
-      if (sha256(bytes) !== artifact.sha256) throw new Error(`Evidence hash mismatch for ${artifact.criterionId}.`);
-      const storagePath = `${job.record_id}/${jobId}/${artifact.criterionId}-${artifact.kind.toLowerCase()}.png`;
-      const { error: uploadError } = await database.storage.from("evidence").upload(storagePath, bytes, { contentType: artifact.mimeType, upsert: true, cacheControl: "300" });
-      if (uploadError) throw new Error(`Evidence upload failed: ${uploadError.message}`);
-      const metadata = { criterionId: artifact.criterionId, kind: artifact.kind, mimeType: artifact.mimeType, byteSize: bytes.byteLength, sha256: artifact.sha256, storagePath, expiresAt };
-      artifactMetadata.push(metadata);
-      const { error: evidenceError } = await database.from("evidence_artifacts_v2").upsert({ record_id: job.record_id, run_id: jobId, criterion_id: artifact.criterionId, kind: artifact.kind, storage_path: storagePath, mime_type: artifact.mimeType, byte_size: bytes.byteLength, sha256: artifact.sha256, expires_at: expiresAt }, { onConflict: "run_id,criterion_id,kind" });
-      if (evidenceError) throw new Error(`Evidence metadata could not be recorded: ${evidenceError.message}`);
+    const artifactMetadata = parsed.data.artifacts;
+    const checks = (job.checks ?? []) as Array<{ criterionId?: string }>;
+    const checkIds = checks.map((check) => check.criterionId).filter((id): id is string => Boolean(id));
+    const resultIds = parsed.data.results.map((result) => result.criterionId);
+    const artifactIds = artifactMetadata.map((artifact) => artifact.criterionId);
+    const exactlyMatches = (values: string[]) => values.length === checkIds.length && new Set(values).size === checkIds.length && checkIds.every((id) => values.includes(id));
+    if (!exactlyMatches(resultIds)) return NextResponse.json({ error: "Every frozen check must have exactly one matching result." }, { status: 422, headers: noStoreJsonHeaders() });
+    if (!exactlyMatches(artifactIds)) return NextResponse.json({ error: "Every frozen check must have exactly one matching evidence artifact." }, { status: 422, headers: noStoreJsonHeaders() });
+    const { data: storedArtifacts, error: evidenceError } = await database.from("evidence_artifacts_v2").select("criterion_id, kind, storage_path, byte_size, sha256").eq("run_id", jobId);
+    if (evidenceError) throw new Error(evidenceError.message);
+    if ((storedArtifacts ?? []).length !== artifactMetadata.length || artifactMetadata.some((artifact) => !(storedArtifacts ?? []).some((stored) => stored.criterion_id === artifact.criterionId && stored.kind === artifact.kind && stored.storage_path === artifact.storagePath && stored.byte_size === artifact.byteSize && stored.sha256 === artifact.sha256))) {
+      return NextResponse.json({ error: "Evidence metadata does not match private storage records." }, { status: 422, headers: noStoreJsonHeaders() });
     }
+    if (parsed.data.results.some((result) => {
+      const artifact = artifactMetadata.find((item) => item.criterionId === result.criterionId);
+      return !artifact || result.evidenceHash !== artifact.sha256 || result.evidenceId !== artifact.storagePath;
+    })) return NextResponse.json({ error: "Result evidence references do not match the stored artifact manifest." }, { status: 422, headers: noStoreJsonHeaders() });
 
     const manifest = { results: parsed.data.results, artifacts: artifactMetadata.map(({ criterionId, kind, sha256: hash }) => ({ criterionId, kind, sha256: hash })) };
     const manifestSha256 = sha256(canonicalJson(manifest));
-    const passing = parsed.data.results.every((result) => result.status === "PASS");
-    const { error: updateError } = await database.from("verification_jobs_v2").update({
-      status: "COMPLETED",
-      attempt: parsed.data.attempt,
-      results: parsed.data.results,
-      artifacts: artifactMetadata,
-      browser_version: parsed.data.browserVersion,
-      runner_version: parsed.data.runnerVersion,
-      manifest_sha256: manifestSha256,
-      started_at: parsed.data.startedAt,
-      completed_at: parsed.data.completedAt,
-      last_error: null,
-    }).eq("id", jobId);
-    if (updateError) throw new Error(updateError.message);
-    await database.from("transaction_records").update({ status: passing ? "READY_FOR_REVIEW" : "NEEDS_WORK" }).eq("id", job.record_id);
-    await appendAuditEvent({ recordId: job.record_id, eventType: "VERIFICATION_COMPLETED", actorType: "RUNNER", payload: { jobId, outcome: passing ? "READY_FOR_REVIEW" : "NEEDS_WORK", resultCount: parsed.data.results.length, artifactCount: artifactMetadata.length, manifestSha256, completedAt: parsed.data.completedAt } });
-    return NextResponse.json({ jobId, accepted: true, status: passing ? "READY_FOR_REVIEW" : "NEEDS_WORK", manifestSha256 }, { headers: noStoreJsonHeaders() });
+    const { data: outcome, error: completionError } = await database.rpc("complete_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_results: parsed.data.results, p_artifacts: artifactMetadata, p_browser_version: parsed.data.browserVersion, p_runner_version: parsed.data.runnerVersion, p_manifest_sha256: manifestSha256, p_started_at: parsed.data.startedAt, p_completed_at: parsed.data.completedAt });
+    if (completionError) throw new Error(completionError.message);
+    return NextResponse.json({ jobId, accepted: true, status: outcome === "DUPLICATE" ? "COMPLETED" : outcome, manifestSha256, duplicate: outcome === "DUPLICATE" }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Completion failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }

@@ -1,6 +1,7 @@
 import { launch, type BrowserWorker } from "@cloudflare/playwright";
 import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@milestoneproof/contracts";
 import { z } from "zod";
+import axe from "axe-core";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -18,6 +19,8 @@ type EvidenceArtifact = {
   base64: string;
   sha256: string;
 };
+
+type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
 const leaseSchema = z.object({
@@ -87,6 +90,18 @@ async function resolveLocator(page: import("@cloudflare/playwright").Page, eleme
   return page.getByRole(role, { name, exact: true });
 }
 
+function assertVerifiedPage(page: import("@cloudflare/playwright").Page, origin: string) {
+  const current = new URL(page.url());
+  if (current.origin !== origin) throw new Error(`Navigation left the verified origin (${current.origin}).`);
+}
+
+async function settlePage(page: import("@cloudflare/playwright").Page, origin: string) {
+  await page.waitForLoadState("domcontentloaded", { timeout: 8_000 });
+  await page.waitForLoadState("networkidle", { timeout: 4_000 }).catch(() => undefined);
+  await page.waitForFunction(() => document.readyState === "complete" && Boolean(document.body), undefined, { timeout: 5_000 }).catch(() => undefined);
+  assertVerifiedPage(page, origin);
+}
+
 async function executeCheck(page: import("@cloudflare/playwright").Page, origin: string, check: CheckSpec): Promise<CriterionResult> {
   const started = Date.now();
   const result = (status: CriterionResult["status"], expected: string, observed: string): CriterionResult => ({ criterionId: check.criterionId, status, expected, observed, durationMs: Date.now() - started, timestamp: new Date().toISOString() });
@@ -94,8 +109,10 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     const target = new URL(check.path, origin);
     target.searchParams.set("__mp_check", check.id);
     await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: 12_000 });
+    await settlePage(page, origin);
     if (check.type === "element_state") {
       const locator = await resolveLocator(page, check.elementRef);
+      await locator.first().waitFor({ state: "attached", timeout: 6_000 });
       if (check.assertion === "count") {
         const count = await locator.count();
         return result(count === check.expectedCount ? "PASS" : "FAIL", `${check.expectedCount} matching elements`, `${count} matching elements`);
@@ -105,10 +122,12 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
     }
     if (check.type === "link_destination") {
       const locator = await resolveLocator(page, check.elementRef);
-      const href = await locator.first().getAttribute("href");
-      const observed = href ? new URL(href, page.url()) : null;
-      const passed = observed?.origin === origin && observed.pathname === check.expectedPath;
-      return result(passed ? "PASS" : "FAIL", `Same-origin ${check.expectedPath}`, observed?.pathname ?? "No destination");
+      await locator.first().waitFor({ state: "visible", timeout: 6_000 });
+      await locator.first().click();
+      await settlePage(page, origin);
+      const observed = new URL(page.url());
+      const passed = observed.origin === origin && observed.pathname === check.expectedPath;
+      return result(passed ? "PASS" : "FAIL", `Activating the link opens same-origin ${check.expectedPath}`, `${observed.pathname}${observed.hash}`);
     }
     if (check.type === "form_submission") {
       let observedStatus: number | undefined;
@@ -116,6 +135,8 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       const responsePromise = check.expectedPostPath ? page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).origin === origin && new URL(response.url()).pathname === check.expectedPostPath, { timeout: 8_000 }) : null;
       await (await resolveLocator(page, check.submitRef)).click();
       if (responsePromise) observedStatus = (await responsePromise).status();
+      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      assertVerifiedPage(page, origin);
       const textPassed = check.successText ? await page.getByText(check.successText, { exact: false }).isVisible() : true;
       const pathPassed = check.successPath ? new URL(page.url()).pathname === check.successPath : true;
       const statusPassed = check.expectedStatus ? observedStatus === check.expectedStatus : true;
@@ -135,26 +156,14 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       await (await resolveLocator(page, check.submitRef)).click();
       await page.waitForFunction(() => document.querySelectorAll("input[aria-describedby]").length > 0, undefined, { timeout: 3_000 });
     }
-    const accessibility = await page.evaluate(({ requireDescriptions }) => {
-      const describedInputs = Array.from(document.querySelectorAll<HTMLInputElement>("input[aria-describedby]"));
-      const brokenDescriptionCount = describedInputs.filter((input) => {
-        const ids = (input.getAttribute("aria-describedby") ?? "").trim().split(/\s+/).filter(Boolean);
-        return ids.length === 0 || ids.some((id) => !document.getElementById(id));
-      }).length;
-      const unlabeledInputCount = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter((input) => input.labels?.length === 0 && !input.getAttribute("aria-label") && !input.getAttribute("aria-labelledby")).length;
-      const missingImageAlternativeCount = Array.from(document.querySelectorAll<HTMLImageElement>("img")).filter((image) => !image.hasAttribute("alt")).length;
-      const ids = Array.from(document.querySelectorAll<HTMLElement>("[id]")).map((element) => element.id);
-      const duplicateIdCount = ids.length - new Set(ids).size;
-      const referencedDescriptionIds = new Set(describedInputs.flatMap((input) => (input.getAttribute("aria-describedby") ?? "").trim().split(/\s+/).filter(Boolean)));
-      const validationMessageIds = Array.from(document.querySelectorAll<HTMLElement>("form small[id], form [role='alert'][id], form [data-error][id]")).map((element) => element.id);
-      const unreferencedValidationMessageCount = validationMessageIds.filter((id) => !referencedDescriptionIds.has(id)).length;
-      const descriptionsValid = !requireDescriptions || (describedInputs.length > 0 && brokenDescriptionCount === 0 && unreferencedValidationMessageCount === 0);
-      return { describedInputCount: describedInputs.length, brokenDescriptionCount, unreferencedValidationMessageCount, unlabeledInputCount, missingImageAlternativeCount, duplicateIdCount, descriptionsValid };
-    }, { requireDescriptions: Boolean(check.submitRef) });
-    const passed = accessibility.descriptionsValid && accessibility.unlabeledInputCount === 0 && accessibility.missingImageAlternativeCount === 0 && accessibility.duplicateIdCount === 0;
-    const expected = check.submitRef ? "Validation messages programmatically associated with every invalid field" : "No unlabeled inputs, missing image alternatives, duplicate IDs, or broken descriptions";
-    const observed = `${accessibility.describedInputCount} described invalid fields; ${accessibility.brokenDescriptionCount} broken descriptions; ${accessibility.unreferencedValidationMessageCount} unreferenced validation messages; ${accessibility.unlabeledInputCount} unlabeled inputs; ${accessibility.missingImageAlternativeCount} images missing alternatives; ${accessibility.duplicateIdCount} duplicate IDs`;
-    return result(passed ? "PASS" : "FAIL", expected, observed);
+    await page.addScriptTag({ content: axe.source });
+    const accessibility = await page.evaluate(async ({ tags, impacts }) => {
+      const axeApi = (window as typeof window & { axe: { run: (context: Document, options: unknown) => Promise<{ violations: Array<{ impact: string | null; id: string; nodes: unknown[] }> }> } }).axe;
+      const scan = await axeApi.run(document, { runOnly: { type: "tag", values: tags } });
+      const blocking = scan.violations.filter((violation) => violation.impact && impacts.some((impact) => impact === violation.impact));
+      return { violationCount: scan.violations.length, blockingCount: blocking.length, rules: blocking.map((violation) => `${violation.id} (${violation.nodes.length})`).slice(0, 12) };
+    }, { tags: check.tags, impacts: check.failImpacts });
+    return result(accessibility.blockingCount === 0 ? "PASS" : "FAIL", `No ${check.failImpacts.join(" or ")} Axe violations`, accessibility.blockingCount === 0 ? `Axe completed: ${accessibility.violationCount} non-blocking violations` : `${accessibility.blockingCount} blocking violations: ${accessibility.rules.join(", ")}`);
   } catch (error) {
     return result("ERROR", "Check completed", error instanceof Error ? error.message.slice(0, 300) : "Unknown runner error");
   }
@@ -165,21 +174,34 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
   if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
   const lease = leaseSchema.parse(await leaseResponse.json());
   const browser = await launchWithBackoff(env.BROWSER);
-  const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
-  const page = await context.newPage();
   const results: CriterionResult[] = [];
-  const artifacts: EvidenceArtifact[] = [];
+  const artifacts: StoredEvidenceArtifact[] = [];
   const startedAt = new Date().toISOString();
   const browserVersion = browser.version();
   try {
-    page.on("popup", (popup) => void popup.close());
     for (const check of lease.checks) {
-      results.push(await executeCheck(page, lease.targetOrigin, check));
-      const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
-      artifacts.push({ criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) });
+      const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, {});
+      if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
+      const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
+      const page = await context.newPage();
+      try {
+        page.on("popup", (popup) => void popup.close());
+        await page.route("**/*", async (route) => {
+          const request = route.request();
+          if (request.isNavigationRequest() && new URL(request.url()).origin !== lease.targetOrigin) await route.abort("blockedbyclient");
+          else await route.continue();
+        });
+        const checkResult = await executeCheck(page, lease.targetOrigin, check);
+        const screenshot = new Uint8Array(await page.screenshot({ type: "png" }));
+        const evidence: EvidenceArtifact = { criterionId: check.criterionId, kind: "SCREENSHOT", mimeType: "image/png", base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
+        const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);
+        if (!uploaded.ok) throw new Error(`Evidence upload failed with ${uploaded.status}`);
+        const payload = await uploaded.json() as { artifact: StoredEvidenceArtifact };
+        artifacts.push(payload.artifact);
+        results.push({ ...checkResult, evidenceId: payload.artifact.storagePath, evidenceHash: payload.artifact.sha256 });
+      } finally { await context.close(); }
     }
   } finally {
-    await context.close();
     await browser.close();
   }
   const completion = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/complete`, {

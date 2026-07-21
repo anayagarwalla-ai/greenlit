@@ -94,10 +94,25 @@ export async function POST(request: Request) {
     let ownerToken: string | null = null;
 
     if (recordId) {
-      const { data: record, error } = await database.from("transaction_records").select("id, public_id, owner_user_id, owner_token_hash").eq("id", recordId).single();
+      const { data: record, error } = await database.from("transaction_records").select("id, public_id, owner_user_id, owner_token_hash, status, criteria_revision").eq("id", recordId).single();
       const authorized = record && (record.owner_user_id === owner.userId || Boolean(owner.ownerTokenHash && record.owner_token_hash === owner.ownerTokenHash));
       if (error || !authorized) return NextResponse.json({ error: "The milestone record no longer exists or belongs to another account." }, { status: 404, headers: noStoreJsonHeaders() });
       recordPublicId = record.public_id;
+      const { data: activeJob } = await database.from("verification_jobs_v2").select("id, status").eq("record_id", recordId).in("status", ["QUEUED", "LEASED", "RUNNING"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (activeJob) return NextResponse.json({ runId: activeJob.id, recordId, recordPublicId, status: activeJob.status, resumed: true }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${activeJob.id}` } });
+      const nextRevision = (record.criteria_revision ?? 1) + (record.status === "CHANGES_REQUESTED" ? 1 : 0);
+      const { error: recordUpdateError } = await database.from("transaction_records").update({
+        mode: customTarget ? "CUSTOM_TARGET" : "IMPORTED_FIXTURE",
+        agency_name: body.agencyName, client_name: body.clientName, project_name: body.projectName,
+        milestone_title: body.milestoneTitle, amount_minor: body.amountMinor, currency: body.currency,
+        source_name: body.sourceName, source_sha256: sourceHash, confirmed_criteria: body.criteria,
+        target_origin: targetOrigin, criteria_revision: nextRevision, status: "READY",
+        workspace_state: { criteria: body.criteria, checks, buildLabel, targetOrigin },
+      }).eq("id", recordId);
+      if (recordUpdateError) throw new Error(`Milestone record could not be updated: ${recordUpdateError.message}`);
+      if (record.status === "CHANGES_REQUESTED") {
+        await appendAuditEvent({ recordId, eventType: "MILESTONE_REVISED", actorType: "OWNER", actorHash, payload: { revision: nextRevision, sourceSha256: sourceHash, criteriaSha256: criteriaHash, criteriaCount: body.criteria.length } });
+      }
     } else {
       recordPublicId = publicRecordId("MP");
       ownerToken = randomToken();
@@ -117,6 +132,7 @@ export async function POST(request: Request) {
         confirmed_criteria: body.criteria,
         target_origin: targetOrigin,
         status: "READY",
+        workspace_state: { criteria: body.criteria, checks, buildLabel, targetOrigin },
       }).select("id").single();
       if (error || !record) throw new Error(`Milestone record could not be created: ${error?.message ?? "unknown error"}`);
       recordId = record.id;

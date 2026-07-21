@@ -15,7 +15,7 @@ This runbook is the minimum operating cadence for inviting web agencies. Assign 
 
 1. Open `/admin` and triage new feedback, failed/stuck jobs, privacy requests, operational events, and notification delivery failures.
 2. Contact a tester only through the monitored support channel and never copy their SOW text into a ticket.
-3. Classify feedback as `REVIEWING`, `RESOLVED`, or `CLOSED`; keep a concise resolution note outside MilestoneProof if the operator needs a support system of record.
+3. Classify feedback as `REVIEWING`, `RESOLVED`, or `CLOSED` in the operator console.
 4. Check Cloudflare Browser Rendering usage before increasing the global run limit. A capacity response is preferable to silently enabling billing.
 5. Confirm the daily retention job succeeded. Investigate a missed run before manually deleting any record.
 
@@ -34,7 +34,7 @@ The in-product form creates an intake record; it does not complete the request a
 1. Verify the requester through the monitored business email before disclosing or deleting data.
 2. Locate account, transaction, reviewer, feedback, and operational records using the verified email and record identifiers.
 3. Check whether a contractual or legal hold limits deletion.
-4. Record the outcome and completion time in the privacy-request queue.
+4. Assign an owner, update status, and record concise internal notes and the completion time in the privacy-request queue.
 5. Send the response through the monitored support channel. Do not put exported personal data into an unauthenticated link.
 
 ## Beta pause criteria

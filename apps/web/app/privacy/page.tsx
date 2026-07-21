@@ -18,7 +18,7 @@ export default function PrivacyPage() {
 
         <h2>Data you provide</h2>
         <ul>
-          <li><strong>SOW input:</strong> synthetic or expressly non-confidential text selected for analysis. MilestoneProof processes this in memory and does not intentionally persist the original document.</li>
+          <li><strong>SOW input:</strong> synthetic or expressly non-confidential text selected for analysis. MilestoneProof does not upload the original document to its database or evidence store. To prevent loss during sign-in or reload, the extracted text and unfinished draft are saved in this browser’s local storage until you choose New import or clear site data.</li>
           <li><strong>Business record:</strong> agency, client, project, milestone value, confirmed criteria, target build, verification results, and evidence metadata.</li>
           <li><strong>Reviewer record:</strong> reviewer name, business email, optional note, approval or change request, consent statements, and decision time.</li>
           <li><strong>Agency account:</strong> business email, account identifier, owned milestone records, in-app notifications, and review-link controls.</li>
@@ -37,7 +37,7 @@ export default function PrivacyPage() {
 
         <h2>Retention</h2>
         <div className="legal-table">
-          <div><strong>Original SOW content</strong><span>Processed in memory; not intentionally retained by MilestoneProof</span></div>
+          <div><strong>Original SOW content</strong><span>Not retained server-side; unfinished extracted text remains in local browser storage until New import or site-data deletion</span></div>
           <div><strong>Review bearer token</strong><span>72 hours by default; an agency may extend it, up to 14 days from creation</span></div>
           <div><strong>Screenshot evidence</strong><span>90 days unless a legal hold applies</span></div>
           <div><strong>Approval and audit record</strong><span>Four years by default, configurable when a different legal or contractual period applies</span></div>

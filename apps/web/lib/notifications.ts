@@ -15,6 +15,7 @@ export async function deliverNotification(notification: NotificationPayload) {
   const target = process.env.NOTIFICATION_WEBHOOK_URL;
   if (!target) return false;
   let sent = false;
+  let deliveryError = "";
   try {
     const response = await fetch(target, {
       method: "POST",
@@ -23,8 +24,11 @@ export async function deliverNotification(notification: NotificationPayload) {
       signal: AbortSignal.timeout(5_000),
     });
     sent = response.ok;
-  } catch { /* stored outbox is retried by maintenance */ }
-  await requireSupabaseAdmin().from("operator_notifications").update({ delivery_status: sent ? "SENT" : "FAILED" }).eq("id", notification.id);
+    if (!response.ok) deliveryError = `Webhook returned HTTP ${response.status}`;
+  } catch (cause) { deliveryError = cause instanceof Error ? cause.message.slice(0, 500) : "Notification delivery failed"; }
+  const database = requireSupabaseAdmin();
+  const { data: current } = await database.from("operator_notifications").select("delivery_attempts").eq("id", notification.id).maybeSingle();
+  await database.from("operator_notifications").update({ delivery_status: sent ? "SENT" : "FAILED", delivery_attempts: Number(current?.delivery_attempts ?? 0) + 1, delivery_error: sent ? null : deliveryError || "Webhook delivery failed", last_delivery_at: new Date().toISOString() }).eq("id", notification.id);
   return sent;
 }
 export async function deliverPendingNotifications(limit = 20) {

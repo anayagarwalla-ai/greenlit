@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const database = requireSupabaseAdmin();
     const { data: records, error } = await database.from("transaction_records")
-      .select("id, public_id, agency_name, client_name, project_name, milestone_title, amount_minor, currency, target_origin, revision, status, updated_at, created_at")
+      .select("id, public_id, agency_name, client_name, project_name, milestone_title, amount_minor, currency, target_origin, revision, criteria_revision, status, updated_at, created_at")
       .eq("owner_user_id", user.id)
       .order("updated_at", { ascending: false })
       .limit(100);
@@ -19,7 +19,7 @@ export async function GET() {
     const ids = (records ?? []).map((record) => record.id);
     const [runResult, reviewResult, notificationResult] = await Promise.all([
       ids.length ? database.from("verification_jobs_v2").select("id, record_id, status, build_label, build_url, last_error, completed_at, created_at").in("record_id", ids).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-      ids.length ? database.from("review_packets_v2").select("public_id, record_id, decision, reviewer_name, reviewer_email, decided_at, expires_at, revoked_at, created_at").in("record_id", ids).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      ids.length ? database.from("review_packets_v2").select("public_id, record_id, decision, reviewer_name, reviewer_email, reviewer_note, decided_at, expires_at, revoked_at, created_at").in("record_id", ids).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       database.from("operator_notifications").select("id, record_id, event_type, title, body, read_at, created_at").eq("owner_user_id", user.id).order("created_at", { ascending: false }).limit(50),
     ]);
     const queryError = runResult.error ?? reviewResult.error ?? notificationResult.error;

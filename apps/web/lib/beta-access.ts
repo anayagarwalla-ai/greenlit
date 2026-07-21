@@ -8,9 +8,13 @@ function configuredEmails(name: "BETA_ALLOWED_EMAILS" | "ADMIN_EMAILS") {
 }
 
 export function betaAccessAllowed(user: Pick<User, "email">) {
+  return betaEmailAllowed(user.email);
+}
+
+export function betaEmailAllowed(email: string | null | undefined) {
   const allowed = configuredEmails("BETA_ALLOWED_EMAILS");
   if (allowed.size === 0) return process.env.NODE_ENV !== "production";
-  return Boolean(user.email && allowed.has(user.email.toLowerCase()));
+  return Boolean(email && allowed.has(email.trim().toLowerCase()));
 }
 
 export function adminAccessAllowed(user: Pick<User, "email">) {

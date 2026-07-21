@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, REVIEW_EXPIRY_HOURS, sha256 } from "@/lib/recordkeeping";
+import { canonicalJson, noStoreJsonHeaders, publicRecordId, randomToken, requestActorHash, REVIEW_EXPIRY_HOURS, sha256 } from "@/lib/recordkeeping";
 import { getOwnerIdentity } from "@/lib/owner-auth";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
@@ -21,7 +21,12 @@ export async function POST(request: Request) {
     const { data: run, error: runError } = await database.from("verification_jobs_v2").select("*").eq("id", parsed.data.runId).eq("record_id", parsed.data.recordId).single();
     if (recordError || runError || !authorized || !run) return NextResponse.json({ error: "The passing verification record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
     const results: unknown[] = Array.isArray(run.results) ? run.results : [];
-    if (run.status !== "COMPLETED" || results.length === 0 || results.some((result) => (result as { status?: string }).status !== "PASS")) return NextResponse.json({ error: "Only a completed passing run can be sent for review." }, { status: 409, headers: noStoreJsonHeaders() });
+    const checks: Array<{ criterionId?: string }> = Array.isArray(run.checks) ? run.checks : [];
+    const artifacts: Array<{ criterionId?: string; sha256?: string }> = Array.isArray(run.artifacts) ? run.artifacts : [];
+    const resultIds = results.map((result) => (result as { criterionId?: string }).criterionId);
+    const checkIds = checks.map((check) => check.criterionId);
+    const completeCoverage = checks.length > 0 && results.length === checks.length && artifacts.length === checks.length && new Set(resultIds).size === checks.length && checkIds.every((id) => resultIds.includes(id) && artifacts.some((artifact) => artifact.criterionId === id && /^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")));
+    if (run.status !== "COMPLETED" || !completeCoverage || !run.manifest_sha256 || results.some((result) => (result as { status?: string }).status !== "PASS")) return NextResponse.json({ error: "Only a complete passing run with matching stored evidence can be sent for review." }, { status: 409, headers: noStoreJsonHeaders() });
 
     const packetPublicId = publicRecordId("REVIEW");
     const token = randomToken();
@@ -44,11 +49,8 @@ export async function POST(request: Request) {
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));
-    await database.from("review_packets_v2").update({ revoked_at: new Date().toISOString() }).eq("record_id", record.id).is("decision", null).is("revoked_at", null);
-    const { error } = await database.from("review_packets_v2").insert({ record_id: record.id, run_id: run.id, public_id: packetPublicId, snapshot, snapshot_sha256: snapshotSha256, bearer_token_hash: sha256(token), expires_at: expiresAt });
+    const { error } = await database.rpc("create_review_packet_atomic", { p_record_id: record.id, p_run_id: run.id, p_public_id: packetPublicId, p_snapshot: snapshot, p_snapshot_sha256: snapshotSha256, p_bearer_token_hash: sha256(token), p_expires_at: expiresAt, p_actor_hash: requestActorHash(request) });
     if (error) throw new Error(`Review packet could not be recorded: ${error.message}`);
-    await database.from("transaction_records").update({ status: "IN_REVIEW" }).eq("id", record.id);
-    await appendAuditEvent({ recordId: record.id, eventType: "REVIEW_PACKET_CREATED", actorType: "OWNER", actorHash: requestActorHash(request), payload: { packetPublicId, runId: run.id, snapshotSha256, expiresAt } });
     const origin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     return NextResponse.json({ packetId: packetPublicId, reviewUrl: `${origin}/review/${packetPublicId}#t=${token}`, expiresAt, snapshotSha256 }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {

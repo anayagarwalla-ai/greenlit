@@ -14,8 +14,10 @@ import {
   CircleDot,
   Code2,
   Copy,
+  CopyPlus,
   ExternalLink,
   FileCheck2,
+  FileWarning,
   FileText,
   FileUp,
   Globe2,
@@ -29,13 +31,16 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Trash2,
+  ArrowDown,
+  ArrowUp,
   WandSparkles,
   X,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { VerificationSetup, type CustomRunConfiguration } from "@/components/verification-setup";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
-import { demoCriteria, demoMilestone, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
+import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 
@@ -90,11 +95,32 @@ const checkLabels: Record<CheckType, string> = {
   link_destination: "Link destination",
   form_submission: "Form submission",
   viewport_layout: "Viewport layout",
-  axe_scan: "Accessibility scan",
+  axe_scan: "Axe accessibility scan",
   manual: "Human review",
 };
 const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
 const geminiPaidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+const DRAFT_STORAGE_KEY = "milestoneproof-workspace-draft-v2";
+
+type WorkspaceDraft = {
+  version: 2;
+  phase: Phase;
+  sourceText: string;
+  sourceName: string;
+  business: BusinessDetails;
+  attested: boolean;
+  aiDisclosureAccepted: boolean;
+  adultBusinessUseAttested: boolean;
+  criteria: AnalysisCriterion[];
+  confirmed: Record<string, boolean>;
+  model: string;
+  analysisNotice: string;
+  recordId: string | null;
+  latestRun: RunResponse | null;
+  customRun: CustomRunConfiguration | null;
+  reviewUrl: string;
+  reviewPacketId: string;
+};
 
 function fixtureCompatible(source: string) {
   return demoCriteria.every((item) => isGroundedQuote(source, item.source));
@@ -125,8 +151,8 @@ function applyFixtureMappings(source: string, criteria: AnalysisCriterion[]) {
   });
 }
 
-function phaseStatus(phase: Phase) {
-  if (phase === "intake") return { text: "Awaiting SOW", className: "status-badge--neutral" };
+function phaseStatus(phase: Phase, hasSource: boolean) {
+  if (phase === "intake") return { text: hasSource ? "Source ready" : "Awaiting SOW", className: "status-badge--neutral" };
   if (phase === "analyzing") return { text: "Drafting criteria", className: "status-badge--neutral" };
   if (phase === "criteria") return { text: "Needs confirmation", className: "" };
   if (phase === "handoff") return { text: "Scope frozen", className: "status-badge--pass" };
@@ -159,12 +185,12 @@ export function MilestoneStudio() {
   const [aiDisclosureAccepted, setAiDisclosureAccepted] = useState(false);
   const [adultBusinessUseAttested, setAdultBusinessUseAttested] = useState(false);
   const [business, setBusiness] = useState<BusinessDetails>({
-    agencyName: demoMilestone.agency,
-    clientName: demoMilestone.client,
-    projectName: demoMilestone.project,
-    milestoneTitle: demoMilestone.milestone,
-    amountDollars: String(demoMilestone.amountMinor / 100),
-    currency: demoMilestone.currency,
+    agencyName: "",
+    clientName: "",
+    projectName: "",
+    milestoneTitle: "",
+    amountDollars: "",
+    currency: "USD",
   });
   const [criteria, setCriteria] = useState<AnalysisCriterion[]>([]);
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
@@ -183,15 +209,20 @@ export function MilestoneStudio() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewUrl, setReviewUrl] = useState("");
   const [reviewPacketId, setReviewPacketId] = useState("");
+  const [changeRequest, setChangeRequest] = useState("");
   const [sessionEmail, setSessionEmail] = useState("");
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
+  const draftHydrated = useRef(false);
+  const phaseHeading = useRef<HTMLHeadingElement | null>(null);
   const currentStep = phaseOrder[phase];
-  const status = phaseStatus(phase);
+  const status = phaseStatus(phase, Boolean(sourceText.trim() || selectedFile));
   const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
   const visibleCount = sourceMode === "demo" ? demoCriteria.length : criteria.length;
   const latestPassCount = latestRun?.results.filter((result) => result.status === "PASS").length ?? 0;
+  const activeRunId = latestRun?.runId;
+  const activeRunStatus = latestRun?.status;
 
   useEffect(() => {
     if (!toast) return;
@@ -200,9 +231,64 @@ export function MilestoneStudio() {
   }, [toast]);
 
   useEffect(() => {
+    const draftRestoreTimer = window.setTimeout(() => {
+      try {
+        const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+        const draft = raw ? JSON.parse(raw) as WorkspaceDraft : null;
+        if (draft?.version === 2) {
+        setPhase(draft.phase === "analyzing" ? "intake" : draft.phase.startsWith("running") ? (draft.latestRun ? (draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1") : "handoff") : draft.phase);
+        setSourceText(draft.sourceText ?? "");
+        setSourceName(draft.sourceName ?? "Pasted SOW");
+        setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
+        setAttested(Boolean(draft.attested));
+        setAiDisclosureAccepted(Boolean(draft.aiDisclosureAccepted));
+        setAdultBusinessUseAttested(Boolean(draft.adultBusinessUseAttested));
+        setCriteria(Array.isArray(draft.criteria) ? draft.criteria : []);
+        setConfirmed(draft.confirmed ?? {});
+        setModel(draft.model ?? "Gemini");
+        setAnalysisNotice(draft.analysisNotice ?? "");
+        setRecordId(draft.recordId ?? null);
+        setLatestRun(draft.latestRun ?? null);
+        setCustomRun(draft.customRun ?? null);
+        setReviewUrl(draft.reviewUrl ?? "");
+        setReviewPacketId(draft.reviewPacketId ?? "");
+        if (draft.latestRun) setLastVerificationPhase(draft.latestRun.outcome === "READY_FOR_REVIEW" ? "run2" : "run1");
+        }
+      } catch { /* A corrupt convenience draft must never block the workspace. */ }
+      draftHydrated.current = true;
+    }, 0);
     void fetch("/api/account/session", { cache: "no-store" })
       .then((response) => response.json())
-      .then((payload) => setSessionEmail(payload.user?.email ?? ""))
+      .then(async (payload) => {
+        setSessionEmail(payload.user?.email ?? "");
+        const resumeId = new URL(window.location.href).searchParams.get("record");
+        if (!payload.user?.email || !resumeId) return;
+        const response = await fetch(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" });
+        const resumed = await response.json();
+        if (!response.ok) throw new Error(resumed.error ?? "The retained workspace could not be restored.");
+        const record = resumed.record;
+        const restoredCriteria = (record.confirmed_criteria ?? []) as AnalysisCriterion[];
+        const latest = resumed.runs?.[0];
+        const latestReview = resumed.reviews?.[0];
+        setRecordId(record.id);
+        setBusiness({ agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
+        setSourceName(record.source_name);
+        setSourceText(restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+        setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
+        setConfirmed(Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
+        setAttested(true); setAiDisclosureAccepted(true); setAdultBusinessUseAttested(true);
+        setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
+        if (latest) {
+          const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
+          setLatestRun(run);
+          const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
+          if (savedChecks.length) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
+          if (["QUEUED", "LEASED", "RUNNING"].includes(latest.status)) setPhase("running1");
+          else if (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW") { setPhase("run2"); setLastVerificationPhase("run2"); }
+          else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
+        } else setPhase("criteria");
+        setToast("Retained project restored");
+      })
       .catch(() => undefined);
     const syncApproval = () => {
       try {
@@ -215,6 +301,7 @@ export function MilestoneStudio() {
     window.addEventListener("focus", syncApproval);
     window.addEventListener("storage", syncApproval);
     return () => {
+      window.clearTimeout(draftRestoreTimer);
       window.clearTimeout(approvalSyncTimer);
       window.removeEventListener("focus", syncApproval);
       window.removeEventListener("storage", syncApproval);
@@ -223,7 +310,50 @@ export function MilestoneStudio() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!draftHydrated.current || sourceMode === "demo") return;
+    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId };
+    try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* Browser storage is an optional local recovery layer. */ }
+  }, [phase, sourceMode, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId]);
+
+  useEffect(() => {
+    if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(activeRunId)}`, { cache: "no-store", signal: controller.signal });
+        const payload = await response.json() as RunResponse & { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Verification status is unavailable.");
+        setLatestRun(payload);
+        if (payload.status === "COMPLETED") {
+          const completedPhase: Phase = payload.outcome === "READY_FOR_REVIEW" ? "run2" : "run1";
+          setPhase(completedPhase); setLastVerificationPhase(completedPhase); setRunError("");
+        } else if (payload.status === "FAILED") {
+          setRunError(payload.error ?? "The retained verification job failed."); setPhase("handoff");
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) setRunError(cause instanceof Error ? cause.message : "Verification status is temporarily unavailable. This job remains saved and will resume when you reopen the project.");
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 2_000);
+    void poll();
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [activeRunId, activeRunStatus]);
+
+  useEffect(() => {
+    if (phase === "intake") return;
+    phaseHeading.current?.focus({ preventScroll: true });
+  }, [phase]);
+
+  const preserveDraft = () => {
+    if (sourceMode === "demo") return;
+    const draft: WorkspaceDraft = { version: 2, phase, sourceText, sourceName, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, reviewUrl, reviewPacketId };
+    try { window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch { /* optional */ }
+  };
+
   const reset = () => {
+    const unfinished = sourceMode === "live" && Boolean(sourceText.trim() || selectedFile || criteria.length || recordId);
+    if (unfinished && !window.confirm("Start a new import? This clears the unfinished workspace from this browser.")) return;
     analysisController.current?.abort("new-import");
     analysisController.current = null;
     runController.current?.abort("new-import");
@@ -250,8 +380,11 @@ export function MilestoneStudio() {
     setRunError("");
     setReviewUrl("");
     setReviewPacketId("");
+    setChangeRequest("");
     setCustomRun(null);
+    setBusiness({ agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
     try {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
       window.localStorage.removeItem("milestoneproof-approved-url");
       window.localStorage.removeItem("milestoneproof-demo-decision");
     } catch { /* optional workspace convenience */ }
@@ -293,6 +426,23 @@ export function MilestoneStudio() {
     }
     if (!selectedFile && sourceText.trim().length < 80) {
       setAnalysisError("Paste at least 80 characters or choose a PDF, TXT, or Markdown file.");
+      return;
+    }
+    const businessEntries: Array<[string, string]> = [
+      ["agency or vendor", business.agencyName], ["client", business.clientName], ["project", business.projectName], ["milestone", business.milestoneTitle], ["milestone value", business.amountDollars], ["currency", business.currency],
+    ];
+    const missingBusiness = businessEntries.find(([, value]) => !value.trim());
+    if (missingBusiness) {
+      setAnalysisError(`Enter the ${missingBusiness[0]} before Gemini analysis.`);
+      return;
+    }
+    const amountMinor = Math.round(Number(business.amountDollars) * 100);
+    if (!/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()) || !Number.isSafeInteger(amountMinor) || amountMinor < 0) {
+      setAnalysisError("Enter a valid non-negative milestone value with no more than two decimal places.");
+      return;
+    }
+    if (!/^[A-Z]{3}$/.test(business.currency.toUpperCase())) {
+      setAnalysisError("Choose a valid three-letter currency.");
       return;
     }
 
@@ -425,7 +575,8 @@ export function MilestoneStudio() {
       const created = await response.json();
       if (!response.ok) throw new Error(created.error ?? "The verification run could not be created.");
       setRecordId(created.recordId);
-      const deadline = Date.now() + 90_000;
+      setLatestRun({ runId: created.runId, recordId: created.recordId, status: created.status ?? "QUEUED", buildUrl: activeCustomRun?.targetUrl ?? window.location.origin, buildLabel: activeCustomRun?.buildLabel ?? `launch-${second ? "rc2" : "rc1"}`, results: [], artifacts: [] });
+      const deadline = Date.now() + 12 * 60_000;
       while (!controller.signal.aborted && Date.now() < deadline) {
         const statusResponse = await fetch(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" });
         const statusPayload = await statusResponse.json() as RunResponse & { error?: string };
@@ -441,11 +592,15 @@ export function MilestoneStudio() {
         if (statusPayload.status === "FAILED") throw new Error(statusPayload.error ?? "The verification runner failed.");
         await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       }
-      if (!controller.signal.aborted) throw new Error("Verification is taking longer than expected. Retry the run; no approval was created.");
+      if (!controller.signal.aborted) {
+        setRunError("Verification is still running. The job is saved—leave this page or return from the dashboard without starting a duplicate run.");
+        return;
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       const friendly = friendlyRunError(error);
       setRunError(friendly);
+      if (/still running|saved/i.test(friendly)) return;
       if (/origin verification expired|verify it again/i.test(friendly)) setCustomRun((current) => current ? { ...current, originReceipt: "" } : current);
       setPhase(sourceMode === "live" && activeCustomRun ? "handoff" : second && latestRun ? "run1" : "criteria");
     } finally {
@@ -490,9 +645,14 @@ export function MilestoneStudio() {
   };
 
   const copyReview = async () => {
-    try { await navigator.clipboard.writeText(reviewUrl); } catch { /* Clipboard can be unavailable in preview. */ }
-    setCopied(true);
-    setToast("Review link copied");
+    try {
+      await navigator.clipboard.writeText(reviewUrl);
+      setCopied(true);
+      setToast("Review link copied");
+    } catch {
+      setCopied(false);
+      setToast("Clipboard unavailable — select and copy the link manually");
+    }
   };
 
   const projectLabel = sourceText ? business.projectName : "New milestone proof";
@@ -512,7 +672,7 @@ export function MilestoneStudio() {
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
-          <Link className="app-account-link" href={(sessionEmail ? "/dashboard" : "/login") as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
+          <Link className="app-account-link" onClick={preserveDraft} href={(sessionEmail ? "/dashboard" : "/login?next=/workspace") as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
           <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
         </div>
@@ -528,35 +688,38 @@ export function MilestoneStudio() {
           </div>
           <div className="side-label">Proof flow</div>
           <nav className="side-nav">
-            <button className={currentStep === 1 ? "is-active" : ""} disabled={!sourceText} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
+            <button className={currentStep === 1 ? "is-active" : ""} disabled={criteria.length === 0 && sourceMode !== "demo"} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
             <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase && latestRun && <span>{latestPassCount}/{latestRun.results.length}</span>}</button>
             <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={() => setPhase("shared")}><Send size={15} /><span>Client review</span></button>
             <button disabled={!approvalRecorded || !receiptUrl} onClick={() => receiptUrl && window.location.assign(receiptUrl)}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
           <div className="side-facts">
             <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
-            <div><span>Source</span><strong>{sourceText ? "Hashed; not persisted by app" : "Not loaded"}</strong></div>
+            <div><span>Source</span><strong>{sourceText ? "Local draft; server retains hash + quotes" : "Not loaded"}</strong></div>
             <div><span>Paid services</span><strong>{geminiPaidService ? "Gemini API" : "None"}</strong></div>
           </div>
         </aside>
 
         <section className="app-main">
           <div className="workspace-head">
-            <div className="workspace-head__title"><span>{sourceText ? sourceName : "New proof set · safe intake"}</span><h1>{workspaceTitle}</h1></div>
+            <div className="workspace-head__title"><span>{sourceText ? sourceName : "New proof set · safe intake"}</span><h1 ref={phaseHeading} tabIndex={-1}>{workspaceTitle}</h1></div>
             <div className="workspace-head__meta">
               <span className={`status-badge ${status.className}`}>{phase === "analyzing" || phase.startsWith("running") ? <LoaderCircle className="spin" size={12} /> : <CircleDot size={11} />}{status.text}</span>
               {currentStep >= 2 && phase !== "handoff" && <span className="status-badge status-badge--neutral"><Globe2 size={11} /> {sourceMode === "demo" ? "Synthetic sample" : "Staging verified"}</span>}
             </div>
           </div>
 
-          <div className="stepper" aria-label="Milestone progress">
+          <ol className="stepper" aria-label="Milestone progress">
             {["Confirm criteria", "Verify build", "Client review", "Invoice-ready"].map((label, index) => {
               const step = index + 1;
-              return <div className={`step ${step < currentStep ? "is-done" : step === currentStep ? "is-active" : ""}`} key={label}>{label}</div>;
+              return <li className={`step ${step < currentStep ? "is-done" : step === currentStep ? "is-active" : ""}`} aria-current={step === currentStep ? "step" : undefined} key={label}>{label}</li>;
             })}
-          </div>
+          </ol>
+
+          <div className="sr-only" aria-live="polite" aria-atomic="true">{phase === "analyzing" ? "Gemini analysis in progress" : phase.startsWith("running") ? "Verification in progress" : status.text}</div>
 
           {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span><button className="mini-action" type="button" onClick={launchDemo}>Open synthetic walkthrough</button></div>}
+          {changeRequest && <div className="analysis-notice change-request-note" role="status"><PencilLine size={15} /><div><strong>Client change request</strong><span>{changeRequest}</span></div></div>}
 
           {(phase === "intake" || phase === "analyzing") && (
             <SowIntake
@@ -598,9 +761,9 @@ export function MilestoneStudio() {
           )}
           {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
-          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : setPhase("handoff")} />}
+          {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" || canRunImportedFixture ? void startRun(true) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} demo={sourceMode === "demo"} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
@@ -657,7 +820,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="source-input-head"><label htmlFor="sow-text">Paste SOW text</label><button type="button" onClick={loadSample}>Use the synthetic sample</button></div>
         <textarea id="sow-text" className="sow-textarea" value={sourceText} disabled={Boolean(selectedFile) || analyzing} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste the acceptance criteria, deliverables, or relevant SOW section here…" />
         <div className="input-divider"><span>or upload</span></div>
-        <input ref={fileInput} className="sr-only" type="file" aria-label="Upload a PDF, TXT, or Markdown file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+        <input ref={fileInput} className="sr-only" tabIndex={-1} type="file" aria-label="Upload a PDF, TXT, or Markdown file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
         <button className={`upload-drop ${selectedFile ? "has-file" : ""}`} type="button" disabled={analyzing} onClick={() => fileInput.current?.click()}>
           <span className="upload-icon"><FileUp size={20} /></span>
           <span><strong>{selectedFile ? selectedFile.name : "Choose a PDF, TXT, or Markdown file"}</strong><small>{selectedFile ? `${(selectedFile.size / 1024).toFixed(0)} KB · click to replace` : "Selectable text · 3 MB maximum"}</small></span>
@@ -667,12 +830,12 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
 
         <fieldset className="business-details" disabled={analyzing}>
           <legend>Business record details</legend>
-          <label>Agency or vendor<input value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required /></label>
-          <label>Client<input value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required /></label>
-          <label>Project<input value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required /></label>
-          <label>Milestone<input value={business.milestoneTitle} onChange={(event) => updateBusiness("milestoneTitle", event.target.value)} required /></label>
-          <label>Milestone value<input type="number" min="0" step="0.01" value={business.amountDollars} onChange={(event) => updateBusiness("amountDollars", event.target.value)} required /></label>
-          <label>Currency<select value={business.currency} onChange={(event) => updateBusiness("currency", event.target.value)}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
+          <label htmlFor="agency-name">Agency or vendor<input id="agency-name" aria-invalid={Boolean(error && !business.agencyName.trim())} aria-describedby={error && !business.agencyName.trim() ? "agency-name-error" : undefined} value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required />{error && !business.agencyName.trim() && <small id="agency-name-error">Agency or vendor is required.</small>}</label>
+          <label htmlFor="client-name">Client<input id="client-name" aria-invalid={Boolean(error && !business.clientName.trim())} aria-describedby={error && !business.clientName.trim() ? "client-name-error" : undefined} value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required />{error && !business.clientName.trim() && <small id="client-name-error">Client is required.</small>}</label>
+          <label htmlFor="project-name">Project<input id="project-name" aria-invalid={Boolean(error && !business.projectName.trim())} aria-describedby={error && !business.projectName.trim() ? "project-name-error" : undefined} value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required />{error && !business.projectName.trim() && <small id="project-name-error">Project is required.</small>}</label>
+          <label htmlFor="milestone-title">Milestone<input id="milestone-title" aria-invalid={Boolean(error && !business.milestoneTitle.trim())} aria-describedby={error && !business.milestoneTitle.trim() ? "milestone-title-error" : undefined} value={business.milestoneTitle} onChange={(event) => updateBusiness("milestoneTitle", event.target.value)} required />{error && !business.milestoneTitle.trim() && <small id="milestone-title-error">Milestone is required.</small>}</label>
+          <label htmlFor="milestone-value">Milestone value<input id="milestone-value" type="number" min="0" step="0.01" aria-invalid={Boolean(error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()))} aria-describedby={error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()) ? "milestone-value-error" : undefined} value={business.amountDollars} onChange={(event) => updateBusiness("amountDollars", event.target.value)} required />{error && !/^\d+(\.\d{1,2})?$/.test(business.amountDollars.trim()) && <small id="milestone-value-error">Enter a non-negative value with at most two decimal places.</small>}</label>
+          <label htmlFor="milestone-currency">Currency<select id="milestone-currency" value={business.currency} onChange={(event) => updateBusiness("currency", event.target.value)}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
         </fieldset>
 
         <label className="attestation">
@@ -691,7 +854,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is processed in memory and never included in verification logs or evidence artifacts.</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>
@@ -778,15 +941,45 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
     setConfirmed((current) => ({ ...current, [item.id]: !current[item.id] }));
   };
   const confirmReady = () => setConfirmed(Object.fromEntries(readyIds.map((id) => [id, true])));
+  const nextCriterionId = () => {
+    const next = Math.max(0, ...criteria.map((item) => Number(item.id.replace(/\D/g, "")) || 0)) + 1;
+    return `AC-${String(next).padStart(2, "0")}`;
+  };
+  const addCriterion = () => {
+    const id = nextCriterionId();
+    setCriteria((current) => [...current, { id, title: "", sourceQuote: "", rationale: "Describe the evidence needed", supported: false, checkType: "manual", grounded: false }]);
+  };
+  const removeCriterion = (id: string) => {
+    setCriteria((current) => current.filter((item) => item.id !== id));
+    setConfirmed((current) => { const next = { ...current }; delete next[id]; return next; });
+  };
+  const duplicateCriterion = (item: AnalysisCriterion) => {
+    const id = nextCriterionId();
+    const index = criteria.findIndex((candidate) => candidate.id === item.id);
+    setCriteria((current) => [...current.slice(0, index + 1), { ...item, id, title: `${item.title} (copy)` }, ...current.slice(index + 1)]);
+    setConfirmed((current) => ({ ...current, [id]: false }));
+  };
+  const moveCriterion = (index: number, direction: -1 | 1) => {
+    const destination = index + direction;
+    if (destination < 0 || destination >= criteria.length) return;
+    setCriteria((current) => {
+      const next = [...current];
+      [next[index], next[destination]] = [next[destination]!, next[index]!];
+      return next;
+    });
+  };
 
   return (
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
         <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div></div>
         <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by the draft. Every citation is checked against this extracted source.</span></div>
-        <div className="document-page live-document">
+        <div className="document-page live-document" tabIndex={0} aria-label="Scrollable extracted source document">
           <div className="document-page__head"><span>Extracted source</span><span>{sourceLines.length} lines</span></div>
-          {sourceLines.map((line, index) => line.trim() ? <div className={`document-line ${lineContainsCitation(line, citations) ? "is-cited" : ""}`} key={`${index}-${line.slice(0, 12)}`}><span>{index + 1}</span><div>{line}</div></div> : <div className="document-spacer" key={index} />)}
+          {sourceLines.map((line, index) => {
+            const cited = lineContainsCitation(line, citations);
+            return line.trim() ? <div className={`document-line ${cited ? "is-cited" : ""}`} aria-label={cited ? `Cited source line ${index + 1}` : `Source line ${index + 1}`} key={`${index}-${line.slice(0, 12)}`}><span aria-hidden="true">{index + 1}</span><div>{line}{cited && <span className="sr-only"> Cited by an acceptance criterion.</span>}</div></div> : <div className="document-spacer" key={index} />;
+          })}
         </div>
       </section>
 
@@ -797,35 +990,41 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
         </div>
         {notice && <div className="analysis-notice"><RefreshCw size={15} /><div><strong>Fast fallback used</strong><span>{notice}</span></div></div>}
         <div className="criteria-list">
-          {criteria.map((item) => {
+          {criteria.map((item, index) => {
             const ready = isCriterionReady(sourceText, item);
             return (
               <article className={`criterion-card live-criterion ${confirmed[item.id] ? "is-confirmed" : ""} ${!ready ? "has-warning" : ""}`} key={item.id}>
                 <div className="criterion-card__top">
                   <span className="criterion-id">{item.id}</span>
                   <div className="criterion-edit-fields">
-                    <label>Measurable outcome<input value={item.title} onChange={(event) => update(item.id, { title: event.target.value })} /></label>
-                    <label>Exact source quote<textarea value={item.sourceQuote} onChange={(event) => update(item.id, { sourceQuote: event.target.value })} /></label>
+                    <label>{item.id} measurable outcome<input aria-invalid={item.title.trim().length < 3} aria-describedby={`${item.id}-validation`} value={item.title} onChange={(event) => update(item.id, { title: event.target.value })} /></label>
+                    <label>{item.id} exact source quote<textarea aria-invalid={!item.grounded} aria-describedby={`${item.id}-validation`} value={item.sourceQuote} onChange={(event) => update(item.id, { sourceQuote: event.target.value })} /></label>
                   </div>
                   <button disabled={!ready} className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
                 </div>
                 <div className="criterion-metadata">
-                  <label>Evidence type<select value={item.checkType} onChange={(event) => {
+                  <label>{item.id} evidence type<select value={item.checkType} onChange={(event) => {
                     const checkType = event.target.value as CheckType;
                     update(item.id, { checkType, supported: checkType !== "manual" });
                   }}>{checkTypes.map((type) => <option value={type} key={type}>{checkLabels[type]}</option>)}</select></label>
-                  <label>Evidence rationale<input value={item.rationale} onChange={(event) => update(item.id, { rationale: event.target.value })} /></label>
+                  <label>{item.id} evidence rationale<input value={item.rationale} onChange={(event) => update(item.id, { rationale: event.target.value })} /></label>
                 </div>
-                <div className="criterion-validation">
-                  <span className={ready ? "is-valid" : "is-invalid"}>{ready ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}{ready ? "Exact source match" : "Quote must match the source"}</span>
-                  <span className={item.supported ? "is-valid" : "is-manual"}>{item.supported ? <Code2 size={12} /> : <PencilLine size={12} />}{item.supported ? "Safe browser evidence" : "Human review required"}</span>
+                <div className="criterion-validation" id={`${item.id}-validation`}>
+                  <span className={ready ? "is-valid" : "is-invalid"}>{ready ? <CheckCircle2 size={12} aria-hidden="true" /> : <AlertTriangle size={12} aria-hidden="true" />}{ready ? "Valid: exact source match" : "Error: quote must match the source"}</span>
+                  <span className={item.supported ? "is-valid" : "is-manual"}>{item.supported ? <Code2 size={12} aria-hidden="true" /> : <PencilLine size={12} aria-hidden="true" />}{item.supported ? "Automated: safe browser evidence" : "Manual: human review required"}</span>
+                  <span className="criterion-row-actions">
+                    <button type="button" className="mini-action" onClick={() => moveCriterion(index, -1)} disabled={index === 0} aria-label={`Move ${item.id} up`}><ArrowUp size={13} /> Move up</button>
+                    <button type="button" className="mini-action" onClick={() => moveCriterion(index, 1)} disabled={index === criteria.length - 1} aria-label={`Move ${item.id} down`}><ArrowDown size={13} /> Move down</button>
+                    <button type="button" className="mini-action" onClick={() => duplicateCriterion(item)} aria-label={`Duplicate ${item.id}`}><CopyPlus size={13} /> Duplicate</button>
+                    <button type="button" className="mini-action text-action--danger" onClick={() => removeCriterion(item.id)} aria-label={`Remove ${item.id}`}><Trash2 size={13} /> Remove</button>
+                  </span>
                 </div>
               </article>
             );
           })}
         </div>
         <footer className="criteria-footer">
-          <p><LockKeyhole size={11} /> Editing a criterion clears its confirmation. Ungrounded quotes cannot be frozen.</p>
+          <div><button type="button" className="button button--outline button--small" onClick={addCriterion}>Add criterion</button><p><LockKeyhole size={11} /> Editing a criterion clears its confirmation. Ungrounded quotes cannot be frozen.</p></div>
           <button className="button button--ink" disabled={!allConfirmed} onClick={onContinue}>{canRunFixture ? "Run on included staging fixture" : "Continue to verification setup"} <ArrowRight size={16} /></button>
         </footer>
       </section>
@@ -851,6 +1050,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const passed = run.results.filter((result) => result.status === "PASS").length;
   const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
   const failed = run.results.length - passed;
+  const manualCount = criteria.filter((item) => !run.results.some((result) => result.criterionId === item.id)).length;
   const caughtFalseSuccess = run.results.some((result) => result.criterionId === "AC-04" && result.status === "FAIL" && /HTTP 500/.test(result.observed));
   const resultByCriterion = Object.fromEntries(run.results.map((result) => [result.criterionId, result]));
   const evidence = (caughtFalseSuccess ? run.artifacts.find((artifact) => artifact.url && artifact.criterionId === "AC-04") : null)
@@ -865,7 +1065,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
             {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough — not retained evidence</strong><span>These seeded outcomes illustrate the workflow. No browser session, evidence artifact, audit event, or legal transaction record was created.</span></div></div>}
             <div className="score-line">
               <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
-              <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every promise passes." : failed === 1 ? "Sample: one promise needs work." : `Sample: ${failed} promises need work.` : isPass ? "Every promise has evidence." : failed === 1 ? "One promise needs work." : `${failed} promises need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
+              <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every automated check passes." : failed === 1 ? "Sample: one automated check needs work." : `Sample: ${failed} automated checks need work.` : isPass ? manualCount ? "Automated checks pass; client judgment remains." : "Every promise has browser evidence." : failed === 1 ? "One automated check needs work." : `${failed} automated checks need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? manualCount ? `${run.results.length} automated checks passed; ${manualCount} manual ${manualCount === 1 ? "promise awaits" : "promises await"} the client’s judgment.` : "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
             </div>
             <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
           </div>
@@ -883,12 +1083,12 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
         <aside className="run-side">
           <div className="panel evidence-card">
             <div className="evidence-preview">
-              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="fake-browser"><div className="fake-browser__bar"><i /><i /><i /></div><div className="fake-site-head"><span className="fake-site-logo">ACME OUTDOORS</span><span>TRIPS&nbsp;&nbsp; ABOUT&nbsp;&nbsp; CONTACT</span></div><div className="fake-site-hero"><div>Adventure,<br />made simple.<span className="fake-cta">PLAN MY TRIP</span></div><div className="fake-site-photo" /></div><div className="fake-form"><i /><i /><i /><i /></div></div>}
+              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="evidence-unavailable"><FileWarning size={28} /><strong>Evidence unavailable</strong><span>No captured screenshot was attached to this check.</span></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
             <div className="evidence-body"><strong>{run.seededDemo ? "Illustrative walkthrough frame" : isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{run.seededDemo ? "This visual and its outcomes are synthetic examples, not captured browser evidence." : isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. MilestoneProof caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
           </div>
-          <div className="panel audit-card"><h3>{run.seededDemo ? "Walkthrough boundary" : "Run integrity"}</h3><div className="audit-item"><strong>{run.seededDemo ? "Seeded outcomes" : "Target allowlisted"}</strong>{run.seededDemo ? "Reliable presentation path when free runner capacity is unavailable." : "The runner received only the app-owned synthetic staging origin."}</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>{run.seededDemo ? "No evidence claim" : "Artifacts hashed"}</strong>{run.seededDemo ? "No screenshots, hashes, audit events, or approvals are persisted." : `SHA-256 manifest ${run.manifestSha256?.slice(0, 12) ?? "pending"}…`}</div><div className="audit-item"><strong>Source minimized</strong>{run.seededDemo ? "Only the included synthetic SOW is displayed." : "Only a source hash and confirmed criteria enter the record."}</div></div>
+          <div className="panel audit-card"><h3>{run.seededDemo ? "Walkthrough boundary" : "Run integrity"}</h3><div className="audit-item"><strong>{run.seededDemo ? "Seeded outcomes" : "Target constrained"}</strong>{run.seededDemo ? "Reliable presentation path when free runner capacity is unavailable." : `The runner was constrained to the owner-verified origin ${new URL(run.buildUrl).origin}.`}</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>{run.seededDemo ? "No evidence claim" : "Artifacts hashed"}</strong>{run.seededDemo ? "No screenshots, hashes, audit events, or approvals are persisted." : `SHA-256 manifest ${run.manifestSha256?.slice(0, 12) ?? "pending"}…`}</div><div className="audit-item"><strong>Source minimized</strong>{run.seededDemo ? "Only the included synthetic SOW is displayed." : "Only a source hash and confirmed criteria enter the record."}</div></div>
         </aside>
       </div>
       <div className="action-banner">
@@ -902,7 +1102,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   );
 }
 
-function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number; demo: boolean }) {
+function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
@@ -917,7 +1117,7 @@ function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteri
         <div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO SECURE TOKEN" : `PACKET ${packetId} · SECURE TOKEN KEPT IN URL FRAGMENT`}</div>
       </section>
       <aside className="run-side">
-        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{criteriaCount} passing results</strong>Observed outcome and timestamp for each.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
+        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{resultCount} automated results</strong>Observed outcome and timestamp for each; {criteriaCount - resultCount} manual {criteriaCount - resultCount === 1 ? "promise is" : "promises are"} clearly labeled for client judgment.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
         <div className="panel evidence-body"><Bot size={19} /><strong>Trust boundary</strong><p>{demo ? "This walkthrough uses seeded outcomes and a local-only decision. The real path requires browser evidence before a retained client decision." : "The AI drafted the criteria. A human confirmed the checks. The browser produced the evidence. The client owns the decision."}</p></div>
       </aside>
     </div>
