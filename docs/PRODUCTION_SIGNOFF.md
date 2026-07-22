@@ -22,7 +22,7 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 - [x] Gemini is labeled as unpaid and no paid Cloudflare/Vercel/Supabase service was enabled accidentally.
 - [x] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210004` versions.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.
-- [ ] Production migration history contains every file in `supabase/migrations` exactly once.
+- [x] Production migration history contains every file in `supabase/migrations` exactly once.
 
 ## Capacity, recovery, and retention
 

@@ -15,3 +15,4 @@ artifacts/playwright-report
 .DS_Store
 .env*
 docs/operations/*.json
+supabase/.temp/
