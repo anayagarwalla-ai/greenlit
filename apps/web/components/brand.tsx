@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 
 export function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -11,8 +12,16 @@ export function Brand({ inverse = false }: { inverse?: boolean }) {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     }}>
-      <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-      <span>Greenlit</span>
+      <Image
+        className="brand-logo"
+        src={inverse ? "/brand/greenlit-logo-inverse.png" : "/brand/greenlit-logo.png"}
+        alt=""
+        aria-hidden="true"
+        width={1200}
+        height={270}
+        sizes="(max-width: 430px) 138px, 154px"
+        unoptimized
+      />
     </Link>
   );
 }

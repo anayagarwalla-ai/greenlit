@@ -1,0 +1,22 @@
+{
+  "approvedSourceSha256": "47f98afc90a1057e00bd308201c09ba9d0bafa869c1886474e42e5f27e496263",
+  "source": {
+    "width": 1774,
+    "height": 887
+  },
+  "background": [
+    251,
+    247,
+    241
+  ],
+  "crop": {
+    "x": 298,
+    "y": 302,
+    "width": 1202,
+    "height": 283
+  },
+  "symbolWordmarkGap": {
+    "start": 268,
+    "end": 351
+  }
+}

@@ -11,7 +11,19 @@ export const metadata: Metadata = {
     title: "Greenlit — Turn your SOW into proof",
     description: "Give the client proof, not a test report.",
     type: "website",
+    images: [{ url: "/brand/greenlit-social-card.png", width: 1200, height: 630, alt: "Greenlit" }],
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Greenlit — Turn your SOW into proof",
+    description: "Give the client proof, not a test report.",
+    images: ["/brand/greenlit-social-card.png"],
+  },
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "64x64" }],
+    apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
+  },
+  manifest: "/manifest.webmanifest",
   robots: { index: true, follow: true },
 };
 
