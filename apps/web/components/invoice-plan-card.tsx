@@ -9,6 +9,13 @@ type SavedPlan = { billingName: string; billingEmail: string; daysUntilDue: numb
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+async function readApiResponse<T>(response: Response, fallback: string): Promise<T> {
+  const payload = await response.json().catch(() => null) as (T & { error?: string }) | null;
+  if (!response.ok) throw new Error(payload?.error ?? fallback);
+  if (!payload) throw new Error(fallback);
+  return payload;
+}
+
 export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTitle, amountMinor, currency, mode = "pre-review", onComplete }: { recordId: string; clientName: string; projectName?: string; milestoneTitle?: string; amountMinor: number; currency: string; mode?: "pre-review" | "approved"; onComplete?: () => void }) {
   const [connection, setConnection] = useState<StripeConnection | null>(null);
   const [billingName, setBillingName] = useState(clientName);
@@ -32,8 +39,8 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      fetch("/api/account/stripe", { cache: "no-store" }).then((response) => response.json()),
-      fetch(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { cache: "no-store" }).then((response) => response.json()),
+      fetch("/api/account/stripe", { cache: "no-store" }).then((response) => readApiResponse<StripeConnection>(response, "The Stripe connection could not be loaded.")),
+      fetch(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { cache: "no-store" }).then((response) => readApiResponse<{ plan: SavedPlan | null }>(response, "The saved invoice details could not be loaded.")),
     ]).then(([stripe, planPayload]) => {
       if (cancelled) return;
       setConnection(stripe as StripeConnection);
@@ -70,8 +77,10 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      const heading = node.querySelector<HTMLElement>("h2");
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      else if (!node.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
     };
     document.addEventListener("keydown", keydown, true);
     return () => { document.removeEventListener("keydown", keydown, true); confirmTriggerRef.current?.focus(); };
@@ -113,7 +122,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       await savePlan(false);
       setMessage({ kind: "success", text: "Saved. Nothing is sent automatically — after client approval you can create the invoice from the dashboard." });
       onComplete?.();
-    } catch (error) { setMessage({ kind: "error", text: error instanceof Error && !(error instanceof TypeError) ? error.message : "Invoice details could not be saved — likely a network problem. Nothing was changed." }); }
+    } catch (error) { setMessage({ kind: "error", text: error instanceof Error && !(error instanceof TypeError) ? error.message : "The save could not be confirmed because of a network problem. Reopen this step to check the saved details before trying again." }); }
     finally { setBusy(""); }
   };
 
@@ -151,7 +160,9 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       setConfirming(null);
       onComplete?.();
     } catch (error) {
-      setConfirmError(error instanceof Error && !(error instanceof TypeError) ? error.message : "The action could not be completed — likely a network problem. Nothing was charged or sent; check Stripe before retrying.");
+      setConfirmError(error instanceof Error && !(error instanceof TypeError)
+        ? `${error.message} Check the Greenlit dashboard and Stripe before retrying so you do not create a duplicate.`
+        : "The result could not be confirmed because of a network problem. Check the Greenlit dashboard and Stripe before retrying so you do not create a duplicate.");
     } finally { setConfirmBusy(false); }
   };
 

@@ -79,8 +79,10 @@ export function AgencyDashboard() {
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      const heading = node.querySelector<HTMLElement>("h2");
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      else if (!node.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
     };
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); invoiceTriggerRef.current?.focus(); };

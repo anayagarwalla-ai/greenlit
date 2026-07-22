@@ -74,6 +74,7 @@ test("an anonymous draft older than 24 hours is purged on the next visit", async
   const draftKeys = () => page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.startsWith("greenlit-draft-v4:anon:")));
   await page.getByLabel("Paste SOW text").fill("The launch page must display a visible Get started button on the home page for every visitor session.");
   await expect.poll(draftKeys).toHaveLength(1);
+  const expiredDraftKey = (await draftKeys())[0]!;
   // Backdate the saved-at stamp beyond the 24-hour retention window.
   await page.evaluate(() => {
     for (const key of Object.keys(window.localStorage)) {
@@ -82,7 +83,10 @@ test("an anonymous draft older than 24 hours is purged on the next visit", async
   });
   await page.goto("/workspace");
   await expect(page.getByLabel("Paste SOW text")).toHaveValue("");
-  expect(await draftKeys()).toHaveLength(0);
+  // The workspace may autosave a new blank draft immediately; the important
+  // guarantee is that the expired draft and its SOW content are gone.
+  expect(await draftKeys()).not.toContain(expiredDraftKey);
+  expect(await page.evaluate((key) => window.localStorage.getItem(key), expiredDraftKey)).toBeNull();
 });
 
 test("reviewers never see the owner workspace link on a receipt, owners do", async ({ page }) => {
@@ -131,6 +135,11 @@ test("client review explains live-email and manual invoicing truthfully", async 
   await page.goto("/review/REVIEW-BETA1");
   await expect(page.getByText("The agency may invoice after approval")).toBeVisible();
   await expect(page.getByText(/nothing is sent automatically/)).toBeVisible();
+
+  await page.unroute("**/api/reviews/REVIEW-BETA1");
+  await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot: reviewSnapshot({ invoiceDeliveryMode: "MANUAL_AFTER_APPROVAL", invoicePlan: { enabled: true, billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, memo: "", autoSend: false, amountMinor: 1200050, currency: "USD", planSha256: "c".repeat(64) } }), snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: "APPROVED", reviewerName: "Casey Reviewer", reviewerEmail: "reviewer@example.test", decidedAt: iso, receiptSha256: "e".repeat(64) }) }));
+  await page.goto("/review/REVIEW-BETA1");
+  await expect(page.getByText(/The agency may create and send the invoice later\. Nothing was sent automatically by this approval\./)).toBeVisible();
 });
 
 function readyRecordPayload(recordId: string, amountMinor: number) {
@@ -191,6 +200,9 @@ test("the final invoice confirmation modal shows the facts, an explicit CTA, and
   await expect(confirmDialog.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0);
   // Initial focus lands on the dialog heading.
   expect(await page.evaluate(() => document.activeElement?.id ?? "")).toContain("invoice-confirm-title");
+  // Reverse tabbing from the initially focused heading also stays inside.
+  await page.keyboard.press("Shift+Tab");
+  expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".invoice-confirm-dialog")))).toBe(true);
   // Tab stays trapped inside the dialog.
   for (let index = 0; index < 8; index += 1) {
     await page.keyboard.press("Tab");

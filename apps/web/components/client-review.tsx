@@ -215,6 +215,8 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
               ? "The Stripe invoice is being prepared."
               : jobStatus === "FAILED"
                 ? "The Stripe invoice could not be created. The agency can review and retry — nothing was emailed."
+                : deliveryMode === "MANUAL_AFTER_APPROVAL"
+                  ? "The agency may create and send the invoice later. Nothing was sent automatically by this approval."
                 : snapshot.invoicePlan?.autoSend
                   ? deliveryMode === "TEST_DRAFT"
                     ? "A Stripe test draft invoice was queued — test mode sends no email."

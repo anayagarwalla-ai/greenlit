@@ -6,7 +6,9 @@ import {
   clearAccountDraftState,
   clearLegacyGlobalDraftState,
   draftStorageKey,
+  flushProjectDraftOnPageHide,
   isDraftStorageAvailable,
+  legacyDraftStorageKey,
   purgeExpiredAnonymousDrafts,
   readProjectDraft,
   saveProjectDraft,
@@ -48,6 +50,18 @@ describe("project draft storage", () => {
     expect(readProjectDraft(null, "unrelated-project")).toBe("unrelated-draft");
   });
 
+  it("keeps the only anonymous copy when an account-scoped handoff save fails", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    saveProjectDraft(null, "pending-project", "pending-draft", true);
+    const originalSetItem = fakeStorage().setItem.bind(fakeStorage());
+    vi.spyOn(fakeStorage(), "setItem").mockImplementation((key, value) => {
+      if (key.startsWith("greenlit-draft-v4:agency@example.com:")) throw new DOMException("QuotaExceededError");
+      originalSetItem(key, value);
+    });
+    expect(claimPendingAnonymousDraft("agency@example.com")).toBeNull();
+    expect(readProjectDraft(null, "pending-project")).toBe("pending-draft");
+  });
+
   it("does not claim a stale shared-browser draft and purges the expired draft content", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "old-project", "old-draft", true);
@@ -63,6 +77,19 @@ describe("project draft storage", () => {
     saveProjectDraft(null, "fresh-project", "fresh-draft");
     vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS - 1);
     expect(readProjectDraft(null, "fresh-project")).toBe("fresh-draft");
+  });
+
+  it("does not let pagehide flushing revive an expired anonymous draft", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    saveProjectDraft(null, "old-project", "sensitive-sow");
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
+    expect(flushProjectDraftOnPageHide(null, "old-project", "sensitive-sow")).toBe(false);
+    expect(window.localStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
+  });
+
+  it("pagehide flushing still stores a brand-new anonymous draft", () => {
+    expect(flushProjectDraftOnPageHide(null, "new-project", "new-sow")).toBe(true);
+    expect(readProjectDraft(null, "new-project")).toBe("new-sow");
   });
 
   it("purgeExpiredAnonymousDrafts removes only expired anonymous drafts", () => {
@@ -82,6 +109,12 @@ describe("project draft storage", () => {
     saveProjectDraft(null, "untimed-project", "untimed-draft");
     for (const key of fakeStorage().keys()) if (key.startsWith("greenlit-draft-saved-")) window.localStorage.removeItem(key);
     expect(readProjectDraft(null, "untimed-project")).toBeNull();
+  });
+
+  it("purges an untimestamped legacy anonymous draft instead of re-dating it", () => {
+    window.localStorage.setItem(legacyDraftStorageKey(null), "legacy-anonymous-sow");
+    purgeExpiredAnonymousDrafts();
+    expect(window.localStorage.getItem(legacyDraftStorageKey(null))).toBeNull();
   });
 
   it("reports a failed save instead of pretending the draft was stored", () => {

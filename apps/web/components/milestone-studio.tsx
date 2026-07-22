@@ -48,6 +48,7 @@ import {
   activeDraftId,
   claimPendingAnonymousDraft,
   clearLegacyGlobalDraftState,
+  flushProjectDraftOnPageHide,
   isDraftStorageAvailable,
   legacyDraftStorageKey,
   purgeExpiredAnonymousDrafts,
@@ -341,7 +342,8 @@ export function MilestoneStudio() {
 
     const restoreLocalDraft = (email: string, requestedDraftId: string | null, claimed: { draftId: string; raw: string } | null) => {
       try {
-        const resolvedDraftId = claimed?.draftId || requestedDraftId || activeDraftId(email) || crypto.randomUUID();
+        const existingDraftId = claimed?.draftId || requestedDraftId || activeDraftId(email);
+        let resolvedDraftId = existingDraftId || crypto.randomUUID();
         let raw = claimed?.raw || readProjectDraft(email, resolvedDraftId);
         if (!raw) {
           const legacy = window.localStorage.getItem(legacyDraftStorageKey(email));
@@ -351,6 +353,11 @@ export function MilestoneStudio() {
             window.localStorage.removeItem(legacyDraftStorageKey(email));
           }
         }
+        // If an anonymous requested/active draft expired or disappeared, do
+        // not reuse its identifier for the next blank autosave. A fresh id
+        // makes the purge unambiguous and prevents stale links from appearing
+        // to resurrect a deleted shared-browser draft.
+        if (!raw && !email && existingDraftId) resolvedDraftId = crypto.randomUUID();
         const parsedDraft = raw ? JSON.parse(raw) as { version?: number } : null;
         const draft = parsedDraft as Partial<WorkspaceDraft> | null;
         if (draft && (parsedDraft?.version === 3 || parsedDraft?.version === 4)) hydrateDraft(draft, resolvedDraftId);
@@ -495,7 +502,7 @@ export function MilestoneStudio() {
     // leaves immediately; flush the pending draft as the page is hidden.
     const flush = () => {
       if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
-      saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+      flushProjectDraftOnPageHide(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
     };
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);

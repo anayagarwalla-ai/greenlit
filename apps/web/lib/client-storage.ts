@@ -19,6 +19,10 @@ function ownerKey(email: string | null | undefined): string {
   return (email || "anon").trim().toLowerCase() || "anon";
 }
 
+function isAnonymousOwner(email: string | null | undefined): boolean {
+  return ownerKey(email) === "anon";
+}
+
 function draftIndexKey(email: string | null | undefined): string {
   return `greenlit-draft-index-${DRAFT_VERSION}:${ownerKey(email)}`;
 }
@@ -81,17 +85,33 @@ function anonymousDraftExpired(draftId: string): boolean {
 export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): boolean {
   try {
     window.localStorage.setItem(draftStorageKey(email, draftId), raw);
-    if (!email) window.localStorage.setItem(draftSavedAtKey(null, draftId), String(Date.now()));
+    if (isAnonymousOwner(email)) window.localStorage.setItem(draftSavedAtKey(null, draftId), String(Date.now()));
     window.localStorage.setItem(activeDraftStorageKey(email), draftId);
     writeIndex(email, [...readIndex(email), draftId]);
-    if (!email && markForSignIn) window.localStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now() }));
+    if (isAnonymousOwner(email) && markForSignIn) window.localStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now() }));
     return true;
   } catch { return false; /* Browser storage is a convenience layer, never the legal record. */ }
 }
 
+/**
+ * Flushes the latest in-memory snapshot while the page is leaving, without
+ * allowing a navigation event to refresh an already-expired anonymous draft.
+ * A brand-new, not-yet-saved draft is still eligible for this last write.
+ */
+export function flushProjectDraftOnPageHide(email: string | null | undefined, draftId: string, raw: string): boolean {
+  try {
+    const existing = window.localStorage.getItem(draftStorageKey(email, draftId));
+    if (isAnonymousOwner(email) && existing !== null && anonymousDraftExpired(draftId)) {
+      removeProjectDraft(email, draftId);
+      return false;
+    }
+  } catch { return false; }
+  return saveProjectDraft(email, draftId, raw);
+}
+
 export function readProjectDraft(email: string | null | undefined, draftId: string): string | null {
   try {
-    if (!email && anonymousDraftExpired(draftId)) {
+    if (isAnonymousOwner(email) && anonymousDraftExpired(draftId)) {
       removeProjectDraft(null, draftId);
       return null;
     }
@@ -120,6 +140,10 @@ export function removeProjectDraft(email: string | null | undefined, draftId: st
  */
 export function purgeExpiredAnonymousDrafts(): void {
   try {
+    // v3 anonymous drafts predate per-draft timestamps, so their age cannot be
+    // established safely on a shared browser. Do not re-date and resurrect
+    // them during migration.
+    window.localStorage.removeItem(legacyDraftStorageKey(null));
     for (const draftId of readIndex(null)) {
       if (anonymousDraftExpired(draftId)) removeProjectDraft(null, draftId);
     }
@@ -141,9 +165,15 @@ export function claimPendingAnonymousDraft(email: string): { draftId: string; ra
       return null;
     }
     const raw = readProjectDraft(null, pending.draftId);
+    if (!raw) {
+      window.localStorage.removeItem(PENDING_CLAIM_KEY);
+      return null;
+    }
+    // Do not delete the anonymous source or its handoff marker until the
+    // account-scoped copy is safely stored. A quota/private-mode failure must
+    // never destroy the only copy of the user's draft during sign-in.
+    if (!saveProjectDraft(email, pending.draftId, raw)) return null;
     window.localStorage.removeItem(PENDING_CLAIM_KEY);
-    if (!raw) return null;
-    saveProjectDraft(email, pending.draftId, raw);
     removeProjectDraft(null, pending.draftId);
     return { draftId: pending.draftId, raw };
   } catch { return null; }
@@ -176,7 +206,7 @@ export function clearAccountDraftState(email: string | null | undefined): void {
     window.localStorage.removeItem(draftIndexKey(email));
     window.localStorage.removeItem(activeDraftStorageKey(email));
     window.localStorage.removeItem(legacyDraftStorageKey(email));
-    if (!email) window.localStorage.removeItem(PENDING_CLAIM_KEY);
+    if (isAnonymousOwner(email)) window.localStorage.removeItem(PENDING_CLAIM_KEY);
   } catch { /* best-effort browser cleanup */ }
   clearLegacyGlobalDraftState();
 }
