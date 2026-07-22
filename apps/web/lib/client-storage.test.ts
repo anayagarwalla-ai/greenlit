@@ -11,6 +11,7 @@ import {
   legacyDraftStorageKey,
   purgeExpiredAnonymousDrafts,
   readProjectDraft,
+  readProjectDraftSavedAt,
   saveProjectDraft,
   signOutAndClearDraftState,
 } from "./client-storage";
@@ -37,6 +38,12 @@ describe("project draft storage", () => {
     expect(readProjectDraft("agency@example.com", "project-b")).toBe("draft-b");
     expect(readProjectDraft("other@example.com", "project-a")).toBe("other-draft");
     expect(activeDraftId("agency@example.com")).toBe("project-b");
+  });
+
+  it("timestamps signed-in drafts so a newer local copy can win resume conflict resolution", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_234_567);
+    saveProjectDraft("agency@example.com", "project-a", "newer-local-draft");
+    expect(readProjectDraftSavedAt("agency@example.com", "project-a")).toBe(1_234_567);
   });
 
   it("moves only an explicitly marked anonymous draft into the signed-in account", () => {

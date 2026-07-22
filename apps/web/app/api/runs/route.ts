@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { resolve4, resolve6 } from "node:dns/promises";
 import { z } from "zod";
 import { checkSpecSchema, type CheckSpec } from "@greenlit/contracts";
-import { signRunnerRequest } from "@/lib/hmac";
 import { fixtureChecks } from "@/lib/demo-checks";
 import { demoCriteria, demoMilestone } from "@/lib/demo";
 import { requireSupabaseAdmin } from "@/lib/database";
@@ -16,6 +15,7 @@ import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 import { validateVerificationManifest } from "@/lib/verification-manifest";
+import { dispatchRunnerJob } from "@/lib/runner-dispatch";
 
 export const runtime = "nodejs";
 
@@ -65,12 +65,26 @@ export async function POST(request: Request) {
     const owner = await getOwnerIdentity();
     if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
     if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+    const redispatchQueuedJob = async (jobId: string, retainedRecordId: string) => {
+      try {
+        await dispatchRunnerJob(runnerUrl, secret, jobId);
+        return null;
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : "Runner redispatch failed";
+        await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "RUNNER_REDISPATCH_FAILED", recordId: retainedRecordId, details: { jobId, error: message } });
+        return NextResponse.json({ error: "The retained job is still queued, but the runner did not accept this retry. Retry again without creating a duplicate job.", runId: jobId, recordId: retainedRecordId, status: "QUEUED", recoverable: true }, { status: 502, headers: noStoreJsonHeaders() });
+      }
+    };
     const { data: priorRequest, error: priorRequestError } = await database.from("verification_jobs_v2").select("id,record_id,status").eq("request_key", body.requestId).maybeSingle();
     if (priorRequestError) throw new Error(`The prior verification request could not be checked: ${priorRequestError.message}`);
     if (priorRequest) {
       const { data: priorRecord, error: priorRecordError } = await database.from("transaction_records").select("owner_user_id,public_id").eq("id", priorRequest.record_id).single();
       if (priorRecordError || priorRecord?.owner_user_id !== owner.userId) return NextResponse.json({ error: "This verification request belongs to another account." }, { status: 403, headers: noStoreJsonHeaders() });
       const priorPayload = { runId: priorRequest.id, recordId: priorRequest.record_id, recordPublicId: priorRecord.public_id, status: priorRequest.status, resumed: true };
+      if (priorRequest.status === "QUEUED") {
+        const failure = await redispatchQueuedJob(priorRequest.id, priorRequest.record_id);
+        if (failure) return failure;
+      }
       if (["QUEUED", "LEASED", "RUNNING", "COMPLETED"].includes(priorRequest.status)) return NextResponse.json(priorPayload, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${priorRequest.id}` } });
       return NextResponse.json({ ...priorPayload, error: "The prior dispatch did not start. The milestone was retained safely; retry to create a new job on this record." }, { status: 409, headers: noStoreJsonHeaders() });
     }
@@ -128,7 +142,13 @@ export async function POST(request: Request) {
       if (error || !authorized) return NextResponse.json({ error: "The milestone record no longer exists or belongs to another account." }, { status: 404, headers: noStoreJsonHeaders() });
       recordPublicId = record.public_id;
       const { data: activeJob } = await database.from("verification_jobs_v2").select("id, status").eq("record_id", recordId).in("status", ["QUEUED", "LEASED", "RUNNING"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (activeJob) return NextResponse.json({ runId: activeJob.id, recordId, recordPublicId, status: activeJob.status, resumed: true }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${activeJob.id}` } });
+      if (activeJob) {
+        if (activeJob.status === "QUEUED") {
+          const failure = await redispatchQueuedJob(activeJob.id, recordId);
+          if (failure) return failure;
+        }
+        return NextResponse.json({ runId: activeJob.id, recordId, recordPublicId, status: activeJob.status, resumed: true }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${activeJob.id}` } });
+      }
       if (!["READY", "NEEDS_WORK", "CHANGES_REQUESTED", "READY_FOR_REVIEW"].includes(record.status)) return NextResponse.json({ error: `This milestone cannot start a new run while it is ${record.status.toLowerCase().replaceAll("_", " ")}.` }, { status: 409, headers: noStoreJsonHeaders() });
     } else {
       recordPublicId = publicRecordId("MP");
@@ -156,19 +176,15 @@ export async function POST(request: Request) {
     const jobId = String((queued as { jobId: string }).jobId);
     const queuedStatus = String((queued as { status?: string }).status ?? "QUEUED");
     if ((queued as { reused?: boolean }).reused) {
+      if (queuedStatus === "QUEUED") {
+        const failure = await redispatchQueuedJob(jobId, durableRecordId);
+        if (failure) return failure;
+      }
       return NextResponse.json({ runId: jobId, recordId: durableRecordId, recordPublicId: String((queued as { recordPublicId?: string }).recordPublicId ?? recordPublicId), status: queuedStatus, resumed: true }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${jobId}` } });
     }
 
-    const payload = JSON.stringify({ jobId });
-    const signed = await signRunnerRequest(payload, secret);
     try {
-      const dispatched = await fetch(`${runnerUrl.replace(/\/$/, "")}/v1/jobs`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-mp-timestamp": signed.timestamp, "x-mp-signature": signed.signature },
-        body: payload,
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (!dispatched.ok) throw new Error(`Dispatch returned ${dispatched.status}`);
+      await dispatchRunnerJob(runnerUrl, secret, jobId);
     } catch (dispatchError) {
       const dispatchMessage = dispatchError instanceof Error ? dispatchError.message : "Runner dispatch failed";
       const { error: failError } = await database.rpc("fail_queued_verification_job_atomic", { p_job_id: jobId, p_error: dispatchMessage.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });

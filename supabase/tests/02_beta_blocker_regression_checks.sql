@@ -5,6 +5,7 @@ do $$
 declare
   v_owner uuid:=gen_random_uuid(); v_request_key text:=gen_random_uuid()::text;
   v_first jsonb; v_second jsonb; v_record uuid; v_run uuid:=gen_random_uuid(); v_packet uuid:=gen_random_uuid();
+  v_invoice_job uuid;
   v_off_owner uuid:=gen_random_uuid(); v_off_record uuid; v_off_run uuid:=gen_random_uuid(); v_off_packet uuid:=gen_random_uuid();
   v_hold_request uuid:=gen_random_uuid(); v_hold_evidence uuid:=gen_random_uuid();
   v_criteria jsonb:='[{"id":"AC-01","title":"Criterion","sourceQuote":"Required source quote","supported":true,"checkType":"element_state"}]'::jsonb;
@@ -31,6 +32,15 @@ begin
   perform save_invoice_plan_atomic(v_record,v_owner,null,'New Billing','new@example.test',14,'Updated after approval',false,1250,'USD',1,repeat('a',64),'owner');
   perform queue_approved_invoice_job_atomic(v_packet,v_owner,'owner');
   assert (select plan->>'billingEmail' from invoice_jobs where packet_id=v_packet)='new@example.test', 'manual invoice retained the old snapshot recipient';
+  select id into v_invoice_job from invoice_jobs where packet_id=v_packet;
+  perform claim_invoice_job_atomic(v_invoice_job,v_owner,now());
+  perform fail_invoice_job_atomic(v_invoice_job,'Multiple Stripe customers use this email. Select the correct customer before retrying.',now());
+  assert (select failure_code from invoice_jobs where id=v_invoice_job)='CUSTOMER_SELECTION_REQUIRED', 'recoverable customer-selection failure was not classified';
+  perform save_invoice_plan_atomic(v_record,v_owner,'cus_correct123','New Billing','new@example.test',14,'Corrected Stripe customer',false,1250,'USD',1,repeat('b',64),'owner');
+  perform queue_approved_invoice_job_atomic(v_packet,v_owner,'owner');
+  assert (select status from invoice_jobs where id=v_invoice_job)='PENDING', 'corrected Stripe customer could not be requeued';
+  assert (select plan->>'stripeCustomerId' from invoice_jobs where id=v_invoice_job)='cus_correct123', 'corrected Stripe customer was not frozen into the retry';
+  assert (select plan->>'planSha256' from invoice_jobs where id=v_invoice_job)=repeat('b',64), 'corrected invoice plan hash was not frozen into the retry';
   perform mint_receipt_session_atomic(v_packet,v_owner,repeat('f',64),now()+interval '7 days','owner');
   assert exists(select 1 from receipt_sessions_v2 where packet_id=v_packet and session_hash=repeat('f',64)), 'authorized receipt link was not persisted';
 
@@ -60,6 +70,18 @@ begin
   begin
     perform record_review_decision_with_notification_atomic(v_off_packet,'APPROVED','Reviewer','reviewer@example.test','','2026-07-20','actor','US',now(),'receipt','IN_APP','session',now()+interval '1 day');
     raise exception 'BLOCKER CHECK FAILED: removed agency accepted a client decision';
+  exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
+  begin
+    perform queue_verification_job_idempotent_atomic(v_off_record,'MP-OFFBOARD',v_off_owner,'hash','IMPORTED_FIXTURE','Agency','Client','Project','Milestone',1500,'USD','sow.txt','source',v_criteria,'criteria','https://example.test','https://example.test','build',v_checks,'0.7.0','{}'::jsonb,'actor','2026-07-20','[]'::jsonb,gen_random_uuid()::text);
+    raise exception 'BLOCKER CHECK FAILED: removed agency queued a new verification';
+  exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
+  begin
+    perform create_review_packet_atomic(v_off_record,v_off_run,'REVIEW-OFFBOARD-2',jsonb_build_object('recordId',v_off_record::text,'revision',1,'run',jsonb_build_object('runId',v_off_run::text)),repeat('6',64),repeat('7',64),now()+interval '1 day','actor',1);
+    raise exception 'BLOCKER CHECK FAILED: removed agency created a review link';
+  exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
+  begin
+    perform mint_receipt_session_atomic(v_off_packet,v_off_owner,repeat('8',64),now()+interval '1 day','actor');
+    raise exception 'BLOCKER CHECK FAILED: removed agency minted a receipt link';
   exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
 
   raise notice '=== ALL 2026-07-22 BETA BLOCKER REGRESSIONS PASSED ===';

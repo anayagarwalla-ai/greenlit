@@ -92,7 +92,11 @@ function anonymousDraftExpired(draftId: string): boolean {
 export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): boolean {
   try {
     window.localStorage.setItem(draftStorageKey(email, draftId), raw);
-    if (isAnonymousOwner(email)) window.localStorage.setItem(draftSavedAtKey(null, draftId), String(Date.now()));
+    // Retained-workspace restore compares this timestamp with the server
+    // record's updated_at value. Account-scoped drafts need the timestamp just
+    // as much as anonymous drafts; otherwise a newer local copy can never win
+    // after a failed/aborted server save.
+    window.localStorage.setItem(draftSavedAtKey(email, draftId), String(Date.now()));
     window.localStorage.setItem(activeDraftStorageKey(email), draftId);
     writeIndex(email, [...readIndex(email), draftId]);
     if (isAnonymousOwner(email) && markForSignIn) window.localStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now() }));

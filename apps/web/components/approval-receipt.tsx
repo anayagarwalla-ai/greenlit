@@ -65,7 +65,9 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
     year: "numeric",
     ...(demo ? { timeZone: "America/Los_Angeles" } : {}),
   }).format(new Date(value)).toUpperCase();
-  const [packet, setPacket] = useState<ReceiptPacket | null>(() => demo ? demoReceipt() : null);
+  // Demo timestamps are intentionally client-only so the initial HTML and
+  // hydration render remain deterministic.
+  const [packet, setPacket] = useState<ReceiptPacket | null>(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -73,8 +75,8 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
       const timer = window.setTimeout(() => {
         try {
           const stored = window.localStorage.getItem("greenlit-demo-decision");
-          if (stored) setPacket(demoReceipt(JSON.parse(stored) as DemoReviewer));
-        } catch { /* optional walkthrough convenience */ }
+          setPacket(stored ? demoReceipt(JSON.parse(stored) as DemoReviewer) : demoReceipt());
+        } catch { setPacket(demoReceipt()); }
       }, 0);
       return () => window.clearTimeout(timer);
     }

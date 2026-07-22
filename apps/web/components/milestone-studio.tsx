@@ -265,6 +265,7 @@ export function MilestoneStudio() {
   const [pollNetworkFailure, setPollNetworkFailure] = useState(false);
   const [restoreError, setRestoreError] = useState("");
   const [restorePending, setRestorePending] = useState(true);
+  const [sourceReattachRequired, setSourceReattachRequired] = useState(false);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const draftHydrated = useRef(false);
@@ -304,6 +305,20 @@ export function MilestoneStudio() {
     verificationDraft,
   }), [draftId, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId, runRequestId, verificationDraft]);
 
+  const saveRetainedSnapshot = useCallback(async (snapshot: WorkspaceDraft, signal?: AbortSignal) => {
+    if (!recordId || !sessionEmail) return;
+    const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceState: snapshot }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error((payload as { error?: string }).error ?? "The retained workspace could not be saved.");
+    }
+  }, [recordId, sessionEmail]);
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2600);
@@ -333,6 +348,7 @@ export function MilestoneStudio() {
       setPhase(restoredPhase);
       setSourceText(draft.sourceText ?? "");
       setSourceName(draft.sourceName ?? "Pasted SOW");
+      setSourceReattachRequired(false);
       if (draft.selectedFileMeta) { setSelectedFileMeta(draft.selectedFileMeta); setSelectedFile(base64ToFile(draft.selectedFileMeta)); }
       setBusiness(draft.business ?? { agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
       setAttested(Boolean(draft.attested));
@@ -437,11 +453,13 @@ export function MilestoneStudio() {
           setRetainedFixtureRecord(isImportedFixture);
           setBusiness(editableWorkspace?.version === 4 && editableWorkspace.business ? editableWorkspace.business : { agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
           setSourceName(localWorkspace?.sourceName ?? editableWorkspace?.sourceName ?? record.source_name);
-          setSourceText(localWorkspace?.sourceText?.trim()
+          const restoredFullSource = localWorkspace?.sourceText?.trim()
             ? localWorkspace.sourceText
             : editableWorkspace?.version === 4 && editableWorkspace.sourceText?.trim()
               ? editableWorkspace.sourceText
-            : restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+              : "";
+          setSourceText(restoredFullSource || restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
+          setSourceReattachRequired(!restoredFullSource && restoredCriteria.length > 0);
           if (localWorkspace?.selectedFileMeta) { setSelectedFileMeta(localWorkspace.selectedFileMeta); setSelectedFile(base64ToFile(localWorkspace.selectedFileMeta)); }
           setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
           setConfirmed(editableWorkspace?.version === 4 ? editableWorkspace.confirmed ?? {} : Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
@@ -514,18 +532,32 @@ export function MilestoneStudio() {
     setSaveState("saving");
     const timer = window.setTimeout(() => {
       const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
-      setSaveState(saved ? "saved" : "error");
+      // For a retained signed-in project, "Saved" means the server accepted
+      // the snapshot. The local convenience copy alone must not claim that.
+      if (!recordId || !sessionEmail) setSaveState(saved ? "saved" : "error");
+      else if (!saved) setSaveState("error");
       if (!saved) setStorageBlocked(!isDraftStorageAvailable());
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [sourceMode, sessionEmail, draftId, workspaceSnapshot]);
+  }, [sourceMode, sessionEmail, draftId, recordId, workspaceSnapshot]);
 
-  const retrySave = () => {
+  const retrySave = async () => {
     if (sourceMode === "demo" || !draftId) return;
     setSaveState("saving");
-    const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
-    setSaveState(saved ? "saved" : "error");
-    setStorageBlocked(saved ? false : !isDraftStorageAvailable());
+    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+    setStorageBlocked(localSaved ? false : !isDraftStorageAvailable());
+    if (recordId && sessionEmail) {
+      try {
+        await saveRetainedSnapshot(workspaceSnapshot(false));
+        setSaveState("saved");
+        setRunError("");
+      } catch (cause) {
+        setSaveState("error");
+        setRunError(cause instanceof Error ? cause.message : "The retained workspace could not be saved.");
+      }
+      return;
+    }
+    setSaveState(localSaved ? "saved" : "error");
   };
 
   useEffect(() => {
@@ -542,18 +574,11 @@ export function MilestoneStudio() {
   useEffect(() => {
     if (!draftHydrated.current || sourceMode === "demo" || !recordId || !sessionEmail) return;
     const controller = new AbortController();
+    const snapshot = workspaceSnapshot(false);
     const timer = window.setTimeout(() => {
-      void fetch(`/api/account/records/${encodeURIComponent(recordId)}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceState: workspaceSnapshot(false) }),
-        signal: controller.signal,
-      }).then(async (response) => {
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error ?? "The retained workspace could not be saved.");
-        }
+      void saveRetainedSnapshot(snapshot, controller.signal).then(() => {
         setSaveState("saved");
+        setRunError("");
       }).catch((cause) => {
         if (controller.signal.aborted) return;
         setSaveState("error");
@@ -561,7 +586,7 @@ export function MilestoneStudio() {
       });
     }, 450);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [sourceMode, recordId, sessionEmail, workspaceSnapshot]);
+  }, [sourceMode, recordId, sessionEmail, workspaceSnapshot, saveRetainedSnapshot]);
 
   useEffect(() => {
     if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
@@ -608,9 +633,22 @@ export function MilestoneStudio() {
       durableFile = { name: selectedFile.name, type: selectedFile.type, base64 };
       setSelectedFileMeta(durableFile);
     }
-    const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
-    if (!saved) { setSaveState("error"); setStorageBlocked(!isDraftStorageAvailable()); }
-    return saved;
+    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
+    if (!localSaved) { setSaveState("error"); setStorageBlocked(!isDraftStorageAvailable()); }
+    if (recordId && sessionEmail) {
+      setSaveState("saving");
+      try {
+        await saveRetainedSnapshot(workspaceSnapshot(false));
+        setSaveState("saved");
+        setRunError("");
+        return true;
+      } catch (cause) {
+        setSaveState("error");
+        setRunError(cause instanceof Error ? cause.message : "The retained workspace could not be saved.");
+        return false;
+      }
+    }
+    return localSaved;
   };
 
   const leaveForAccountPage = async (target: string) => {
@@ -634,6 +672,7 @@ export function MilestoneStudio() {
     setSourceMode("live");
     setSourceText("");
     setSourceName("Pasted SOW");
+    setSourceReattachRequired(false);
     setSelectedFile(null);
     setSelectedFileMeta(null);
     setAttested(false);
@@ -671,6 +710,7 @@ export function MilestoneStudio() {
     setSourceMode("demo");
     setSourceText(demoSowText);
     setSourceName("Acme × Northstar — SOW.pdf");
+    setSourceReattachRequired(false);
     setBusiness({
       agencyName: "Northstar Studio",
       clientName: "Acme Outdoors",
@@ -775,6 +815,7 @@ export function MilestoneStudio() {
       if (!response.ok) throw new Error(payload.error || "Gemini could not analyze this SOW.");
       setSourceText(payload.sourceText);
       setSourceName(payload.sourceName);
+      setSourceReattachRequired(false);
       const drafted = payload.criteria.map((item, index) => ({ ...item, id: `AC-${String(index + 1).padStart(2, "0")}` }));
       setCriteria(applyFixtureMappings(payload.sourceText, drafted));
       setConfirmed({});
@@ -930,6 +971,10 @@ export function MilestoneStudio() {
   };
 
   const continueFromCriteria = () => {
+    if (sourceMode === "live" && sourceReattachRequired) {
+      setRunError("Reattach the exact original SOW before verification. The retained record has its hash and cited quotes, but this browser does not have the complete source text.");
+      return;
+    }
     if (sourceMode === "live" && !canUseImportedFixture) {
       setLastVerificationPhase("handoff");
       setPhase("handoff");
@@ -1141,7 +1186,8 @@ export function MilestoneStudio() {
               model={model}
               notice={analysisNotice}
               recordId={recordId}
-              onSourceReattached={(text, name, file) => { setSourceText(text); setSourceName(name); setSelectedFile(file); setToast("Original SOW reattached and hash-matched"); }}
+              sourceReattachRequired={sourceReattachRequired}
+              onSourceReattached={(text, name, file) => { setSourceText(text); setSourceName(name); setSelectedFile(file); setSourceReattachRequired(false); setRunError(""); setToast("Original SOW reattached and hash-matched"); }}
               fixtureCompatible={canUseImportedFixture}
               onContinue={continueFromCriteria}
             />
@@ -1302,7 +1348,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   );
 }
 
-function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, notice, recordId, onSourceReattached, fixtureCompatible: canRunFixture, onContinue }: {
+function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, notice, recordId, sourceReattachRequired, onSourceReattached, fixtureCompatible: canRunFixture, onContinue }: {
   sourceName: string;
   sourceText: string;
   criteria: AnalysisCriterion[];
@@ -1312,13 +1358,16 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   model: string;
   notice: string;
   recordId: string | null;
-  onSourceReattached: (text: string, name: string, file: File) => void;
+  sourceReattachRequired: boolean;
+  onSourceReattached: (text: string, name: string, file: File | null) => void;
   fixtureCompatible: boolean;
   onContinue: () => void;
 }) {
   const reattachInput = useRef<HTMLInputElement>(null);
   const [reattachBusy, setReattachBusy] = useState(false);
   const [reattachError, setReattachError] = useState("");
+  const [showPasteReattach, setShowPasteReattach] = useState(sourceReattachRequired);
+  const [pastedSource, setPastedSource] = useState("");
   const citations = criteria.map((item) => item.sourceQuote);
   const sourceLines = sourceText.split("\n");
   const readyIds = criteria.filter((item) => isCriterionReady(sourceText, item)).map((item) => item.id);
@@ -1378,10 +1427,30 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
     finally { setReattachBusy(false); if (reattachInput.current) reattachInput.current.value = ""; }
   };
 
+  const reattachPastedSource = async () => {
+    if (!recordId || pastedSource.trim().length < 1) return;
+    setReattachBusy(true); setReattachError("");
+    try {
+      const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: pastedSource, sourceName: sourceName || "Pasted SOW" }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The pasted source could not be reattached.");
+      onSourceReattached(payload.sourceText, payload.sourceName, null);
+      setPastedSource("");
+      setShowPasteReattach(false);
+    } catch (cause) { setReattachError(cause instanceof Error ? cause.message : "The pasted source could not be reattached."); }
+    finally { setReattachBusy(false); }
+  };
+
   return (
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Reattach original SOW</button></>}</div>
+        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <div className="source-reattach-actions"><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Choose file</button><button type="button" className="mini-action" aria-expanded={showPasteReattach} onClick={() => setShowPasteReattach((current) => !current)}><FileText size={12} /> Paste original</button></div>}</div>
+        {sourceReattachRequired && <div className="analysis-error source-reattach-warning" role="alert"><AlertTriangle size={15} /><span><strong>Complete source required before verification.</strong> This browser restored the retained criteria and exact quotes, but not the rest of the SOW. Paste the original text or choose the exact original file; Greenlit will verify its frozen hash.</span></div>}
+        {showPasteReattach && recordId && <div className="source-reattach-panel"><label htmlFor="reattach-pasted-source">Exact original SOW text</label><textarea id="reattach-pasted-source" value={pastedSource} onChange={(event) => { setPastedSource(event.target.value); setReattachError(""); }} placeholder="Paste the same SOW text used for this milestone" /><div><button type="button" className="button button--outline button--small" disabled={reattachBusy || !pastedSource.trim()} onClick={() => void reattachPastedSource()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <ShieldCheck size={12} />} Verify and restore</button><button type="button" className="mini-action" onClick={() => { setShowPasteReattach(false); setPastedSource(""); setReattachError(""); }}>Cancel</button></div></div>}
         {reattachError && <div className="analysis-error" role="alert">{reattachError}</div>}
         <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by the draft. Every citation is checked against this extracted source.</span></div>
         <div className="document-page live-document" tabIndex={0} aria-label="Scrollable extracted source document">

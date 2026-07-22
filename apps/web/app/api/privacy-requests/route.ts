@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   try {
     const requestId = publicRecordId("PRIV");
     const database = requireSupabaseAdmin();
-    const { error } = await database.from("privacy_requests_v2").insert({ public_id: requestId, request_type: parsed.data.requestType, email: parsed.data.email, details: parsed.data.details || null, actor_hash: requestActorHash(request) });
+    const { error } = await database.from("privacy_requests_v2").insert({ public_id: requestId, request_type: parsed.data.requestType, email: parsed.data.email.trim().toLowerCase(), details: parsed.data.details || null, actor_hash: requestActorHash(request) });
     if (error) throw new Error(error.message);
     return NextResponse.json({ requestId, status: "RECEIVED" }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {

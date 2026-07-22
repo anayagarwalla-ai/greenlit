@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const { error } = await database.from("beta_feedback").insert({
       public_id: feedbackId,
       owner_user_id: user?.id ?? null,
-      email: user?.email ?? (parsed.data.email || null),
+      email: (user?.email ?? parsed.data.email)?.trim().toLowerCase() || null,
       category: parsed.data.category,
       message: parsed.data.message,
       page_path: parsed.data.pagePath,

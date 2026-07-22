@@ -66,8 +66,11 @@ function demoPacket(): PacketResponse {
 
 export function ClientReview({ packetId, demo = false }: { packetId: string; demo?: boolean }) {
   const dateTime = (value: string) => formatTimestamp(new Date(value), demo ? "America/Los_Angeles" : undefined);
-  const [packet, setPacket] = useState<PacketResponse | null>(() => demo ? demoPacket() : null);
-  const [loading, setLoading] = useState(!demo);
+  // Keep the server render and the browser's first render identical. Demo
+  // timestamps are created only after hydration so React never sees two
+  // different trees for the same page.
+  const [packet, setPacket] = useState<PacketResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState<"approve" | "changes" | null>(null);
   const [name, setName] = useState("");
@@ -105,7 +108,13 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   }, [demo, packetId]);
 
   useEffect(() => {
-    if (demo) return;
+    if (demo) {
+      const timer = window.setTimeout(() => {
+        setPacket(demoPacket());
+        setLoading(false);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
     let cancelled = false;
     const load = async () => {
       try {

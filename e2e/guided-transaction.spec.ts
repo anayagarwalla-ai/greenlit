@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
 test("guided transaction reaches a client decision and printable receipt", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") runtimeErrors.push(message.text());
+  });
   await page.goto("/workspace");
   await page.getByRole("button", { name: /Launch the reliable guided demo/ }).click();
   await page.getByRole("button", { name: /show sample/i }).click();
@@ -25,6 +30,7 @@ test("guided transaction reaches a client decision and printable receipt", async
   await expect(page.getByRole("heading", { name: "Milestone approval record" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Print / Save as PDF" })).toBeVisible();
   await expect(page.getByText("Sample Reviewer").first()).toBeVisible();
+  expect(runtimeErrors.filter((message) => /hydration|Minified React error #418/i.test(message))).toEqual([]);
 });
 
 test("review decision controls remain reachable on a short mobile screen", async ({ page }) => {

@@ -89,6 +89,30 @@ test("an anonymous draft older than 24 hours is purged on the next visit", async
   expect(await page.evaluate((key) => window.localStorage.getItem(key), expiredDraftKey)).toBeNull();
 });
 
+test("a cross-device retained draft requires and accepts the exact pasted SOW before verification", async ({ page }) => {
+  const recordId = "5d683117-cdeb-402a-b2b1-0d8359b458aa";
+  const sourceText = "The launch page must display a visible Get started button on the home page for every visitor session.";
+  const criterion = { id: "AC-01", title: "Get started button is visible", sourceQuote: sourceText, rationale: "Visible call to action", supported: true, checkType: "element_state", grounded: true };
+  await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-1", email: "agency@example.test" } }) }));
+  await page.route(`**/api/account/records/${recordId}`, (route) => route.request().method() === "GET"
+    ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      record: { id: recordId, public_id: "MP-CROSS-DEVICE", mode: "CUSTOM_TARGET", status: "READY", agency_name: "Agency", client_name: "Client", project_name: "Launch", milestone_title: "Homepage", amount_minor: 1000, currency: "USD", source_name: "Pasted SOW", source_sha256: "a".repeat(64), confirmed_criteria: [criterion], criteria_revision: 1, updated_at: iso, workspace_state: { version: 4, draftId: recordId, phase: "criteria", sourceName: "Pasted SOW", criteria: [criterion], confirmed: { "AC-01": true } } },
+      runs: [], reviews: [],
+    }) })
+    : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ saved: true }) }));
+  await page.route(`**/api/account/records/${recordId}/source-reattach`, async (route) => {
+    expect(await route.request().postDataJSON()).toMatchObject({ text: sourceText });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sourceText, sourceName: "Pasted SOW", sourceSha256: "a".repeat(64) }) });
+  });
+
+  await page.goto(`/workspace?record=${recordId}`);
+  await expect(page.getByText("Complete source required before verification.")).toBeVisible();
+  await page.getByLabel("Exact original SOW text").fill(sourceText);
+  await page.getByRole("button", { name: "Verify and restore" }).click();
+  await expect(page.getByText("Complete source required before verification.")).toBeHidden();
+  await expect(page.getByText("Original SOW reattached and hash-matched")).toBeVisible();
+});
+
 test("reviewers never see the owner workspace link on a receipt, owners do", async ({ page }) => {
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(receiptPacket({ viewerRole: "REVIEWER" })) }));
   await page.goto("/receipt/REVIEW-BETA1");

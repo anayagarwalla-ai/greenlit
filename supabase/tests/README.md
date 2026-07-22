@@ -82,6 +82,7 @@ versus the function's actual signature, which would have made the migration
 fail outright on a fresh database (`function ... does not exist`).
 
 `02_beta_blocker_regression_checks.sql` locks in the release-blocker fixes:
-idempotent run creation, current-plan manual invoicing, receipt-link sessions,
-legal-hold/deletion mutual exclusion, and complete offboarding of external and
-financial workflows.
+idempotent run creation, current-plan manual invoicing, recoverable Stripe
+customer correction, receipt-link sessions, legal-hold/deletion mutual
+exclusion, and complete offboarding of run, review, receipt, and financial
+workflows.
