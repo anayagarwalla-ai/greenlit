@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { appendAuditEvent, noStoreJsonHeaders, randomToken, requestActorHash, sha256 } from "@/lib/recordkeeping";
+import { noStoreJsonHeaders, randomToken, requestActorHash, sha256 } from "@/lib/recordkeeping";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { assertDecisionReceiptIntegrity, assertReviewSnapshotIntegrity, hydrateReviewEvidence, reviewSessionCookieName, reviewSessionExpiry } from "@/lib/review-session";
 import { logProductEvent } from "@/lib/operations";
@@ -25,9 +25,11 @@ export async function POST(request: Request, context: { params: Promise<{ packet
 
     const session = randomToken();
     const sessionExpiry = reviewSessionExpiry(packet.expires_at);
-    const { error: updateError } = await database.from("review_sessions_v2").insert({ packet_id: packet.id, session_hash: sha256(session), expires_at: sessionExpiry });
+    const { error: updateError } = await database.rpc("redeem_review_packet_atomic", {
+      p_packet_id: packet.id, p_session_hash: sha256(session), p_session_expires_at: sessionExpiry,
+      p_actor_hash: requestActorHash(request), p_snapshot_sha256: packet.snapshot_sha256, p_redeemed_at: new Date().toISOString(),
+    });
     if (updateError) throw new Error(updateError.message);
-    await appendAuditEvent({ recordId: packet.record_id, eventType: "REVIEW_LINK_REDEEMED", actorType: "REVIEWER", actorHash: requestActorHash(request), payload: { packetId, snapshotSha256: packet.snapshot_sha256 } });
     await logProductEvent({ eventType: "REVIEW_REDEEMED", recordId: packet.record_id, properties: { status: packet.decision ?? "OPEN" } });
 
     const response = NextResponse.json({ packetId, snapshot: await hydrateReviewEvidence(database, packet.snapshot), snapshotSha256: packet.snapshot_sha256, expiresAt: packet.expires_at, decision: packet.decision, reviewerName: packet.reviewer_name, reviewerEmail: packet.reviewer_email, reviewerNote: packet.reviewer_note, decidedAt: packet.decided_at, receiptSha256: packet.receipt_sha256 }, { headers: noStoreJsonHeaders() });

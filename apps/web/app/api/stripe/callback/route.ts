@@ -25,18 +25,12 @@ export async function GET(request: Request) {
     if (token.livemode && process.env.STRIPE_ALLOW_LIVE_MODE !== "true") throw new Error("Only a Stripe test-mode account can be connected during the beta.");
     const accountId = token.stripe_user_id ?? token.account_id;
     if (!accountId || !/^acct_[A-Za-z0-9]+$/.test(accountId)) throw new Error("Stripe did not return a valid connected account.");
-    const { error } = await database.from("stripe_connections").upsert({
-      owner_user_id: user.id,
-      stripe_account_id: accountId,
-      livemode: token.livemode,
-      status: "CONNECTED",
-      access_token_ciphertext: encryptStripeSecret(token.access_token),
-      refresh_token_ciphertext: encryptStripeSecret(token.refresh_token),
-      access_token_expires_at: new Date(Date.now() + token.expires_in * 1000).toISOString(),
-      connected_at: new Date().toISOString(),
-      disconnected_at: null,
-      last_error: null,
-    }, { onConflict: "owner_user_id" });
+    const connectedAt = new Date().toISOString();
+    const { error } = await database.rpc("connect_stripe_account_atomic", {
+      p_owner_user_id: user.id, p_stripe_account_id: accountId, p_livemode: token.livemode,
+      p_access_ciphertext: encryptStripeSecret(token.access_token), p_refresh_ciphertext: encryptStripeSecret(token.refresh_token),
+      p_access_expires_at: new Date(Date.now() + token.expires_in * 1000).toISOString(), p_connected_at: connectedAt,
+    });
     if (error) throw new Error(error.message);
     return dashboard(origin, "connected");
   } catch (error) {

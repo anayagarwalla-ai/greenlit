@@ -24,16 +24,38 @@ declare
   v_reviewed_record_id uuid;
   v_reviewed_job_id uuid;
   v_privacy_request_id uuid := gen_random_uuid();
+  v_lease_id uuid := gen_random_uuid();
+  v_job2_lease_id uuid := gen_random_uuid();
+  v_retry_lease_id uuid := gen_random_uuid();
+  v_changed_lease_id uuid := gen_random_uuid();
+  v_invoice_job public.invoice_jobs;
+  v_criteria jsonb := '[{"id":"AC-01","title":"Criterion","sourceQuote":"Required source quote","supported":true,"checkType":"element_state"}]'::jsonb;
+  v_checks jsonb := '[{"id":"CHK-01","criterionId":"AC-01","type":"element_state","path":"/","sourceQuote":"Required source quote","confirmedByHuman":true,"elementRef":"main:Content","assertion":"visible"}]'::jsonb;
 begin
   insert into auth.users(id, email) values (v_owner, 'agency@example.test');
+
+  -- 0) The database itself rejects a run that omits any frozen automated criterion.
+  begin
+    perform queue_verification_job_atomic(
+      null, 'MP-MISSING-COVERAGE', v_owner, 'hash0', 'IMPORTED_FIXTURE',
+      'Agency', 'Client', 'Project', 'Milestone', 1000, 'USD',
+      'sow.txt', 'source0', v_criteria || '[{"id":"AC-02","title":"Second","sourceQuote":"Second required quote","supported":true,"checkType":"element_state"}]'::jsonb, 'criteria0',
+      'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
+      v_checks, '0.7.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    );
+    raise exception 'CHECK 0 FAILED: expected incomplete automated-criterion coverage to be rejected';
+  exception when others then
+    if sqlerrm like 'CHECK 0 FAILED%' then raise; end if;
+    raise notice 'CHECK 0 PASSED: incomplete automated-criterion coverage was rejected (%.)', sqlerrm;
+  end;
 
   -- 1) Queue a brand-new record + job atomically.
   v_result := queue_verification_job_atomic(
     null, 'MP-TEST01', v_owner, 'hash1', 'IMPORTED_FIXTURE',
     'Agency', 'Client', 'Project', 'Milestone', 1000, 'USD',
-    'sow.txt', 'srchash1', '[{"id":"AC-01"}]'::jsonb, 'critHash1',
+    'sow.txt', 'srchash1', v_criteria, 'critHash1',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    v_checks, '0.7.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
   v_record_id := (v_result->>'recordId')::uuid;
   v_job_id := (v_result->>'jobId')::uuid;
@@ -48,9 +70,9 @@ begin
     perform queue_verification_job_atomic(
       v_record_id, 'MP-TEST01', v_owner, 'hash1', 'IMPORTED_FIXTURE',
       'Agency', 'Client', 'Project', 'Milestone', 1000, 'USD',
-      'sow.txt', 'srchash1', '[{"id":"AC-01"}]'::jsonb, 'critHash1',
+      'sow.txt', 'srchash1', v_criteria, 'critHash1',
       'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-      '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+      v_checks, '0.7.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
     );
     raise exception 'CHECK 2 FAILED: expected active-job guard to reject a concurrent queue attempt';
   exception when others then
@@ -59,12 +81,21 @@ begin
   end;
 
   -- 3) Lease then complete the job; record should become READY_FOR_REVIEW on an all-PASS result.
-  perform lease_verification_job_atomic(v_job_id, 1);
+  perform lease_verification_job_atomic(v_job_id, 1, v_lease_id);
+  begin
+    perform lease_verification_job_atomic(v_job_id, 1, gen_random_uuid());
+    raise exception 'CHECK 2b FAILED: expected a replayed lease claim to be rejected';
+  exception when others then
+    if sqlerrm like 'CHECK 2b FAILED%' then raise; end if;
+    raise notice 'CHECK 2b PASSED: a concurrent or replayed lease claim was rejected (%.)', sqlerrm;
+  end;
+  insert into evidence_artifacts_v2(record_id,run_id,criterion_id,kind,storage_path,mime_type,byte_size,sha256,expires_at)
+  values(v_record_id,v_job_id,'AC-01','SCREENSHOT','path1','image/png',10,'deadbeef',now()+interval '90 days');
   v_outcome := complete_verification_job_atomic(
-    v_job_id, 1,
+    v_job_id, 1, v_lease_id,
     '[{"criterionId":"AC-01","status":"PASS","expected":"x","observed":"y","durationMs":10,"timestamp":"2026-07-20T00:00:00.000Z","evidenceId":"path1","evidenceHash":"deadbeef"}]'::jsonb,
-    '[{"criterionId":"AC-01","kind":"SCREENSHOT","sha256":"deadbeef","storagePath":"path1"}]'::jsonb,
-    'chromium', '0.5.0', 'manifestHash1', now(), now()
+    '[{"criterionId":"AC-01","kind":"SCREENSHOT","sha256":"deadbeef","storagePath":"path1","byteSize":10}]'::jsonb,
+    'chromium', '0.7.0', 'manifestHash1', now(), now()
   );
   assert v_outcome = 'READY_FOR_REVIEW', 'expected READY_FOR_REVIEW outcome, got ' || v_outcome;
   select * into v_record from transaction_records where id = v_record_id;
@@ -75,10 +106,10 @@ begin
 
   -- 4) Completing an already-COMPLETED job again must be a safe no-op (duplicate), not a mutation.
   v_outcome := complete_verification_job_atomic(
-    v_job_id, 1,
+    v_job_id, 1, v_lease_id,
     '[{"criterionId":"AC-01","status":"PASS","expected":"x","observed":"y","durationMs":10,"timestamp":"2026-07-20T00:00:00.000Z","evidenceId":"path1","evidenceHash":"deadbeef"}]'::jsonb,
-    '[{"criterionId":"AC-01","kind":"SCREENSHOT","sha256":"deadbeef","storagePath":"path1"}]'::jsonb,
-    'chromium', '0.5.0', 'manifestHash1', now(), now()
+    '[{"criterionId":"AC-01","kind":"SCREENSHOT","sha256":"deadbeef","storagePath":"path1","byteSize":10}]'::jsonb,
+    'chromium', '0.7.0', 'manifestHash1', now(), now()
   );
   assert v_outcome = 'DUPLICATE', 'expected DUPLICATE on re-completion, got ' || v_outcome;
   raise notice 'CHECK 4 PASSED: re-completing a COMPLETED job is a safe idempotent no-op';
@@ -112,7 +143,10 @@ begin
   );
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'IN_REVIEW', 'replacement packet should put the record back IN_REVIEW';
-  raise notice 'CHECK 6 PASSED: revoke preserves other active reviews, then restores READY_FOR_REVIEW for replacement';
+  perform redeem_review_packet_atomic(v_packet_id,'reviewSessionHash',now()+interval '24 hours','reviewerActor','snapHash1b',now());
+  assert exists(select 1 from review_sessions_v2 where packet_id=v_packet_id and session_hash='reviewSessionHash'), 'review redemption should create the session';
+  assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='REVIEW_LINK_REDEEMED'), 'review redemption should append its audit event in the same transaction';
+  raise notice 'CHECK 6 PASSED: review replacement and redemption preserve state and append their audit record atomically';
 
   -- 7) Decision, record state, audit event, and durable owner notification commit atomically.
   perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'looks good', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash1', 'IN_APP', 'receiptSessionHash1', now() + interval '30 days');
@@ -132,6 +166,27 @@ begin
     raise notice 'CHECK 7 PASSED: atomic decision created the notification and rejected a second decision (%.)', sqlerrm;
   end;
 
+  -- 7b) Invoice planning, test-draft creation, webhook transitions, and connection history are atomic and monotonic.
+  perform save_invoice_plan_atomic(v_record_id,v_owner,null,'Client Billing','billing@example.test',14,'Approved milestone',false,1000,'USD',1,repeat('a',64),'ownerActor');
+  assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='INVOICE_PLAN_SAVED'), 'saving an invoice plan must append its audit event';
+  perform connect_stripe_account_atomic(v_owner,'acct_greenlit',false,'cipher-access','cipher-refresh',now()+interval '1 hour',now());
+  assert exists(select 1 from stripe_connection_events where owner_user_id=v_owner and event_type='CONNECTED'), 'Stripe connection history should be durable';
+  v_invoice_job := queue_approved_invoice_job_atomic(v_packet_id,v_owner,'ownerActor');
+  perform claim_invoice_job_atomic(v_invoice_job.id,v_owner,now());
+  perform record_invoice_created_atomic(v_invoice_job.id,'acct_greenlit','cus_greenlit','in_greenlit',1000,'USD','billing@example.test',now()+interval '14 days','','','');
+  perform record_invoice_test_draft_atomic(v_invoice_job.id,'',1000,0,'USD',now()+interval '14 days','','',now());
+  assert (select status from record_invoices where packet_id=v_packet_id)='DRAFT', 'test mode must finish with a Stripe draft, not an emailed invoice';
+  assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='INVOICE_TEST_DRAFT_CREATED'), 'test-draft creation must be audited';
+  perform apply_stripe_invoice_event_atomic('evt_paid','acct_greenlit','invoice.paid','in_greenlit',false,repeat('b',64),'paid','INV-1',1000,1000,'USD',now()+interval '14 days','https://invoice.test','https://invoice.test/pdf',now());
+  perform apply_stripe_invoice_event_atomic('evt_older_open','acct_greenlit','invoice.updated','in_greenlit',false,repeat('c',64),'open','INV-1',1000,0,'USD',now()+interval '14 days','https://invoice.test','https://invoice.test/pdf',now()-interval '1 hour');
+  assert (select status from record_invoices where packet_id=v_packet_id)='PAID', 'an older webhook must not regress a paid invoice';
+  assert (select status from stripe_webhook_events where event_id='evt_older_open')='IGNORED', 'older webhook event should be retained as ignored';
+  assert remove_invoice_plan_atomic(v_record_id,v_owner,'ownerActor'), 'saved invoice plan should be removable after approval';
+  assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='INVOICE_PLAN_REMOVED'), 'removing an invoice plan must append its audit event';
+  assert disconnect_stripe_account_atomic(v_owner,now(),'functional test'), 'connected Stripe account should disconnect';
+  assert exists(select 1 from stripe_connection_events where owner_user_id=v_owner and event_type='DISCONNECTED'), 'Stripe disconnection history should be durable';
+  raise notice 'CHECK 7b PASSED: invoice and Stripe state transitions are atomic, test-safe, and monotonic';
+
   -- 8) A stale run cannot be turned into a NEW review after the record has moved past READY_FOR_REVIEW.
   begin
     perform create_review_packet_atomic(
@@ -149,12 +204,13 @@ begin
   v_result := queue_verification_job_atomic(
     null, 'MP-TEST02', v_owner, 'hash2', 'IMPORTED_FIXTURE',
     'Agency', 'Client', 'Project2', 'Milestone2', 2000, 'USD',
-    'sow2.txt', 'srchash2', '[{"id":"AC-01"}]'::jsonb, 'critHash2',
+    'sow2.txt', 'srchash2', v_criteria, 'critHash2',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    v_checks, '0.7.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
   v_job2_id := (v_result->>'jobId')::uuid;
-  perform fail_verification_job_atomic(v_job2_id, 1, 'synthetic failure', 'VERIFICATION_FAILED');
+  perform lease_verification_job_atomic(v_job2_id,1,v_job2_lease_id);
+  perform fail_verification_job_atomic(v_job2_id, 1, v_job2_lease_id, 'synthetic failure', 'VERIFICATION_FAILED');
   select * into v_record from transaction_records where id = (v_result->>'recordId')::uuid;
   assert v_record.status = 'READY', 'record should return to READY after job failure';
   assert v_record.active_job_id is null, 'active_job_id should clear on failure';
@@ -164,15 +220,17 @@ begin
   raise notice 'CHECK 9a PASSED: retry succeeds when the record''s criteria revision has not changed';
 
   -- Fail the retried job too, then bump the record's criteria (new run supersedes it), and confirm retry of the ORIGINAL failed job is now rejected as stale.
-  perform fail_verification_job_atomic((v_retry_result->>'jobId')::uuid, 1, 'synthetic failure 2', 'VERIFICATION_FAILED');
-  perform queue_verification_job_atomic(
+  perform lease_verification_job_atomic((v_retry_result->>'jobId')::uuid,1,v_retry_lease_id);
+  perform fail_verification_job_atomic((v_retry_result->>'jobId')::uuid, 1, v_retry_lease_id, 'synthetic failure 2', 'VERIFICATION_FAILED');
+  v_retry_result := queue_verification_job_atomic(
     (v_result->>'recordId')::uuid, 'MP-TEST02', v_owner, 'hash2', 'IMPORTED_FIXTURE',
     'Agency', 'Client', 'Project2', 'Milestone2', 2000, 'USD',
-    'sow2.txt', 'srchash2-changed', '[{"id":"AC-01"}]'::jsonb, 'critHash2-changed',
+    'sow2.txt', 'srchash2-changed', v_criteria, 'critHash2-changed',
     'https://example.test', 'https://example.test/fixture/rc1', 'launch-rc1',
-    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb, '0.6.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
+    v_checks, '0.7.0', '{}'::jsonb, 'actorHash1', '2026-07-20', '[]'::jsonb
   );
-  perform fail_verification_job_atomic((select id from verification_jobs_v2 where record_id = (v_result->>'recordId')::uuid and status in ('QUEUED','LEASED','RUNNING')), 1, 'synthetic failure 3', 'VERIFICATION_FAILED');
+  perform lease_verification_job_atomic((v_retry_result->>'jobId')::uuid,1,v_changed_lease_id);
+  perform fail_verification_job_atomic((v_retry_result->>'jobId')::uuid, 1, v_changed_lease_id, 'synthetic failure 3', 'VERIFICATION_FAILED');
   begin
     perform retry_verification_job_atomic(v_job2_id, 'operator@example.test');
     raise exception 'CHECK 9b FAILED: retrying a job whose record has since changed criteria must be rejected';
@@ -183,9 +241,9 @@ begin
 
   -- 10) Staged evidence deletion respects both record and artifact holds and remains retryable.
   insert into evidence_artifacts_v2(id, record_id, run_id, criterion_id, kind, storage_path, mime_type, byte_size, sha256, expires_at, legal_hold)
-  values (v_evidence_id1, v_record_id, v_job_id, 'AC-01', 'SCREENSHOT', 'held/path.png', 'image/png', 10, 'deadbeef', now() - interval '1 day', true);
+  values (v_evidence_id1, v_record_id, v_job_id, 'AC-HOLD', 'SCREENSHOT', 'held/path.png', 'image/png', 10, 'feedbeef', now() - interval '1 day', true);
   insert into evidence_artifacts_v2(id, record_id, run_id, criterion_id, kind, storage_path, mime_type, byte_size, sha256, expires_at, legal_hold)
-  values (v_evidence_id2, v_record_id, v_job_id, 'AC-02', 'SCREENSHOT', 'free/path.png', 'image/png', 10, 'cafebabe', now() - interval '1 day', false);
+  values (v_evidence_id2, v_record_id, v_job_id, 'AC-FREE', 'SCREENSHOT', 'free/path.png', 'image/png', 10, 'cafebabe', now() - interval '1 day', false);
 
   update transaction_records set legal_hold = true where id = v_record_id;
   perform stage_expired_evidence_deletion(100, now());
@@ -234,17 +292,17 @@ begin
   v_result := queue_verification_job_atomic(
     null,'MP-PRIVACY-OWNER',v_privacy_owner,'privacyhash1','IMPORTED_FIXTURE',
     'Privacy Agency','Client','Owned project','Owned milestone',1000,'USD',
-    'owned.txt','ownedsource','[{"id":"AC-01"}]'::jsonb,'ownedcriteria',
+    'owned.txt','ownedsource',v_criteria,'ownedcriteria',
     'https://example.test','https://example.test/fixture/rc1','owned-build',
-    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb,'0.6.0','{}'::jsonb,'actorPrivacy','2026-07-20','[]'::jsonb
+    v_checks,'0.7.0','{}'::jsonb,'actorPrivacy','2026-07-20','[]'::jsonb
   );
   v_owned_record_id := (v_result->>'recordId')::uuid;
   v_result := queue_verification_job_atomic(
     null,'MP-PRIVACY-REVIEWER',v_other_owner,'privacyhash2','IMPORTED_FIXTURE',
     'Other Agency','Client','Reviewed project','Reviewed milestone',1000,'USD',
-    'reviewed.txt','reviewedsource','[{"id":"AC-01"}]'::jsonb,'reviewedcriteria',
+    'reviewed.txt','reviewedsource',v_criteria,'reviewedcriteria',
     'https://example.test','https://example.test/fixture/rc1','reviewed-build',
-    '[{"id":"CHK-01","criterionId":"AC-01"}]'::jsonb,'0.6.0','{}'::jsonb,'actorOther','2026-07-20','[]'::jsonb
+    v_checks,'0.7.0','{}'::jsonb,'actorOther','2026-07-20','[]'::jsonb
   );
   v_reviewed_record_id := (v_result->>'recordId')::uuid;
   v_reviewed_job_id := (v_result->>'jobId')::uuid;

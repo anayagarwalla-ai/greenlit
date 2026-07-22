@@ -6,6 +6,7 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { EVIDENCE_RETENTION_DAYS, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
 
 const schema = z.object({
+  leaseId: z.string().uuid(),
   criterionId: z.string().min(1).max(80),
   kind: z.enum(["SCREENSHOT", "NETWORK", "AXE", "MANIFEST"]),
   mimeType: z.enum(["image/jpeg", "image/png", "application/json"]),
@@ -22,16 +23,17 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   const { jobId } = await context.params;
   try {
     const database = requireSupabaseAdmin();
-    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks").eq("id", jobId).single();
+    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks, lease_id").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    if (!["QUEUED", "LEASED", "RUNNING"].includes(job.status)) return NextResponse.json({ error: `Evidence is not accepted for a ${job.status} job.` }, { status: 409, headers: noStoreJsonHeaders() });
+    if (job.status !== "RUNNING") return NextResponse.json({ error: `Evidence is not accepted for a ${job.status} job.` }, { status: 409, headers: noStoreJsonHeaders() });
+    if (job.lease_id !== parsed.data.leaseId) return NextResponse.json({ error: "This evidence upload belongs to a stale or replayed runner lease." }, { status: 409, headers: noStoreJsonHeaders() });
     const checkIds = new Set(((job.checks ?? []) as Array<{ criterionId?: string }>).map((check) => check.criterionId));
     if (!checkIds.has(parsed.data.criterionId)) return NextResponse.json({ error: "Artifact criterion is not in the frozen check manifest." }, { status: 422, headers: noStoreJsonHeaders() });
     const bytes = Buffer.from(parsed.data.base64, "base64");
     if (bytes.byteLength > 850_000) return NextResponse.json({ error: "Evidence screenshot exceeds the beta storage limit." }, { status: 413, headers: noStoreJsonHeaders() });
     if (sha256(bytes) !== parsed.data.sha256) return NextResponse.json({ error: "Evidence hash mismatch." }, { status: 422, headers: noStoreJsonHeaders() });
     const extension = parsed.data.mimeType === "image/jpeg" ? "jpg" : parsed.data.mimeType === "image/png" ? "png" : "json";
-    const storagePath = `${job.record_id}/${jobId}/${parsed.data.criterionId}-${parsed.data.kind.toLowerCase()}.${extension}`;
+    const storagePath = `${job.record_id}/${jobId}/${parsed.data.criterionId}-${parsed.data.leaseId}-${parsed.data.kind.toLowerCase()}.${extension}`;
     const { error: uploadError } = await database.storage.from("evidence").upload(storagePath, bytes, { contentType: parsed.data.mimeType, upsert: true, cacheControl: "300" });
     if (uploadError) throw new Error(`Evidence upload failed: ${uploadError.message}`);
     const expiresAt = new Date(Date.now() + EVIDENCE_RETENTION_DAYS * 86_400_000).toISOString();

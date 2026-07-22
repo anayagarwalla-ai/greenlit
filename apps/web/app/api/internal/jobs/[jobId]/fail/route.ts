@@ -5,7 +5,7 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { logOperationalEvent } from "@/lib/operations";
 
-const schema = z.object({ attempt: z.number().int().positive(), error: z.string().min(1).max(300) });
+const schema = z.object({ attempt: z.number().int().positive(), leaseId: z.string().uuid(), error: z.string().min(1).max(300) });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
   const body = await request.text();
@@ -20,10 +20,10 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const { data: job, error } = await database.from("verification_jobs_v2").select("record_id").eq("id", jobId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    const { data: outcome, error: failError } = await database.rpc("fail_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_error: parsed.data.error, p_event_type: "VERIFICATION_FAILED" });
+    const { data: outcome, error: failError } = await database.rpc("fail_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_lease_id: parsed.data.leaseId, p_error: parsed.data.error, p_event_type: "VERIFICATION_FAILED" });
     if (failError) throw new Error(failError.message);
     if (outcome === "FAILED") {
-      await logOperationalEvent({ severity: "ERROR", service: "runner", eventType: "VERIFICATION_FAILED", recordId: job.record_id, details: { jobId, attempt: parsed.data.attempt, error: parsed.data.error } });
+      await logOperationalEvent({ severity: "ERROR", service: "runner", eventType: "VERIFICATION_FAILED", recordId: job.record_id, details: { jobId, attempt: parsed.data.attempt, leaseId: parsed.data.leaseId, error: parsed.data.error } });
     }
     return NextResponse.json({ jobId, accepted: true }, { headers: noStoreJsonHeaders() });
   } catch (error) {

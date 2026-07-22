@@ -148,7 +148,7 @@ export async function PATCH(request: Request) {
         if (!dispatched.ok) throw new Error(`Runner retry dispatch returned ${dispatched.status}.`);
       } catch (dispatchError) {
         const message = dispatchError instanceof Error ? dispatchError.message : "Runner retry dispatch failed.";
-        await database.rpc("fail_verification_job_atomic", { p_job_id: job.jobId, p_attempt: 1, p_error: message.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });
+        await database.rpc("fail_queued_verification_job_atomic", { p_job_id: job.jobId, p_error: message.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });
         throw new Error(message);
       }
     }

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
-const EXPECTED_RUNNER_VERSION = "0.6.0";
+const EXPECTED_RUNNER_VERSION = "0.7.0";
 
 export async function GET(request: Request) {
   const checkedAt = new Date().toISOString();
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     checks.retention = { ok: !maintenance.error && maintenance.data?.status === "SUCCEEDED" && lastMaintenance >= heartbeatBefore, detail: maintenance.error ? "query failed" : maintenance.data?.status === "SUCCEEDED" ? "heartbeat recorded" : "successful heartbeat missing" };
     const evidenceBytes = Number(evidence.data ?? 0);
     checks.evidenceStorage = { ok: !evidence.error && evidenceBytes < 850_000_000, detail: evidence.error ? "query failed" : evidenceBytes < 850_000_000 ? "within beta guardrail" : "approaching free storage limit" };
-    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 8)));
+    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 3)));
     checks.dailyCapacity = { ok: !dailyRuns.error && (dailyRuns.count ?? 0) < dailyLimit, detail: dailyRuns.error ? "query failed" : `${dailyRuns.count ?? 0}/${dailyLimit} runs used today` };
   }
 

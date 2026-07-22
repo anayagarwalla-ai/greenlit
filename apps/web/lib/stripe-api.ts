@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { requireSupabaseAdmin } from "./database";
 import { decryptStripeSecret, encryptStripeSecret } from "./stripe-crypto";
 
@@ -91,23 +91,37 @@ export async function getStripeAccessForOwner(ownerUserId: string) {
   if (new Date(connection.access_token_expires_at).getTime() > Date.now() + 5 * 60_000) {
     return { accessToken: decryptStripeSecret(connection.access_token_ciphertext), accountId: connection.stripe_account_id as string, livemode: Boolean(connection.livemode) };
   }
+  const claimId = randomUUID();
+  const { data: claimed, error: claimError } = await database.rpc("claim_stripe_token_refresh_atomic", {
+    p_owner_user_id: ownerUserId, p_expected_version: Number(connection.token_version), p_claim_id: claimId, p_claimed_at: new Date().toISOString(),
+  }).maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimed) {
+    const { data: current, error: currentError } = await database.from("stripe_connections").select("*").eq("owner_user_id", ownerUserId).maybeSingle();
+    if (currentError) throw new Error(currentError.message);
+    if (current?.status === "CONNECTED" && current.access_token_ciphertext && current.access_token_expires_at && new Date(current.access_token_expires_at).getTime() > Date.now() + 60_000) {
+      return { accessToken: decryptStripeSecret(current.access_token_ciphertext), accountId: current.stripe_account_id as string, livemode: Boolean(current.livemode) };
+    }
+    throw new Error("Stripe credentials are already being refreshed. Retry in a moment.");
+  }
+  const claimedConnection = claimed as typeof connection;
   try {
-    const refreshed = await refreshStripeToken(decryptStripeSecret(connection.refresh_token_ciphertext));
+    const refreshed = await refreshStripeToken(decryptStripeSecret(claimedConnection.refresh_token_ciphertext));
     if (refreshed.livemode && process.env.STRIPE_ALLOW_LIVE_MODE !== "true") throw new Error("Live-mode Stripe access is disabled during the beta.");
-    const accountId = refreshed.stripe_user_id ?? refreshed.account_id ?? connection.stripe_account_id;
-    const { error: updateError } = await database.from("stripe_connections").update({
-      stripe_account_id: accountId,
-      livemode: refreshed.livemode,
-      access_token_ciphertext: encryptStripeSecret(refreshed.access_token),
-      refresh_token_ciphertext: encryptStripeSecret(refreshed.refresh_token),
-      access_token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-      token_version: Number(connection.token_version) + 1,
-      last_error: null,
-    }).eq("owner_user_id", ownerUserId);
+    const accountId = refreshed.stripe_user_id ?? refreshed.account_id ?? claimedConnection.stripe_account_id;
+    const { data: updated, error: updateError } = await database.rpc("complete_stripe_token_refresh_atomic", {
+      p_owner_user_id: ownerUserId, p_expected_version: Number(claimedConnection.token_version), p_claim_id: claimId,
+      p_stripe_account_id: accountId, p_livemode: refreshed.livemode, p_access_ciphertext: encryptStripeSecret(refreshed.access_token),
+      p_refresh_ciphertext: encryptStripeSecret(refreshed.refresh_token), p_access_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+      p_completed_at: new Date().toISOString(),
+    }).maybeSingle();
     if (updateError) throw new Error(updateError.message);
+    if (!updated) throw new Error("Stripe credentials changed during refresh. Retry the request.");
     return { accessToken: refreshed.access_token, accountId, livemode: refreshed.livemode };
   } catch (error) {
-    await database.from("stripe_connections").update({ status: "REAUTH_REQUIRED", last_error: error instanceof Error ? error.message : "Stripe reauthorization is required." }).eq("owner_user_id", ownerUserId);
+    const message = error instanceof Error ? error.message : "Stripe token refresh failed.";
+    const requireReauth = /invalid[_ -]?grant|revoked|reauthori[sz]|not connected/i.test(message);
+    await database.rpc("release_stripe_token_refresh_atomic", { p_owner_user_id: ownerUserId, p_claim_id: claimId, p_error: message, p_require_reauth: requireReauth, p_released_at: new Date().toISOString() });
     throw error;
   }
 }

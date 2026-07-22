@@ -17,6 +17,7 @@ const artifactSchema = z.object({
 
 const completionSchema = z.object({
   attempt: z.number().int().positive(),
+  leaseId: z.string().uuid(),
   buildLabel: z.string().min(1).max(160),
   browserVersion: z.string().min(1).max(160),
   runnerVersion: z.string().min(1).max(80),
@@ -38,8 +39,6 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const database = requireSupabaseAdmin();
     const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    if (job.status === "COMPLETED") return NextResponse.json({ jobId, accepted: true, status: "COMPLETED", duplicate: true }, { headers: noStoreJsonHeaders() });
-
     const artifactMetadata = parsed.data.artifacts;
     const checks = (job.checks ?? []) as Array<{ criterionId?: string }>;
     const checkIds = checks.map((check) => check.criterionId).filter((id): id is string => Boolean(id));
@@ -60,7 +59,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
 
     const manifest = { results: parsed.data.results, artifacts: artifactMetadata.map(({ criterionId, kind, sha256: hash }) => ({ criterionId, kind, sha256: hash })) };
     const manifestSha256 = sha256(canonicalJson(manifest));
-    const { data: outcome, error: completionError } = await database.rpc("complete_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_results: parsed.data.results, p_artifacts: artifactMetadata, p_browser_version: parsed.data.browserVersion, p_runner_version: parsed.data.runnerVersion, p_manifest_sha256: manifestSha256, p_started_at: parsed.data.startedAt, p_completed_at: parsed.data.completedAt });
+    const { data: outcome, error: completionError } = await database.rpc("complete_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_lease_id: parsed.data.leaseId, p_results: parsed.data.results, p_artifacts: artifactMetadata, p_browser_version: parsed.data.browserVersion, p_runner_version: parsed.data.runnerVersion, p_manifest_sha256: manifestSha256, p_started_at: parsed.data.startedAt, p_completed_at: parsed.data.completedAt });
     if (completionError) throw new Error(completionError.message);
     return NextResponse.json({ jobId, accepted: true, status: outcome === "DUPLICATE" ? "COMPLETED" : outcome, manifestSha256, duplicate: outcome === "DUPLICATE" }, { headers: noStoreJsonHeaders() });
   } catch (error) {

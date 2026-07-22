@@ -2,7 +2,7 @@ import { launch, type BrowserWorker } from "@cloudflare/playwright";
 import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@greenlit/contracts";
 import { z } from "zod";
 import axe from "axe-core";
-import { addressMatchesFrozenSet, pathWithQueryAndHash } from "./security";
+import { addressMatchesFrozenSet, pathWithQueryAndHash, perCheckBudgetMs } from "./security";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -11,7 +11,7 @@ type Env = {
   RUNNER_HMAC_SECRET: string;
 };
 
-type JobMessage = { jobId: string; attempt: number };
+type JobMessage = { jobId: string; attempt: number; leaseId: string };
 
 type EvidenceArtifact = {
   criterionId: string;
@@ -23,18 +23,32 @@ type EvidenceArtifact = {
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
-const RUNNER_VERSION = "0.6.0";
+const RUNNER_VERSION = "0.7.0";
 const JOB_DEADLINE_MS = 48_000;
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
 const axePageSource = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n${axe.source}`;
 const leaseSchema = z.object({
   jobId: z.string(),
+  leaseId: z.string().uuid(),
   targetOrigin: z.string().url(),
   checks: z.array(checkSpecSchema).min(1).max(6),
   buildLabel: z.string(),
   originAddresses: z.array(z.string()).min(1),
 });
+
+async function withinBudget<T>(work: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (timeoutMs < 1_000) throw new Error(`The job has insufficient time remaining for ${label}.`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label} exceeded its ${Math.ceil(timeoutMs / 1000)} second execution budget.`)), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -225,18 +239,19 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
 
 async function runJob(env: Env, message: JobMessage): Promise<void> {
   const deadline = Date.now() + JOB_DEADLINE_MS;
-  const leaseResponse = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/lease`, { attempt: message.attempt });
+  const leaseResponse = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/lease`, { attempt: message.attempt, leaseId: message.leaseId });
   if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
   const lease = leaseSchema.parse(await leaseResponse.json());
+  if (lease.leaseId !== message.leaseId) throw new Error("The web service returned a mismatched runner lease.");
   const browser = await launchWithBackoff(env.BROWSER);
   const results: CriterionResult[] = [];
   const artifacts: StoredEvidenceArtifact[] = [];
   const startedAt = new Date().toISOString();
   const browserVersion = browser.version();
   try {
-    for (const check of lease.checks) {
+    for (const [checkIndex, check] of lease.checks.entries()) {
       if (Date.now() >= deadline) throw new Error("The job reached the free-browser execution deadline before every check completed.");
-      const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, {});
+      const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, { leaseId: message.leaseId });
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
       const page = await context.newPage();
@@ -268,11 +283,12 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
             if (!addressMatchesFrozenSet(address.ipAddress, lease.originAddresses)) throw new Error(`Connection address ${address.ipAddress} does not match the job's frozen safe DNS set.`);
           }));
         });
-        const checkResult = await executeCheck(page, lease.targetOrigin, check);
+        const checkBudget = perCheckBudgetMs(deadline, Date.now(), lease.checks.length - checkIndex);
+        const checkResult = await withinBudget(executeCheck(page, lease.targetOrigin, check), checkBudget, `Check ${check.id}`);
         await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
         await Promise.all(addressValidations);
         const screenshot = new Uint8Array(await page.screenshot({ type: "jpeg", quality: 72 }));
-        const evidence = { criterionId: check.criterionId, kind: "SCREENSHOT" as const, mimeType: "image/jpeg" as const, base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
+        const evidence = { leaseId: message.leaseId, criterionId: check.criterionId, kind: "SCREENSHOT" as const, mimeType: "image/jpeg" as const, base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
         const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);
         if (!uploaded.ok) throw new Error(`Evidence upload failed with ${uploaded.status}`);
         const payload = await uploaded.json() as { artifact: StoredEvidenceArtifact };
@@ -285,6 +301,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
   }
   const completion = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/complete`, {
     attempt: message.attempt,
+    leaseId: message.leaseId,
     buildLabel: lease.buildLabel,
     browserVersion,
     runnerVersion: RUNNER_VERSION,
@@ -318,7 +335,7 @@ export default {
     if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Invalid or expired signature" }, { status: 401 });
     const job = jobSchema.safeParse(JSON.parse(body));
     if (!job.success) return Response.json({ error: "Invalid job" }, { status: 422 });
-    await env.JOB_QUEUE.send({ jobId: job.data.jobId, attempt: 1 });
+    await env.JOB_QUEUE.send({ jobId: job.data.jobId, attempt: 1, leaseId: crypto.randomUUID() });
     return Response.json({ accepted: true, jobId: job.data.jobId }, { status: 202 });
   },
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
@@ -328,7 +345,7 @@ export default {
         const reason = error instanceof Error ? error.message : "unknown";
         console.error("Runner job failed", message.body.jobId, reason);
         try {
-          const failed = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.body.jobId)}/fail`, { attempt: message.body.attempt, error: reason.slice(0, 300) });
+          const failed = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.body.jobId)}/fail`, { attempt: message.body.attempt, leaseId: message.body.leaseId, error: reason.slice(0, 300) });
           if (!failed.ok) console.error("Runner failure callback was rejected", message.body.jobId, failed.status);
         } catch (callbackError) {
           console.error("Runner failure callback was unavailable; the web reconciler will expire the job", message.body.jobId, callbackError instanceof Error ? callbackError.message : "unknown");

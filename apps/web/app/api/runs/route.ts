@@ -15,27 +15,28 @@ import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security"
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { sanitizeWorkspaceState } from "@/lib/workspace-state";
+import { validateVerificationManifest } from "@/lib/verification-manifest";
 
 export const runtime = "nodejs";
 
 const criterionSchema = z.object({
-  id: z.string().min(1).max(40),
-  title: z.string().min(1).max(300),
-  sourceQuote: z.string().min(3).max(1_000),
-  supported: z.boolean().optional(),
-  checkType: z.enum(["element_state", "link_destination", "form_submission", "viewport_layout", "axe_scan", "manual"]).optional(),
+  id: z.string().trim().min(1).max(40),
+  title: z.string().trim().min(1).max(300),
+  sourceQuote: z.string().trim().min(3).max(1_000),
+  supported: z.boolean(),
+  checkType: z.enum(["element_state", "link_destination", "form_submission", "viewport_layout", "axe_scan", "manual"]),
 });
 
 const schema = z.object({
   recordId: z.string().uuid().optional(),
   version: z.enum(["rc1", "rc2"]).default("rc1"),
   sourceMode: z.enum(["demo", "live"]),
-  sourceName: z.string().min(1).max(240),
+  sourceName: z.string().trim().min(1).max(240),
   sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  agencyName: z.string().min(1).max(120),
-  clientName: z.string().min(1).max(120),
-  projectName: z.string().min(1).max(180),
-  milestoneTitle: z.string().min(1).max(180),
+  agencyName: z.string().trim().min(1).max(120),
+  clientName: z.string().trim().min(1).max(120),
+  projectName: z.string().trim().min(1).max(180),
+  milestoneTitle: z.string().trim().min(1).max(180),
   amountMinor: z.number().int().min(0).max(1_000_000_000),
   currency: z.string().regex(/^[A-Z]{3}$/),
   criteria: z.array(criterionSchema).min(1).max(40),
@@ -66,11 +67,6 @@ export async function POST(request: Request) {
     if (body.sourceMode === "demo") return NextResponse.json({ error: "Synthetic demo data cannot create a retained transaction. Use the guided walkthrough instead." }, { status: 422, headers: noStoreJsonHeaders() });
     const criterionIds = body.criteria.map((criterion) => criterion.id);
     if (new Set(criterionIds).size !== criterionIds.length) return NextResponse.json({ error: "Every acceptance criterion must have a unique ID." }, { status: 422, headers: noStoreJsonHeaders() });
-    if (body.checks) {
-      const checkIds = body.checks.map((check) => check.id);
-      const mappedCriteria = body.checks.map((check) => check.criterionId);
-      if (new Set(checkIds).size !== checkIds.length || new Set(mappedCriteria).size !== mappedCriteria.length) return NextResponse.json({ error: "Every automated check and criterion mapping must be unique." }, { status: 422, headers: noStoreJsonHeaders() });
-    }
     const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     const customTarget = Boolean(body.targetUrl || body.checks || body.originReceipt);
     let targetOrigin = appOrigin;
@@ -84,12 +80,8 @@ export async function POST(request: Request) {
       if (!target.ok) return NextResponse.json({ error: target.reason }, { status: 422, headers: noStoreJsonHeaders() });
       targetOrigin = target.url.origin;
       if (!verifyOriginProof(body.originReceipt, targetOrigin, owner.userId)) return NextResponse.json({ error: "The staging-origin verification expired or does not match this account. Verify it again." }, { status: 409, headers: noStoreJsonHeaders() });
-      const criteriaById = new Map(body.criteria.map((criterion) => [criterion.id, criterion]));
-      const invalidCheck = body.checks.find((check) => {
-        const criterion = criteriaById.get(check.criterionId);
-        return !criterion || criterion.sourceQuote !== check.sourceQuote || !check.confirmedByHuman;
-      });
-      if (invalidCheck) return NextResponse.json({ error: `Check ${invalidCheck.id} is not bound to its confirmed source criterion.` }, { status: 422, headers: noStoreJsonHeaders() });
+      const manifestValidation = validateVerificationManifest(body.criteria, body.checks);
+      if (!manifestValidation.ok) return NextResponse.json({ error: manifestValidation.error }, { status: 422, headers: noStoreJsonHeaders() });
       checks = body.checks;
       buildUrl = targetOrigin;
       buildLabel = body.buildLabel;
@@ -145,7 +137,7 @@ export async function POST(request: Request) {
       p_milestone_title: body.milestoneTitle, p_amount_minor: body.amountMinor, p_currency: body.currency,
       p_source_name: body.sourceName, p_source_sha256: sourceHash, p_criteria: body.criteria,
       p_criteria_sha256: criteriaHash, p_target_origin: targetOrigin, p_build_url: buildUrl,
-      p_build_label: buildLabel, p_checks: checks, p_runner_version: "0.6.0", p_workspace_state: workspaceState,
+      p_build_label: buildLabel, p_checks: checks, p_runner_version: "0.7.0", p_workspace_state: workspaceState,
       p_actor_hash: actorHash, p_notice_version: body.noticeVersion, p_origin_addresses: originAddresses,
     });
     if (queueError || !queued) throw new Error(`Verification could not be queued atomically: ${queueError?.message ?? "unknown error"}`);
@@ -164,7 +156,7 @@ export async function POST(request: Request) {
       if (!dispatched.ok) throw new Error(`Dispatch returned ${dispatched.status}`);
     } catch (dispatchError) {
       const dispatchMessage = dispatchError instanceof Error ? dispatchError.message : "Runner dispatch failed";
-      const { error: failError } = await database.rpc("fail_verification_job_atomic", { p_job_id: jobId, p_attempt: 1, p_error: dispatchMessage.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });
+      const { error: failError } = await database.rpc("fail_queued_verification_job_atomic", { p_job_id: jobId, p_error: dispatchMessage.slice(0, 300), p_event_type: "VERIFICATION_DISPATCH_FAILED" });
       await logOperationalEvent({ severity: "ERROR", service: "web", eventType: failError ? "RUNNER_DISPATCH_RECOVERY_FAILED" : "RUNNER_DISPATCH_FAILED", recordId: durableRecordId, details: { jobId, error: dispatchMessage, recoveryError: failError?.message ?? null } });
       return NextResponse.json({ error: failError ? "The runner dispatch failed and the job needs operator recovery." : "The verification runner did not accept the job. Please retry." }, { status: 502, headers: noStoreJsonHeaders() });
     }

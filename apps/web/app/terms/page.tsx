@@ -32,7 +32,7 @@ export default function TermsPage() {
         <p>The client decision is a business approval record. It is not a payment guarantee, accounting or tax ledger, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use Greenlit for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
 
         <h2>Optional Stripe invoicing</h2>
-        <p>An agency may authorize Greenlit to create and email an invoice in its own connected Stripe account after approval. Automatic sending must be configured before client review and is disclosed to the reviewer; approval never charges a payment method by itself. Stripe, not Greenlit, hosts payment collection. The agency is the merchant, owns the Stripe customer and invoice, and remains responsible for prices, taxes, refunds, disputes, invoice terms, accounting, and compliance. Disconnecting Greenlit does not cancel invoices already created in Stripe.</p>
+        <p>An agency may authorize Greenlit to create an invoice in its own connected Stripe account after approval. Automatic sending must be configured before client review and is disclosed to the reviewer; approval never charges a payment method by itself. In test mode, Greenlit creates only a Stripe test invoice and does not email the client. A live-mode deployment may email the invoice after approval when the operator has explicitly enabled live access. Stripe, not Greenlit, hosts payment collection. The agency is the merchant, owns the Stripe customer and invoice, and remains responsible for prices, taxes, refunds, disputes, invoice terms, accounting, and compliance. Disconnecting Greenlit does not cancel invoices already created in Stripe.</p>
 
         <h2>Guided walkthrough</h2>
         <p>The synthetic walkthrough is not a transaction-record service. Its seeded outcomes and local sample decision are for demonstration only and are not retained, hash-chained, exported, or represented as browser evidence.</p>
@@ -45,6 +45,9 @@ export default function TermsPage() {
 
         <h2>Availability and responsibility</h2>
         <p>The beta is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoice accuracy and delivery, payments, refunds, disputes, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
+
+        <h2>Invitation removal</h2>
+        <p>Closed-beta access may be removed at any time. Removing an invitation blocks future sign-in but does not silently delete retained transaction records or legally held evidence. The retention and deletion rules in the <Link href="/records">Records policy</Link> continue to apply, and a former user may still submit a request through the public privacy-request form.</p>
 
         <h2>Privacy and requests</h2>
         <p>The <Link href="/privacy">Privacy Notice</Link> describes collection, providers, security, and retention. Submit data-rights requests through the <Link href="/privacy-request">privacy request form</Link>.</p>

@@ -20,8 +20,10 @@ export async function betaAccessAllowedFresh(user: Pick<User, "email"> | string 
   if (!database) return configured;
   const { data, error } = await database.from("beta_invites").select("status").eq("email", email.trim().toLowerCase()).maybeSingle();
   if (error) return false;
-  if (data?.status === "REMOVED") return false;
-  return data?.status === "ACTIVE" || configured;
+  // Once a durable invite row exists it is authoritative. INVITED is a
+  // recoverable provisioning reservation, not permission to use the app.
+  if (data) return data.status === "ACTIVE";
+  return configured;
 }
 
 export function betaEmailAllowed(email: string | null | undefined) {

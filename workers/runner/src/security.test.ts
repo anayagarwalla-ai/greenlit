@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressMatchesFrozenSet, isUnsafeAddress, pathWithQueryAndHash } from "./security";
+import { addressMatchesFrozenSet, isUnsafeAddress, pathWithQueryAndHash, perCheckBudgetMs } from "./security";
 
 describe("isUnsafeAddress", () => {
   it("blocks loopback, private, link-local, and metadata IPv4 ranges", () => {
@@ -47,5 +47,18 @@ describe("addressMatchesFrozenSet", () => {
     expect(addressMatchesFrozenSet("93.184.216.34", ["93.184.216.34", "2606:4700:4700::1111"])).toBe(true);
     expect(addressMatchesFrozenSet("93.184.216.35", ["93.184.216.34"])).toBe(false);
     expect(addressMatchesFrozenSet("127.0.0.1", ["127.0.0.1"])).toBe(false);
+  });
+});
+
+describe("perCheckBudgetMs", () => {
+  it("shares the remaining job time across every unfinished check", () => {
+    expect(perCheckBudgetMs(48_000, 0, 6)).toBe(8_000);
+    expect(perCheckBudgetMs(48_000, 18_000, 3)).toBe(10_000);
+  });
+
+  it("caps a single check and fails closed for invalid input", () => {
+    expect(perCheckBudgetMs(60_000, 0, 1)).toBe(18_000);
+    expect(perCheckBudgetMs(10_000, 11_000, 1)).toBe(0);
+    expect(perCheckBudgetMs(10_000, 0, 0)).toBe(0);
   });
 });

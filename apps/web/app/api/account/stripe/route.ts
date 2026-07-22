@@ -29,7 +29,7 @@ export async function DELETE() {
     try { await deauthorizeStripeAccount(data.stripe_account_id); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Stripe could not be disconnected." }, { status: 502, headers: noStoreJsonHeaders() }); }
   }
-  const { error } = await database.from("stripe_connections").update({ status: "DISCONNECTED", access_token_ciphertext: null, refresh_token_ciphertext: null, access_token_expires_at: null, disconnected_at: new Date().toISOString(), last_error: null }).eq("owner_user_id", user.id);
+  const { error } = await database.rpc("disconnect_stripe_account_atomic", { p_owner_user_id: user.id, p_disconnected_at: new Date().toISOString(), p_reason: "Agency owner disconnected Stripe from the dashboard." });
   if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ disconnected: true }, { headers: noStoreJsonHeaders() });
 }

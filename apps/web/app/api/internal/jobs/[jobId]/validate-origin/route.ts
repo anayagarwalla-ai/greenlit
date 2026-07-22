@@ -4,18 +4,23 @@ import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { z } from "zod";
 
 export const runtime = "nodejs";
+const schema = z.object({ leaseId: z.string().uuid() });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
   const body = await request.text();
   const secret = process.env.RUNNER_HMAC_SECRET;
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
+  const parsed = schema.safeParse(JSON.parse(body));
+  if (!parsed.success) return NextResponse.json({ error: "Invalid origin-validation request." }, { status: 422, headers: noStoreJsonHeaders() });
   const { jobId } = await context.params;
   try {
-    const { data: job, error } = await requireSupabaseAdmin().from("verification_jobs_v2").select("target_origin, origin_addresses, status").eq("id", jobId).single();
+    const { data: job, error } = await requireSupabaseAdmin().from("verification_jobs_v2").select("target_origin, origin_addresses, status, lease_id").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
-    if (!["QUEUED", "LEASED", "RUNNING"].includes(job.status)) return NextResponse.json({ error: "Job is not active." }, { status: 409, headers: noStoreJsonHeaders() });
+    if (job.status !== "RUNNING") return NextResponse.json({ error: "Job is not actively leased." }, { status: 409, headers: noStoreJsonHeaders() });
+    if (job.lease_id !== parsed.data.leaseId) return NextResponse.json({ error: "This origin check belongs to a stale or replayed runner lease." }, { status: 409, headers: noStoreJsonHeaders() });
     const target = validateStagingUrl(job.target_origin);
     if (!target.ok || target.url.origin !== job.target_origin) return NextResponse.json({ error: "The frozen origin is no longer valid." }, { status: 422, headers: noStoreJsonHeaders() });
     const [v4, v6] = await Promise.all([resolve4(target.url.hostname).catch(() => []), resolve6(target.url.hostname).catch(() => [])]);

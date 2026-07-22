@@ -6,19 +6,19 @@ export const viewportSchema = z.object({
   label: z.string().min(1).max(32),
 });
 
-const safeRelativePathSchema = z.string().max(500).refine(isSafeRelativePath, "Path must remain on the verified origin");
+const safeRelativePathSchema = z.string().trim().max(500).refine(isSafeRelativePath, "Path must remain on the verified origin");
 
 const baseCheck = z.object({
-  id: z.string().min(1),
-  criterionId: z.string().min(1),
+  id: z.string().trim().min(1).max(80),
+  criterionId: z.string().trim().min(1).max(80),
   path: safeRelativePathSchema,
-  sourceQuote: z.string().min(3).max(1000),
+  sourceQuote: z.string().trim().min(3).max(1000),
   confirmedByHuman: z.literal(true),
 });
 
 export const elementStateCheckSchema = baseCheck.extend({
   type: z.literal("element_state"),
-  elementRef: z.string().min(1).max(160),
+  elementRef: z.string().trim().min(1).max(160),
   assertion: z.enum(["visible", "enabled", "count"]),
   expectedCount: z.number().int().min(0).max(100).optional(),
   viewport: viewportSchema.optional(),
@@ -26,15 +26,15 @@ export const elementStateCheckSchema = baseCheck.extend({
 
 export const linkDestinationCheckSchema = baseCheck.extend({
   type: z.literal("link_destination"),
-  elementRef: z.string().min(1).max(160),
+  elementRef: z.string().trim().min(1).max(160),
   expectedPath: safeRelativePathSchema,
 });
 
 export const formSubmissionCheckSchema = baseCheck.extend({
   type: z.literal("form_submission"),
-  fields: z.array(z.object({ label: z.string().min(1), value: z.string().max(500) })).min(1).max(20),
-  submitRef: z.string().min(1).max(160),
-  successText: z.string().min(1).max(200).optional(),
+  fields: z.array(z.object({ label: z.string().trim().min(1).max(160), value: z.string().max(500) })).min(1).max(20),
+  submitRef: z.string().trim().min(1).max(160),
+  successText: z.string().trim().min(1).max(200).optional(),
   successPath: safeRelativePathSchema.optional(),
   expectedPostPath: safeRelativePathSchema.optional(),
   expectedStatus: z.number().int().min(200).max(399).optional(),
@@ -51,7 +51,7 @@ export const axeScanCheckSchema = baseCheck.extend({
   type: z.literal("axe_scan"),
   tags: z.array(z.string()).default(["wcag2a", "wcag2aa", "wcag22aa"]),
   failImpacts: z.array(z.enum(["critical", "serious"])).default(["critical", "serious"]),
-  submitRef: z.string().min(1).max(160).optional(),
+  submitRef: z.string().trim().min(1).max(160).optional(),
   ownerAcknowledgedMutation: z.literal(true).optional(),
 });
 

@@ -52,23 +52,26 @@ pg_ctl -D /tmp/mp-pgdata stop
 `01_atomic_rpc_functional_checks.sql` exercises, against real Postgres (not
 mocks):
 
-- `queue_verification_job_atomic` creating a record + job atomically, and its
-  active-job guard blocking a second concurrent queue attempt.
+- `queue_verification_job_atomic` creating a record + job atomically, requiring
+  complete frozen automated-criterion coverage, and blocking a concurrent run.
 - `lease_verification_job_atomic` / `complete_verification_job_atomic`
   transitioning a record to `READY_FOR_REVIEW` and clearing `active_job_id`,
-  with idempotent (`DUPLICATE`) re-completion.
+  rejecting replayed leases, binding completion to private stored evidence,
+  and allowing same-lease idempotent (`DUPLICATE`) re-completion.
 - `create_review_packet_atomic` binding to the record's current `last_run_id`
   and `criteria_revision`, and refusing to create a new packet once the
   record has moved past `READY_FOR_REVIEW` (stale-run protection).
-- `record_review_decision_atomic` refusing a second decision on an
-  already-decided packet.
+- review-link redemption and review decisions committing their audit events in
+  the same transaction and refusing a second decision.
+- invoice-plan writes, Stripe connection history, test-mode draft creation,
+  and out-of-order webhook protection.
 - `retry_verification_job_atomic` succeeding when nothing has changed, and
   being rejected once the record's criteria/source changed since the job
   failed (revision-safety).
-- `purge_expired_evidence_atomic` refusing to delete a legal-held artifact.
-- `purge_expired_transaction_record` refusing to purge while either an
-  artifact-level or record-level legal hold is present, and succeeding once
-  both are cleared.
+- staged evidence and record deletion remaining retryable and refusing to
+  purge while either an artifact-level or record-level legal hold is present.
+- privacy deletion removing only requester-owned records while preserving
+  another agency's reviewer-matched legal record.
 
 This found and fixed one real bug before it could reach production: a
 `revoke`/`grant` statement for `queue_verification_job_atomic` in

@@ -19,6 +19,20 @@ function invoiceRpcPayload(jobId: string, invoice: StripeInvoice) {
   };
 }
 
+function testDraftRpcPayload(jobId: string, invoice: StripeInvoice) {
+  return {
+    p_job_id: jobId,
+    p_invoice_number: invoice.number ?? "",
+    p_amount_due_minor: invoice.amount_due,
+    p_amount_paid_minor: invoice.amount_paid,
+    p_currency: invoice.currency.toUpperCase(),
+    p_due_at: invoice.due_date ? new Date(invoice.due_date * 1000).toISOString() : null,
+    p_hosted_invoice_url: invoice.hosted_invoice_url ?? "",
+    p_invoice_pdf_url: invoice.invoice_pdf ?? "",
+    p_completed_at: new Date().toISOString(),
+  };
+}
+
 export async function processInvoiceJob(jobId: string, ownerUserId: string) {
   const database = requireSupabaseAdmin();
   const { data: claimed, error: claimError } = await database.rpc("claim_invoice_job_atomic", { p_job_id: jobId, p_owner_user_id: ownerUserId, p_now: new Date().toISOString() });
@@ -27,11 +41,24 @@ export async function processInvoiceJob(jobId: string, ownerUserId: string) {
   const job = claimed as InvoiceJob;
   try {
     const plan = assertFrozenInvoicePlan(job.plan);
-    const { data: record, error: recordError } = await database.from("transaction_records").select("public_id,agency_name,client_name,project_name,milestone_title,amount_minor,currency,criteria_revision").eq("id", job.record_id).single();
+    const { data: record, error: recordError } = await database.from("transaction_records").select("public_id,agency_name,client_name,project_name,milestone_title,amount_minor,currency,criteria_revision,last_run_id").eq("id", job.record_id).single();
     if (recordError || !record) throw new Error("The invoice milestone record is unavailable.");
     if (plan.amountMinor !== record.amount_minor || plan.currency !== record.currency || plan.criteriaRevision !== record.criteria_revision) throw new Error("Invoice details no longer match the approved milestone.");
     const access = await getStripeAccessForOwner(job.owner_user_id);
-    const metadata = { greenlit_record_id: record.public_id, greenlit_packet_id: job.packet_id, greenlit_plan_sha256: plan.planSha256 };
+    const [{ data: packet }, { data: run }] = await Promise.all([
+      database.from("review_packets_v2").select("public_id,receipt_sha256,snapshot_sha256").eq("id", job.packet_id).single(),
+      database.from("verification_jobs_v2").select("manifest_sha256").eq("id", record.last_run_id).single(),
+    ]);
+    if (!packet || !run?.manifest_sha256 || !packet.receipt_sha256) throw new Error("The approval receipt or evidence manifest is unavailable for invoice traceability.");
+    const metadata = {
+      greenlit_record_id: job.record_id,
+      greenlit_record_public_id: record.public_id,
+      greenlit_review_id: packet.public_id,
+      greenlit_criteria_revision: String(record.criteria_revision),
+      greenlit_receipt_sha256: packet.receipt_sha256,
+      greenlit_evidence_manifest_sha256: run.manifest_sha256,
+      greenlit_invoice_plan_sha256: plan.planSha256,
+    };
     let customerId = plan.stripeCustomerId ?? null;
     if (customerId) {
       const customer = await retrieveStripeCustomer(access.accessToken, customerId);
@@ -62,6 +89,11 @@ export async function processInvoiceJob(jobId: string, ownerUserId: string) {
         p_invoice_pdf_url: invoice.invoice_pdf ?? "",
       });
       if (createdError) throw new Error(createdError.message);
+    }
+    if (!access.livemode) {
+      const { data, error: draftError } = await database.rpc("record_invoice_test_draft_atomic", testDraftRpcPayload(job.id, invoice));
+      if (draftError) throw new Error(draftError.message);
+      return { status: "COMPLETED" as const, invoice: data, delivery: "TEST_DRAFT" as const };
     }
     if (invoice.status === "draft") invoice = await sendStripeInvoice(access.accessToken, invoice.id, `${job.idempotency_prefix}:send`);
     if (invoice.status !== "open" && invoice.status !== "paid") throw new Error(`Stripe invoice is ${invoice.status ?? "unavailable"} and could not be sent.`);

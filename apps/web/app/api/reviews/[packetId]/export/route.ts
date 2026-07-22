@@ -32,10 +32,13 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
       .eq("record_id", packet.record_id)
       .order("sequence", { ascending: true });
     if (auditError) throw new Error(auditError.message);
-    const [{ data: invoice }, { data: invoiceJob }] = await Promise.all([
+    const [{ data: invoice, error: invoiceError }, { data: invoiceJob, error: invoiceJobError }, { data: corrections, error: correctionError }] = await Promise.all([
       database.from("record_invoices").select("status,invoice_number,amount_due_minor,amount_paid_minor,currency,billing_email,due_at,hosted_invoice_url,invoice_pdf_url,sent_at,paid_at,voided_at,last_error,created_at,updated_at").eq("packet_id", packet.id).maybeSingle(),
       database.from("invoice_jobs").select("status,attempts,plan,last_error,created_at,updated_at,completed_at").eq("packet_id", packet.id).maybeSingle(),
+      database.from("privacy_record_amendments").select("field_name,previous_value,corrected_value,reason,created_at").eq("record_id", packet.record_id).order("created_at"),
     ]);
+    const relatedError = invoiceError ?? invoiceJobError ?? correctionError;
+    if (relatedError) throw new Error(relatedError.message);
 
     const exportedAt = new Date().toISOString();
     const body = {
@@ -58,6 +61,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
         receiptSha256: packet.receipt_sha256,
       },
       invoicing: { provider: invoice || invoiceJob ? "Stripe" : null, invoice: invoice ?? null, job: invoiceJob ?? null },
+      corrections: corrections ?? [],
       retention: { packetCreatedAt: packet.created_at, reviewExpiresAt: packet.expires_at, policy: "See /records and /privacy" },
       auditChain: events ?? [],
     };

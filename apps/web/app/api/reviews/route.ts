@@ -8,6 +8,7 @@ import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { assertReviewSnapshotIntegrity } from "@/lib/review-session";
 import { logProductEvent } from "@/lib/operations";
 import { assertFrozenInvoicePlan } from "@/lib/invoice-plan";
+import { validateVerificationManifest } from "@/lib/verification-manifest";
 
 const schema = z.object({ recordId: z.string().uuid(), runId: z.string().uuid() });
 
@@ -32,6 +33,8 @@ export async function POST(request: Request) {
     const resultIds = results.map((result) => (result as { criterionId?: string }).criterionId);
     const checkIds = checks.map((check) => check.criterionId);
     const completeCoverage = checks.length > 0 && results.length === checks.length && artifacts.length === checks.length && new Set(resultIds).size === checks.length && checkIds.every((id) => resultIds.includes(id) && artifacts.some((artifact) => artifact.criterionId === id && /^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")));
+    const manifestValidation = validateVerificationManifest(record.confirmed_criteria, run.checks);
+    if (!manifestValidation.ok) return NextResponse.json({ error: "The run does not cover every frozen automated criterion. Rerun verification before sharing it." }, { status: 409, headers: noStoreJsonHeaders() });
     if (run.status !== "COMPLETED" || !completeCoverage || !run.manifest_sha256 || results.some((result) => (result as { status?: string }).status !== "PASS")) return NextResponse.json({ error: "Only a complete passing run with matching stored evidence can be sent for review." }, { status: 409, headers: noStoreJsonHeaders() });
     if (run.criteria_revision !== record.criteria_revision) return NextResponse.json({ error: "The criteria changed since this run completed. Rerun verification before sending for review." }, { status: 409, headers: noStoreJsonHeaders() });
     const { data: activePacket, error: activePacketError } = await database.from("review_packets_v2").select("public_id,expires_at").eq("record_id", record.id).is("decision", null).is("revoked_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
