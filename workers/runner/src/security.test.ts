@@ -9,7 +9,7 @@ describe("isUnsafeAddress", () => {
   });
 
   it("blocks loopback, unique-local, and link-local IPv6 ranges", () => {
-    for (const address of ["::1", "::", "fc00::1", "fd00::1", "fe80::1"]) {
+    for (const address of ["::1", "::", "fc00::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:7f00:1", "0:0:0:0:0:ffff:0a00:1"]) {
       expect(isUnsafeAddress(address), address).toBe(true);
     }
   });
@@ -47,6 +47,7 @@ describe("addressMatchesFrozenSet", () => {
     expect(addressMatchesFrozenSet("93.184.216.34", ["93.184.216.34", "2606:4700:4700::1111"])).toBe(true);
     expect(addressMatchesFrozenSet("93.184.216.35", ["93.184.216.34"])).toBe(false);
     expect(addressMatchesFrozenSet("127.0.0.1", ["127.0.0.1"])).toBe(false);
+    expect(addressMatchesFrozenSet("::ffff:127.0.0.1", ["::ffff:127.0.0.1"])).toBe(false);
   });
 });
 

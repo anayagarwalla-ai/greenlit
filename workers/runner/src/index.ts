@@ -23,7 +23,7 @@ type EvidenceArtifact = {
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
-const RUNNER_VERSION = "0.7.0";
+const RUNNER_VERSION = "0.7.1";
 const JOB_DEADLINE_MS = 48_000;
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });

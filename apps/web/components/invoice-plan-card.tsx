@@ -31,6 +31,8 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
   const [confirmOpenedAt, setConfirmOpenedAt] = useState(0);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState("");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const confirmDialogRef = useRef<HTMLElement>(null);
   const confirmTriggerRef = useRef<HTMLElement | null>(null);
   const confirmBusyRef = useRef(false);
@@ -44,6 +46,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
     ]).then(([stripe, planPayload]) => {
       if (cancelled) return;
       setConnection(stripe as StripeConnection);
+      setLoadState("ready");
       const plan = planPayload.plan as SavedPlan | null;
       if (plan) {
         setBillingName(plan.billingName);
@@ -53,9 +56,9 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
         setAutoSend(plan.autoSend);
         setCustomerId(plan.stripeCustomerId ?? null);
       }
-    }).catch(() => { if (!cancelled) setMessage({ kind: "error", text: "Invoice setup could not be loaded. Check the connection and reopen this step — nothing was changed." }); });
+    }).catch(() => { if (!cancelled) { setLoadState("error"); setMessage({ kind: "error", text: "Invoice setup could not be loaded. Nothing was changed." }); } });
     return () => { cancelled = true; };
-  }, [recordId]);
+  }, [recordId, loadAttempt]);
 
   // Confirmation-dialog accessibility: initial focus on the heading, Tab
   // trapped inside, Escape closes, and focus returns to the opener. Capture
@@ -186,7 +189,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
 
   return <section className="panel invoice-plan-card" aria-labelledby={`invoice-plan-${recordId}`}>
     <div className="panel-header"><div><h3 id={`invoice-plan-${recordId}`}><CreditCard size={17} /> Stripe invoice</h3><p>{formattedAmount} for this exact milestone. Greenlit never handles the client’s payment details.</p></div>{connected && <span className={`status-badge ${livemode ? "status-badge--fail" : "status-badge--pass"}`}><Check size={11} /> {livemode ? "Live mode connected" : "Test mode connected"}</span>}</div>
-    {!connection ? <div className="invoice-connection-state"><LoaderCircle className="spin" size={17} /> Checking Stripe connection…</div> : !connection.configured ? <div className="analysis-notice"><div><strong>Stripe sandbox setup is not configured yet.</strong><span>Add the server-side Stripe app credentials before testers use invoicing.</span></div></div> : !connected ? <div className="invoice-connect"><div><strong>Connect the agency’s Stripe account</strong><p>Invoices belong to the agency and use Stripe’s hosted payment page.</p>{connection.connection?.lastError && <span>{connection.connection.lastError}</span>}</div><a className="button button--ink button--small" href="/api/stripe/install">Connect Stripe <ExternalLink size={13} /></a></div> : <form onSubmit={submit}>
+    {loadState === "loading" ? <div className="invoice-connection-state"><LoaderCircle className="spin" size={17} /> Checking Stripe connection…</div> : loadState === "error" ? <div className="analysis-error" role="alert"><span>{message?.text ?? "Invoice setup could not be loaded."}</span><button type="button" className="mini-action" onClick={() => { setLoadState("loading"); setMessage(null); setLoadAttempt((value) => value + 1); }}>Retry</button></div> : !connection?.configured ? <div className="analysis-notice"><div><strong>Stripe sandbox setup is not configured yet.</strong><span>Add the server-side Stripe app credentials before testers use invoicing.</span></div></div> : !connected ? <div className="invoice-connect"><div><strong>Connect the agency’s Stripe account</strong><p>Invoices belong to the agency and use Stripe’s hosted payment page.</p>{connection.connection?.lastError && <span>{connection.connection.lastError}</span>}</div><a className="button button--ink button--small" href="/api/stripe/install">Connect Stripe <ExternalLink size={13} /></a></div> : <form onSubmit={submit}>
       {!livemode && <p className="invoice-mode-note">Test mode: invoices are created as Stripe test drafts and are never emailed to the client.</p>}
       <div className="invoice-fields">
         <label>Billing contact name<input value={billingName} onChange={(event) => setBillingName(event.target.value)} minLength={2} maxLength={160} autoComplete="organization" required /></label>

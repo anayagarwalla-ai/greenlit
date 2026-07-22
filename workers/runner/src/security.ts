@@ -27,7 +27,9 @@ export function isUnsafeAddress(address: string): boolean {
   }
   if (address.includes(":")) {
     const normalized = address.toLowerCase();
-    return normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("2001:db8");
+    const ipv4Mapped = normalized.startsWith("::ffff:")
+      || /^0*:0*:0*:0*:0*:ffff:/i.test(normalized);
+    return ipv4Mapped || normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("2001:db8");
   }
   return true;
 }

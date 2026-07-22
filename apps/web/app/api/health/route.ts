@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
-const EXPECTED_RUNNER_VERSION = "0.7.0";
+const EXPECTED_RUNNER_VERSION = "0.7.1";
 
 export async function GET(request: Request) {
   const checkedAt = new Date().toISOString();

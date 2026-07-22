@@ -181,7 +181,25 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         }).catch(() => undefined);
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "The decision could not be recorded.");
+      const originalMessage = submitError instanceof Error ? submitError.message : "The decision could not be recorded.";
+      try {
+        // The decision transaction (and an automatic invoice job) may have
+        // committed even if the response was lost. Re-read before presenting
+        // failure or allowing another submission.
+        const statusResponse = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`, { cache: "no-store" });
+        const refreshed = await statusResponse.json() as PacketResponse & { error?: string };
+        if (statusResponse.ok && refreshed.decision) {
+          setPacket(refreshed);
+          setDialog(null);
+          setError("");
+        } else if (!statusResponse.ok) {
+          setError(`We could not confirm whether the decision was recorded. Do not resubmit yet; refresh this page or ask the agency to check the retained record. ${refreshed.error ?? originalMessage}`);
+        } else {
+          setError(originalMessage);
+        }
+      } catch {
+        setError("We could not confirm whether the decision was recorded. Do not resubmit yet; refresh this page or ask the agency to check the retained record.");
+      }
     } finally { setSubmitting(false); }
   };
 

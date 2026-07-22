@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { betaAccessAllowedFresh } from "@/lib/beta-access";
+import { betaEmailAllowed } from "@/lib/beta-access";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { requireSupabaseAdmin } from "@/lib/database";
@@ -13,9 +13,6 @@ export async function POST(request: Request) {
   if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid business email." }, { status: 422, headers: noStoreJsonHeaders() });
-  if (!await betaAccessAllowedFresh(parsed.data.email)) {
-    return NextResponse.json({ error: "This email is not on the closed-beta invite list. Ask the Greenlit operator for an invitation before signing in." }, { status: 403, headers: noStoreJsonHeaders() });
-  }
   let identityReady = false;
   try {
     const database = requireSupabaseAdmin();
@@ -23,6 +20,7 @@ export async function POST(request: Request) {
     const { data: existingInvite, error: inviteReadError } = await database.from("beta_invites").select("status").eq("email", normalizedEmail).maybeSingle();
     if (inviteReadError) throw inviteReadError;
     if (existingInvite?.status === "REMOVED") return NextResponse.json({ error: "This beta invitation was removed. Contact the Greenlit operator." }, { status: 403, headers: noStoreJsonHeaders() });
+    if (!existingInvite && !betaEmailAllowed(normalizedEmail)) return NextResponse.json({ error: "This email is not on the closed-beta invite list. Ask the Greenlit operator for an invitation before signing in." }, { status: 403, headers: noStoreJsonHeaders() });
     if (!existingInvite) {
       const { error: reservationError } = await database.from("beta_invites").insert({ email: normalizedEmail, status: "INVITED", adult_sponsor: process.env.NEXT_PUBLIC_OPERATOR_NAME || null, invited_by: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "configured allowlist", last_sign_in_requested_at: null, removed_at: null });
       if (reservationError) throw reservationError;

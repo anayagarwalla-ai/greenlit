@@ -38,7 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { VerificationSetup, type CustomRunConfiguration } from "@/components/verification-setup";
+import { VerificationSetup, type CustomRunConfiguration, type VerificationSetupDraft } from "@/components/verification-setup";
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
 import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
@@ -53,6 +53,7 @@ import {
   legacyDraftStorageKey,
   purgeExpiredAnonymousDrafts,
   readProjectDraft,
+  readProjectDraftSavedAt,
   removeProjectDraft,
   saveProjectDraft,
 } from "@/lib/client-storage";
@@ -145,6 +146,9 @@ type WorkspaceDraft = {
   // non-secret packet id is persisted so a resumed session can look up its
   // current decision through the owner's authenticated session.
   reviewPacketId: string;
+  savedAt?: string;
+  runRequestId?: string | null;
+  verificationDraft?: VerificationSetupDraft | null;
 };
 
 async function fileToBase64(file: File): Promise<string> {
@@ -252,11 +256,15 @@ export function MilestoneStudio() {
   const [changeRequest, setChangeRequest] = useState("");
   const [sessionEmail, setSessionEmail] = useState("");
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
+  const [verificationDraft, setVerificationDraft] = useState<VerificationSetupDraft | null>(null);
+  const [runRequestId, setRunRequestId] = useState<string | null>(null);
   const [retainedFixtureRecord, setRetainedFixtureRecord] = useState(false);
   const [draftId, setDraftId] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [pollNetworkFailure, setPollNetworkFailure] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
+  const [restorePending, setRestorePending] = useState(true);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const draftHydrated = useRef(false);
@@ -291,7 +299,10 @@ export function MilestoneStudio() {
     customRun: customRun ? { ...customRun, originReceipt: "" } : null,
     retainedFixtureRecord,
     reviewPacketId,
-  }), [draftId, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId]);
+    savedAt: new Date().toISOString(),
+    runRequestId,
+    verificationDraft,
+  }), [draftId, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId, runRequestId, verificationDraft]);
 
   useEffect(() => {
     if (!toast) return;
@@ -334,6 +345,8 @@ export function MilestoneStudio() {
       setRecordId(draft.recordId ?? null);
       setLatestRun(draft.latestRun ?? null);
       setCustomRun(draft.customRun ?? null);
+      setVerificationDraft(draft.verificationDraft ?? null);
+      setRunRequestId(draft.runRequestId ?? null);
       setRetainedFixtureRecord(Boolean(draft.retainedFixtureRecord));
       setReviewPacketId(draft.reviewPacketId ?? "");
       setReviewCreated(Boolean(draft.reviewPacketId));
@@ -371,8 +384,12 @@ export function MilestoneStudio() {
       try {
         const response = await fetch("/api/account/session", { cache: "no-store" });
         const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "Your sign-in session could not be checked.");
         email = payload.user?.email ?? "";
-      } catch { /* treated as signed out below */ }
+      } catch (cause) {
+        if (!cancelled) { setRestoreError(cause instanceof Error ? cause.message : "Your sign-in session could not be checked. Retry before editing so an existing project is not replaced."); setRestorePending(false); }
+        return;
+      }
       if (cancelled) return;
       setSessionEmail(email);
       setStorageBlocked(!isDraftStorageAvailable());
@@ -384,6 +401,7 @@ export function MilestoneStudio() {
         window.history.replaceState({}, "", "/workspace");
         launchDemoRef.current();
         draftHydrated.current = true;
+        setRestorePending(false);
         return;
       }
       const resumeId = currentUrl.searchParams.get("record");
@@ -397,33 +415,43 @@ export function MilestoneStudio() {
           const record = resumed.record;
           const savedWorkspace = record.workspace_state && typeof record.workspace_state === "object" ? record.workspace_state as Partial<WorkspaceDraft> : null;
           let localWorkspace: Partial<WorkspaceDraft> | null = null;
+          let localSavedAt: number | null = null;
           try {
-            const localRaw = readProjectDraft(email, savedWorkspace?.draftId || record.id);
+            const localDraftId = savedWorkspace?.draftId || record.id;
+            const localRaw = readProjectDraft(email, localDraftId);
             const parsedLocal = localRaw ? JSON.parse(localRaw) as Partial<WorkspaceDraft> : null;
-            if (parsedLocal?.version === 4 && parsedLocal.recordId === record.id) localWorkspace = parsedLocal;
+            if (parsedLocal?.version === 4 && parsedLocal.recordId === record.id) {
+              localWorkspace = parsedLocal;
+              localSavedAt = readProjectDraftSavedAt(email, localDraftId);
+            }
           } catch { /* A local convenience copy must never block the retained record. */ }
-          const restoredCriteria = (savedWorkspace?.version === 4 && Array.isArray(savedWorkspace.criteria) ? savedWorkspace.criteria : record.confirmed_criteria ?? []) as AnalysisCriterion[];
+          const serverSavedAt = Date.parse(record.updated_at ?? "");
+          const preferLocal = Boolean(localWorkspace && localSavedAt && (!Number.isFinite(serverSavedAt) || localSavedAt > serverSavedAt));
+          const editableWorkspace = preferLocal ? localWorkspace : savedWorkspace;
+          const restoredCriteria = (editableWorkspace?.version === 4 && Array.isArray(editableWorkspace.criteria) ? editableWorkspace.criteria : record.confirmed_criteria ?? []) as AnalysisCriterion[];
           const latest = resumed.runs?.[0];
           const latestReview = resumed.reviews?.[0];
           setRecordId(record.id);
-          setDraftId(savedWorkspace?.draftId || record.id);
+          setDraftId(editableWorkspace?.draftId || record.id);
           const isImportedFixture = record.mode === "IMPORTED_FIXTURE";
           setRetainedFixtureRecord(isImportedFixture);
-          setBusiness(savedWorkspace?.version === 4 && savedWorkspace.business ? savedWorkspace.business : { agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
-          setSourceName(localWorkspace?.sourceName ?? (savedWorkspace?.version === 4 ? savedWorkspace.sourceName ?? record.source_name : record.source_name));
+          setBusiness(editableWorkspace?.version === 4 && editableWorkspace.business ? editableWorkspace.business : { agencyName: record.agency_name, clientName: record.client_name, projectName: record.project_name, milestoneTitle: record.milestone_title, amountDollars: (Number(record.amount_minor) / 100).toFixed(2), currency: record.currency });
+          setSourceName(localWorkspace?.sourceName ?? editableWorkspace?.sourceName ?? record.source_name);
           setSourceText(localWorkspace?.sourceText?.trim()
             ? localWorkspace.sourceText
-            : savedWorkspace?.version === 4 && savedWorkspace.sourceText?.trim()
-              ? savedWorkspace.sourceText
+            : editableWorkspace?.version === 4 && editableWorkspace.sourceText?.trim()
+              ? editableWorkspace.sourceText
             : restoredCriteria.map((item) => item.sourceQuote).filter(Boolean).join("\n\n"));
           if (localWorkspace?.selectedFileMeta) { setSelectedFileMeta(localWorkspace.selectedFileMeta); setSelectedFile(base64ToFile(localWorkspace.selectedFileMeta)); }
           setCriteria(restoredCriteria.map((item) => ({ ...item, grounded: true, rationale: item.rationale ?? "Retained confirmed criterion" })));
-          setConfirmed(savedWorkspace?.version === 4 ? savedWorkspace.confirmed ?? {} : Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
-          setAttested(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.attested) : true);
-          setAiDisclosureAccepted(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.aiDisclosureAccepted) : true);
-          setAdultBusinessUseAttested(savedWorkspace?.version === 4 ? Boolean(savedWorkspace.adultBusinessUseAttested) : true);
-          setModel(savedWorkspace?.model ?? "Gemini");
-          setAnalysisNotice(savedWorkspace?.analysisNotice ?? "");
+          setConfirmed(editableWorkspace?.version === 4 ? editableWorkspace.confirmed ?? {} : Object.fromEntries(restoredCriteria.map((item) => [item.id, true])));
+          setAttested(editableWorkspace?.version === 4 ? Boolean(editableWorkspace.attested) : true);
+          setAiDisclosureAccepted(editableWorkspace?.version === 4 ? Boolean(editableWorkspace.aiDisclosureAccepted) : true);
+          setAdultBusinessUseAttested(editableWorkspace?.version === 4 ? Boolean(editableWorkspace.adultBusinessUseAttested) : true);
+          setModel(editableWorkspace?.model ?? "Gemini");
+          setAnalysisNotice(editableWorkspace?.analysisNotice ?? "");
+          setRunRequestId(editableWorkspace?.runRequestId ?? null);
+          setVerificationDraft(editableWorkspace?.verificationDraft ?? null);
           setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
           // An approved record is a terminal, finalized state — send the
           // agency straight to its receipt instead of reopening it inside
@@ -436,7 +464,7 @@ export function MilestoneStudio() {
             const run: RunResponse = { runId: latest.id, recordId: record.id, status: latest.status, outcome: latest.status === "COMPLETED" ? (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW" || record.status === "APPROVED" ? "READY_FOR_REVIEW" : "NEEDS_WORK") : null, buildUrl: latest.build_url, buildLabel: latest.build_label, results: latest.results ?? [], artifacts: latest.artifacts ?? [], browserVersion: latest.browser_version, runnerVersion: latest.runner_version, manifestSha256: latest.manifest_sha256, error: latest.last_error, startedAt: latest.started_at, completedAt: latest.completed_at, record: { public_id: record.public_id, revision: record.criteria_revision ?? record.revision, confirmed_criteria: restoredCriteria } };
             setLatestRun(run);
             const savedChecks = Array.isArray(latest.checks) ? latest.checks : [];
-            if (savedWorkspace?.version === 4 && savedWorkspace.customRun) setCustomRun({ ...savedWorkspace.customRun, originReceipt: "" });
+            if (editableWorkspace?.version === 4 && editableWorkspace.customRun) setCustomRun({ ...editableWorkspace.customRun, originReceipt: "" });
             else if (savedChecks.length && !isImportedFixture) setCustomRun({ targetUrl: latest.target_origin, originReceipt: "", buildLabel: latest.build_label, checks: savedChecks });
             else if (isImportedFixture) setCustomRun(null);
             const openReview = (resumed.reviews as Array<{ decision?: string | null; public_id: string }> ?? []).find((item) => !item.decision);
@@ -447,15 +475,18 @@ export function MilestoneStudio() {
           } else setPhase("criteria");
           setToast("Retained project restored");
           draftHydrated.current = true;
+          setRestorePending(false);
           return;
-        } catch {
-          // Fall through to the local-draft restore below.
+        } catch (cause) {
+          if (!cancelled) { setRestoreError(cause instanceof Error ? cause.message : "The retained workspace could not be restored. Retry before editing so an older local copy does not replace it."); setRestorePending(false); }
+          return;
         }
       }
       if (cancelled) return;
       const claimed = email ? claimPendingAnonymousDraft(email) : null;
       restoreLocalDraft(email, requestedDraftId, claimed);
       draftHydrated.current = true;
+      setRestorePending(false);
     };
     void restore();
 
@@ -517,7 +548,17 @@ export function MilestoneStudio() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ workspaceState: workspaceSnapshot(false) }),
         signal: controller.signal,
-      }).catch(() => undefined);
+      }).then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error ?? "The retained workspace could not be saved.");
+        }
+        setSaveState("saved");
+      }).catch((cause) => {
+        if (controller.signal.aborted) return;
+        setSaveState("error");
+        setRunError(cause instanceof Error ? cause.message : "The retained workspace could not be saved.");
+      });
     }, 450);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [sourceMode, recordId, sessionEmail, workspaceSnapshot]);
@@ -614,6 +655,8 @@ export function MilestoneStudio() {
     setReviewPacketId("");
     setChangeRequest("");
     setCustomRun(null);
+    setVerificationDraft(null);
+    setRunRequestId(null);
     setRetainedFixtureRecord(false);
     setBusiness({ agencyName: "", clientName: "", projectName: "", milestoneTitle: "", amountDollars: "", currency: "USD" });
     if (previousDraftId) removeProjectDraft(sessionEmail, previousDraftId);
@@ -648,6 +691,8 @@ export function MilestoneStudio() {
     setReviewUrl("");
     setReviewPacketId("");
     setCustomRun(null);
+    setVerificationDraft(null);
+    setRunRequestId(null);
     setRetainedFixtureRecord(false);
     clearLegacyGlobalDraftState();
     setSaveState("idle");
@@ -800,12 +845,16 @@ export function MilestoneStudio() {
       if (!sessionEmail) throw new Error("Sign in before creating a retained verification run.");
       if (!canUseImportedFixture && !activeCustomRun) throw new Error("Verify the staging origin and map the browser checks before running evidence.");
       const sourceSha256 = await browserSha256(sourceText);
+      const requestId = runRequestId ?? crypto.randomUUID();
+      setRunRequestId(requestId);
+      if (draftId) saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...workspaceSnapshot(true), runRequestId: requestId, savedAt: new Date().toISOString() }));
       const response = await fetch("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
           recordId: recordId ?? undefined,
+          requestId,
           version: second ? "rc2" : "rc1",
           sourceMode,
           sourceName,
@@ -824,9 +873,13 @@ export function MilestoneStudio() {
         }),
       });
       const created = await response.json();
+      if (created.recordId) {
+        setRecordId(created.recordId);
+        window.history.replaceState({}, "", `/workspace?record=${encodeURIComponent(created.recordId)}`);
+        setRunRequestId(null);
+      }
       if (!response.ok) throw new Error(created.error ?? "The verification run could not be created.");
-      setRecordId(created.recordId);
-      window.history.replaceState({}, "", `/workspace?record=${encodeURIComponent(created.recordId)}`);
+      setRunRequestId(null);
       setRetainedFixtureRecord(!activeCustomRun);
       setLatestRun({ runId: created.runId, recordId: created.recordId, status: created.status ?? "QUEUED", buildUrl: activeCustomRun?.targetUrl ?? window.location.origin, buildLabel: activeCustomRun?.buildLabel ?? `launch-${second ? "rc2" : "rc1"}`, results: [], artifacts: [] });
       const deadline = Date.now() + 12 * 60_000;
@@ -973,6 +1026,22 @@ export function MilestoneStudio() {
           ? "Client review is ready"
           : "Verification evidence";
 
+  if (restorePending || restoreError) {
+    return (
+      <main className="app-shell">
+        <header className="app-topbar"><Brand inverse /></header>
+        <section className="panel loading-panel" role="alert">
+          <div className="loading-content">
+            {restorePending ? <LoaderCircle className="spin" size={30} /> : <AlertTriangle size={30} />}
+            <h1>{restorePending ? "Restoring your workspace…" : "We could not safely restore this workspace."}</h1>
+            <p>{restorePending ? "Checking your session and newest retained project state before editing is enabled." : restoreError}</p>
+            {!restorePending && <><p>Your browser copy has not been overwritten. Retry once the connection is stable.</p><button type="button" className="button button--ink" onClick={() => window.location.reload()}><RefreshCw size={15} /> Retry restoration</button></>}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="app-topbar">
@@ -1071,11 +1140,13 @@ export function MilestoneStudio() {
               setConfirmed={setConfirmed}
               model={model}
               notice={analysisNotice}
+              recordId={recordId}
+              onSourceReattached={(text, name, file) => { setSourceText(text); setSourceName(name); setSelectedFile(file); setToast("Original SOW reattached and hash-matched"); }}
               fixtureCompatible={canUseImportedFixture}
               onContinue={continueFromCriteria}
             />
           )}
-          {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
+          {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} initialDraftState={verificationDraft} onDraftChange={setVerificationDraft} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
@@ -1231,7 +1302,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   );
 }
 
-function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, notice, fixtureCompatible: canRunFixture, onContinue }: {
+function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria, confirmed, setConfirmed, model, notice, recordId, onSourceReattached, fixtureCompatible: canRunFixture, onContinue }: {
   sourceName: string;
   sourceText: string;
   criteria: AnalysisCriterion[];
@@ -1240,9 +1311,14 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   setConfirmed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   model: string;
   notice: string;
+  recordId: string | null;
+  onSourceReattached: (text: string, name: string, file: File) => void;
   fixtureCompatible: boolean;
   onContinue: () => void;
 }) {
+  const reattachInput = useRef<HTMLInputElement>(null);
+  const [reattachBusy, setReattachBusy] = useState(false);
+  const [reattachError, setReattachError] = useState("");
   const citations = criteria.map((item) => item.sourceQuote);
   const sourceLines = sourceText.split("\n");
   const readyIds = criteria.filter((item) => isCriterionReady(sourceText, item)).map((item) => item.id);
@@ -1289,11 +1365,24 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
       return next;
     });
   };
+  const reattachSource = async (file: File | null) => {
+    if (!file || !recordId) return;
+    setReattachBusy(true); setReattachError("");
+    try {
+      const form = new FormData(); form.set("file", file);
+      const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, { method: "POST", body: form });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The source could not be reattached.");
+      onSourceReattached(payload.sourceText, payload.sourceName, file);
+    } catch (cause) { setReattachError(cause instanceof Error ? cause.message : "The source could not be reattached."); }
+    finally { setReattachBusy(false); if (reattachInput.current) reattachInput.current.value = ""; }
+  };
 
   return (
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div></div>
+        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Reattach original SOW</button></>}</div>
+        {reattachError && <div className="analysis-error" role="alert">{reattachError}</div>}
         <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by the draft. Every citation is checked against this extracted source.</span></div>
         <div className="document-page live-document" tabIndex={0} aria-label="Scrollable extracted source document">
           <div className="document-page__head"><span>Extracted source</span><span>{sourceLines.length} lines</span></div>

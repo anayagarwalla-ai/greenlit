@@ -9,12 +9,12 @@ import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@
 import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { RECORD_NOTICE_VERSION, requestActorHash } from "@/lib/recordkeeping";
+import { extractSourceFileText, SourceInputError } from "@/lib/source-extraction";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
 const MAX_SOURCE_LENGTH = 45_000;
-const MAX_FILE_BYTES = 1_500_000;
 const MAX_CRITERIA = 8;
 const GEMINI_TIMEOUT_MS = 8_000;
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
@@ -40,62 +40,25 @@ const extractedCriterionSchema = z.object({
 
 const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).min(1).max(MAX_CRITERIA) });
 
-class InputError extends Error {
-  constructor(message: string, readonly code: string, readonly status = 422) {
-    super(message);
-  }
-}
-
-function isSupportedTextFile(file: File) {
-  const name = file.name.toLowerCase();
-  return file.type.startsWith("text/") || name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".markdown");
-}
-
-async function extractFileText(file: File) {
-  if (file.size > MAX_FILE_BYTES) throw new InputError("Keep uploads under 1.5 MB so the complete draft can survive sign-in safely.", "FILE_TOO_LARGE", 413);
-  if (file.size === 0) throw new InputError("The selected file is empty.", "EMPTY_FILE");
-
-  const name = file.name.toLowerCase();
-  const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
-  if (isPdf) {
-    if (!("DOMMatrix" in globalThis)) await import("pdf-parse/worker");
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: new Uint8Array(await file.arrayBuffer()) });
-    try {
-      const result = await parser.getText();
-      const text = normalizeSourceText(result.text);
-      if (!text) throw new InputError("No selectable text was found in this PDF. Paste the SOW text instead.", "EMPTY_PDF");
-      return text;
-    } finally {
-      await parser.destroy();
-    }
-  }
-
-  if (!isSupportedTextFile(file)) {
-    throw new InputError("Upload a PDF, TXT, or Markdown SOW.", "UNSUPPORTED_FILE", 415);
-  }
-  return normalizeSourceText(await file.text());
-}
-
 async function readInput(request: Request) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     if (form.get("syntheticDataAttested") !== "true") {
-      throw new InputError("Confirm the SOW is synthetic or non-confidential before analysis.", "ATTESTATION_REQUIRED");
+      throw new SourceInputError("Confirm the SOW is synthetic or non-confidential before analysis.", "ATTESTATION_REQUIRED");
     }
     if (form.get("unpaidAiDisclosureAccepted") !== "true" || form.get("adultBusinessUseAttested") !== "true") {
-      throw new InputError("Accept the Gemini free-tier data notice and confirm adult business use before analysis.", "AI_NOTICE_REQUIRED");
+      throw new SourceInputError("Accept the Gemini free-tier data notice and confirm adult business use before analysis.", "AI_NOTICE_REQUIRED");
     }
     const file = form.get("file");
-    if (!(file instanceof File)) throw new InputError("Choose a SOW file to analyze.", "FILE_REQUIRED");
-    const text = await extractFileText(file);
+    if (!(file instanceof File)) throw new SourceInputError("Choose a SOW file to analyze.", "FILE_REQUIRED");
+    const text = await extractSourceFileText(file);
     return requestSchema.parse({ text, sourceName: file.name, syntheticDataAttested: true, unpaidAiDisclosureAccepted: true, adultBusinessUseAttested: true });
   }
 
   const body = await request.json().catch(() => null);
   const parsed = requestSchema.safeParse(body && typeof body === "object" ? { ...body, text: normalizeSourceText(String(body.text ?? "")) } : body);
-  if (!parsed.success) throw new InputError("Paste at least 80 characters of SOW text and confirm it is synthetic or non-confidential.", "INVALID_SOURCE");
+  if (!parsed.success) throw new SourceInputError("Paste at least 80 characters of SOW text and confirm it is synthetic or non-confidential.", "INVALID_SOURCE");
   return parsed.data;
 }
 
@@ -173,7 +136,7 @@ export async function POST(request: Request) {
   try {
     input = await readInput(request);
   } catch (error) {
-    if (error instanceof InputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    if (error instanceof SourceInputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
     return NextResponse.json({ error: "The SOW could not be read. Try pasting the text instead.", code: "SOURCE_READ_FAILED" }, { status: 422 });
   }

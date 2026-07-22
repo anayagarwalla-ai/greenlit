@@ -44,6 +44,8 @@ psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 -c "
 # 5. Run the functional checks (raises on any failed assertion)
 psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
   -f supabase/tests/01_atomic_rpc_functional_checks.sql
+psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
+  -f supabase/tests/02_beta_blocker_regression_checks.sql
 
 # 6. Tear down
 pg_ctl -D /tmp/mp-pgdata stop
@@ -78,3 +80,8 @@ This found and fixed one real bug before it could reach production: a
 `202607210001_external_beta_hardening.sql` listed one extra parameter type
 versus the function's actual signature, which would have made the migration
 fail outright on a fresh database (`function ... does not exist`).
+
+`02_beta_blocker_regression_checks.sql` locks in the release-blocker fixes:
+idempotent run creation, current-plan manual invoicing, receipt-link sessions,
+legal-hold/deletion mutual exclusion, and complete offboarding of external and
+financial workflows.

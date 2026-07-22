@@ -39,6 +39,7 @@ export function AgencyDashboard() {
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState("");
   const [reviewLinks, setReviewLinks] = useState<Record<string, string>>({});
+  const [receiptLinks, setReceiptLinks] = useState<Record<string, string>>({});
   const [invoiceRecord, setInvoiceRecord] = useState<RecordItem | null>(null);
   const [renderedAt] = useState(() => Date.now());
   const invoiceDialogRef = useRef<HTMLElement>(null);
@@ -112,6 +113,20 @@ export function AgencyDashboard() {
       if (!response.ok) throw new Error(payload.error ?? "The review could not be updated.");
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The review could not be updated."); }
+    finally { setBusy(""); }
+  };
+
+  const createReceiptLink = async (record: RecordItem) => {
+    if (!record.latestReview?.decision) return;
+    setBusy(`receipt:${record.id}`); setError("");
+    try {
+      const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The authorized receipt link could not be created.");
+      setReceiptLinks((current) => ({ ...current, [record.id]: payload.receiptUrl }));
+      try { await navigator.clipboard.writeText(payload.receiptUrl); setCopied(`receipt:${record.id}`); }
+      catch { setCopied(""); setError("Receipt link created, but clipboard access is unavailable. Select and copy the visible link manually."); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The authorized receipt link could not be created."); }
     finally { setBusy(""); }
   };
 
@@ -193,9 +208,11 @@ export function AgencyDashboard() {
               {record.status !== "APPROVED" && <Link className="button button--outline button--small" href={`/workspace?record=${record.id}` as Route}>{review?.decision === "CHANGES_REQUESTED" ? "Revise and rerun" : "Resume project"} <ArrowRight size={13} /></Link>}
               {canCreateReview && <button className="button button--ink button--small" onClick={() => void createReview(record)} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
               {review && !review.decision && !review.revoked_at && !expired && <><button className="text-action" onClick={() => void reviewAction(record, "extend")}><Clock3 size={12} /> Extend 72h</button><button className="text-action text-action--danger" onClick={() => void reviewAction(record, "revoke")}>Revoke</button></>}
+              {review?.decision === "APPROVED" && <button className="text-action" disabled={busy === `receipt:${record.id}`} onClick={() => void createReceiptLink(record)}><Clipboard size={12} /> {busy === `receipt:${record.id}` ? "Creating…" : "Create client receipt link"}</button>}
               {record.status === "APPROVED" && !noCharge && !record.latestInvoice && record.latestInvoiceJob?.status !== "PROCESSING" && record.latestInvoiceJob?.status !== "PENDING" && <button className="button button--ink button--small" onClick={(event) => { invoiceTriggerRef.current = event.currentTarget; setInvoiceRecord(record); }}><ReceiptText size={13} /> {record.latestInvoiceJob?.status === "FAILED" ? "Review & retry invoice" : data.stripe.connection?.livemode ? "Send invoice" : "Create test invoice"}</button>}
             </div>
               {reviewLinks[record.id] && <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={reviewLinks[record.id]} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(reviewLinks[record.id]!); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy"}</button><a href={reviewLinks[record.id]} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a></div>}
+              {receiptLinks[record.id] && <div className="dashboard-review-link"><input aria-label={`Client receipt link for ${record.milestone_title}`} readOnly value={receiptLinks[record.id]} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(receiptLinks[record.id]!); setCopied(`receipt:${record.id}`); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === `receipt:${record.id}` ? <Check size={12} /> : <Clipboard size={12} />} {copied === `receipt:${record.id}` ? "Copied" : "Copy"}</button><a href={receiptLinks[record.id]} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a></div>}
           </article>;
         })}</section>}
       </div>

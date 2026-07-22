@@ -33,6 +33,7 @@ declare
   v_checks jsonb := '[{"id":"CHK-01","criterionId":"AC-01","type":"element_state","path":"/","sourceQuote":"Required source quote","confirmedByHuman":true,"elementRef":"main:Content","assertion":"visible"}]'::jsonb;
 begin
   insert into auth.users(id, email) values (v_owner, 'agency@example.test');
+  insert into beta_invites(email,status,adult_sponsor,invited_by) values('agency@example.test','ACTIVE','Test operator','migration test');
 
   -- 0) The database itself rejects a run that omits any frozen automated criterion.
   begin
@@ -181,8 +182,12 @@ begin
   perform apply_stripe_invoice_event_atomic('evt_older_open','acct_greenlit','invoice.updated','in_greenlit',false,repeat('c',64),'open','INV-1',1000,0,'USD',now()+interval '14 days','https://invoice.test','https://invoice.test/pdf',now()-interval '1 hour');
   assert (select status from record_invoices where packet_id=v_packet_id)='PAID', 'an older webhook must not regress a paid invoice';
   assert (select status from stripe_webhook_events where event_id='evt_older_open')='IGNORED', 'older webhook event should be retained as ignored';
-  assert remove_invoice_plan_atomic(v_record_id,v_owner,'ownerActor'), 'saved invoice plan should be removable after approval';
-  assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='INVOICE_PLAN_REMOVED'), 'removing an invoice plan must append its audit event';
+  begin
+    perform remove_invoice_plan_atomic(v_record_id,v_owner,'ownerActor');
+    raise exception 'CHECK 7b FAILED: invoice details must not be removable after a send attempt';
+  exception when others then
+    if sqlerrm like 'CHECK 7b FAILED%' then raise; end if;
+  end;
   assert disconnect_stripe_account_atomic(v_owner,now(),'functional test'), 'connected Stripe account should disconnect';
   assert exists(select 1 from stripe_connection_events where owner_user_id=v_owner and event_type='DISCONNECTED'), 'Stripe disconnection history should be durable';
   raise notice 'CHECK 7b PASSED: invoice and Stripe state transitions are atomic, test-safe, and monotonic';

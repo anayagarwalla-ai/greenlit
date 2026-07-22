@@ -79,12 +79,20 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
       return () => window.clearTimeout(timer);
     }
     let cancelled = false;
-    void fetch(`/api/reviews/${encodeURIComponent(packetId)}`).then(async (response) => {
+    void (async () => {
+      const token = new URLSearchParams(window.location.hash.slice(1)).get("t");
+      if (token) {
+        const redeemResponse = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/receipt-redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+        const redeemed = await redeemResponse.json();
+        if (!redeemResponse.ok) throw new Error(redeemed.error ?? "This receipt link is invalid or expired.");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The approval record is unavailable.");
       if (payload.decision !== "APPROVED") throw new Error("This packet does not have an approval record.");
       if (!cancelled) setPacket(payload);
-    }).catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "The approval record is unavailable."); });
+    })().catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "The approval record is unavailable."); });
     return () => { cancelled = true; };
   }, [demo, packetId]);
 

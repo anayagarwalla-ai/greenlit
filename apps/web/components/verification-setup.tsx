@@ -31,6 +31,16 @@ export type CustomRunConfiguration = {
   checks: CheckSpec[];
 };
 
+export type VerificationSetupDraft = {
+  target: string;
+  token: string;
+  receipt: string;
+  verifiedOrigin: string;
+  buildLabel: string;
+  drafts: Record<string, CheckDraft>;
+  evidenceConsent: boolean;
+};
+
 export function initialDraft(): CheckDraft {
   return {
     path: "/",
@@ -175,36 +185,42 @@ function MappingFields({ criterion, draft, update, error }: { criterion: Analysi
   );
 }
 
-export function VerificationSetup({ criteria, sourceName, signedInEmail, initialConfiguration, onBack, onDemo, onRun }: {
+export function VerificationSetup({ criteria, sourceName, signedInEmail, initialConfiguration, initialDraftState, onDraftChange, onBack, onDemo, onRun }: {
   criteria: AnalysisCriterion[];
   sourceName: string;
   signedInEmail: string;
   initialConfiguration?: CustomRunConfiguration | null;
+  initialDraftState?: VerificationSetupDraft | null;
+  onDraftChange?: (draft: VerificationSetupDraft) => void;
   onBack: () => void;
   onDemo: () => void;
   onRun: (configuration: CustomRunConfiguration) => void;
 }) {
   const automated = useMemo(() => criteria.filter((item) => item.supported && item.checkType !== "manual"), [criteria]);
-  const [target, setTarget] = useState(initialConfiguration?.targetUrl ?? "");
-  const [token, setToken] = useState("");
-  const [receipt, setReceipt] = useState(initialConfiguration?.originReceipt ?? "");
-  const [verifiedOrigin, setVerifiedOrigin] = useState(initialConfiguration?.originReceipt ? initialConfiguration.targetUrl : "");
-  const [buildLabel, setBuildLabel] = useState(initialConfiguration?.buildLabel ?? "beta-rc1");
-  const [drafts, setDrafts] = useState<Record<string, CheckDraft>>({});
+  const [target, setTarget] = useState(initialDraftState?.target ?? initialConfiguration?.targetUrl ?? "");
+  const [token, setToken] = useState(initialDraftState?.token ?? "");
+  const [receipt, setReceipt] = useState(initialDraftState?.receipt ?? initialConfiguration?.originReceipt ?? "");
+  const [verifiedOrigin, setVerifiedOrigin] = useState(initialDraftState?.verifiedOrigin ?? (initialConfiguration?.originReceipt ? initialConfiguration.targetUrl : ""));
+  const [buildLabel, setBuildLabel] = useState(initialDraftState?.buildLabel ?? initialConfiguration?.buildLabel ?? "beta-rc1");
+  const [drafts, setDrafts] = useState<Record<string, CheckDraft>>(initialDraftState?.drafts ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
-  const [evidenceConsent, setEvidenceConsent] = useState(false);
+  const [evidenceConsent, setEvidenceConsent] = useState(Boolean(initialDraftState?.evidenceConsent));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setToken(`mp_${crypto.randomUUID().replaceAll("-", "")}`);
+      setToken((current) => current || `mp_${crypto.randomUUID().replaceAll("-", "")}`);
       const saved = new Map(initialConfiguration?.checks.map((check) => [check.criterionId, check]));
-      setDrafts(Object.fromEntries(automated.map((item) => [item.id, saved.get(item.id) ? draftFromCheck(saved.get(item.id)!) : initialDraft()])));
+      setDrafts((current) => Object.fromEntries(automated.map((item) => [item.id, current[item.id] ?? (saved.get(item.id) ? draftFromCheck(saved.get(item.id)!) : initialDraft())])));
     }, 0);
     return () => window.clearTimeout(timer);
   }, [automated, initialConfiguration]);
+
+  useEffect(() => {
+    onDraftChange?.({ target, token, receipt, verifiedOrigin, buildLabel, drafts, evidenceConsent });
+  }, [target, token, receipt, verifiedOrigin, buildLabel, drafts, evidenceConsent, onDraftChange]);
 
   const verify = async () => {
     setBusy(true);

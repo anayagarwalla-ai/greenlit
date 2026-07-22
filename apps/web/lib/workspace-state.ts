@@ -7,6 +7,8 @@ const PRIVATE_WORKSPACE_KEYS = new Set([
   "bearerToken",
   "ownerToken",
   "sessionToken",
+  "token",
+  "receipt",
 ]);
 
 /**

@@ -43,6 +43,13 @@ function draftSavedAtKey(email: string | null | undefined, draftId: string): str
   return `greenlit-draft-saved-${DRAFT_VERSION}:${ownerKey(email)}:${draftId}`;
 }
 
+export function readProjectDraftSavedAt(email: string | null | undefined, draftId: string): number | null {
+  try {
+    const value = Number(window.localStorage.getItem(draftSavedAtKey(email, draftId)));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch { return null; }
+}
+
 function readIndex(email: string | null | undefined): string[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(draftIndexKey(email)) ?? "[]");

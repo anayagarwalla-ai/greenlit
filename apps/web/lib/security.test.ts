@@ -6,7 +6,7 @@ describe("staging target security", () => {
     expect(validateStagingUrl(target).ok).toBe(false);
   });
   it("accepts a public HTTPS hostname", () => expect(validateStagingUrl("https://staging.example.com/build-7").ok).toBe(true));
-  it.each(["10.0.0.1", "172.16.1.1", "192.168.1.1", "127.0.0.1", "::1", "fd12::1"])("blocks private address %s", (address) => expect(isPrivateAddress(address)).toBe(true));
+  it.each(["10.0.0.1", "172.16.1.1", "192.168.1.1", "127.0.0.1", "::1", "fd12::1", "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:7f00:1", "0:0:0:0:0:ffff:0a00:1"])("blocks private or mapped address %s", (address) => expect(isPrivateAddress(address)).toBe(true));
   it("allows a public address", () => expect(isPrivateAddress("8.8.8.8")).toBe(false));
 });
 
@@ -22,4 +22,3 @@ describe("assertSafeResolvedAddresses (DNS-resolution-time SSRF guard)", () => {
     expect(() => assertSafeResolvedAddresses(["93.184.216.34", "8.8.8.8"])).not.toThrow();
   });
 });
-

@@ -23,7 +23,12 @@ export function isPrivateAddress(address: string): boolean {
   }
   if (isIP(address) === 6) {
     const normalized = address.toLowerCase();
-    return normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("2001:db8");
+    // Reject the entire IPv4-mapped IPv6 space. Checking only the embedded
+    // IPv4 value is easy to bypass with alternate IPv6 spellings, while a
+    // staging hostname never needs a mapped address for browser verification.
+    const ipv4Mapped = normalized.startsWith("::ffff:")
+      || /^0*:0*:0*:0*:0*:ffff:/i.test(normalized);
+    return ipv4Mapped || normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("2001:db8");
   }
   return true;
 }
@@ -44,4 +49,3 @@ export function validateStagingUrl(input: string): { ok: true; url: URL } | { ok
 export function assertSafeResolvedAddresses(addresses: string[]): void {
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) throw new Error("Target resolved to a private or reserved address.");
 }
-
