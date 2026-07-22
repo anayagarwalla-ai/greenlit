@@ -307,7 +307,7 @@ begin
   if exists(select 1 from public.evidence_artifacts_v2 where record_id=p_record_id and legal_hold) then return false; end if;
   insert into public.operational_events(severity,service,event_type,record_id,details)
   values('INFO','retention','TRANSACTION_RECORD_PURGED',null,jsonb_build_object('recordId',p_record_id,'processedAt',clock_timestamp()));
-  perform set_config('milestoneproof.retention_purge','on',true);
+  perform set_config('greenlit.retention_purge','on',true);
   delete from public.review_sessions_v2 where packet_id in(select id from public.review_packets_v2 where record_id=p_record_id);
   delete from public.review_packets_v2 where record_id=p_record_id;
   delete from public.privacy_record_amendments where record_id=p_record_id;

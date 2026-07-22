@@ -1,5 +1,5 @@
 {
-  "name": "@milestoneproof/runner",
+  "name": "@greenlit/runner",
   "version": "0.6.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@cloudflare/playwright": "^1.3.0",
-    "@milestoneproof/contracts": "workspace:*",
+    "@greenlit/contracts": "workspace:*",
     "axe-core": "^4.11.0",
     "zod": "^4.3.6"
   },

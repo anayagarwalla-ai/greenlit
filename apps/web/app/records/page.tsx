@@ -11,7 +11,7 @@ export default function RecordsPage() {
       <article>
         <div className="legal-kicker">Record integrity · version 2026-07-20</div>
         <h1>How transaction records work</h1>
-        <p className="legal-lede">MilestoneProof keeps the minimum record needed to reproduce who confirmed the scope, what build was checked, what the browser observed, and what decision the reviewer made.</p>
+        <p className="legal-lede">Greenlit keeps the minimum record needed to reproduce who confirmed the scope, what build was checked, what the browser observed, and what decision the reviewer made.</p>
 
         <h2>Recorded events</h2>
         <ol>
@@ -21,6 +21,7 @@ export default function RecordsPage() {
           <li>The service snapshots the passing run into a single-decision review packet that expires in 72 hours by default and can be revoked or extended by the agency within a 14-day hard limit.</li>
           <li>The reviewer records approval or requested changes with explicit intent and electronic-record consent.</li>
           <li>The final receipt binds the snapshot, decision, and audit-chain hash.</li>
+          <li>If the agency enabled Stripe invoicing, Greenlit records the frozen invoice plan, delivery job, Stripe invoice identifier, amount, status changes, and payment-status webhook events. The approval record and invoice remain distinct records.</li>
         </ol>
 
         <h2>Tamper evidence and attribution</h2>
@@ -33,7 +34,7 @@ export default function RecordsPage() {
         <p>Approval and audit records default to four years; evidence screenshots default to 90 days; review tokens expire within 72 hours unless the agency extends them, with a 14-day hard limit. A legal hold can suspend deletion for a specific dispute. Customers should obtain counsel before changing retention for regulated industries or contracts governed by another jurisdiction.</p>
 
         <h2>Important boundary</h2>
-        <p>MilestoneProof records milestone approval. It does not replace a formal signature platform, notarization, an invoice, accounting or tax records, or legal advice. Keep the exported approval record alongside the governing contract, invoice, proof of payment, and general-ledger entry for the period required by your tax adviser, contract, industry, and jurisdiction.</p>
+        <p>Greenlit records milestone approval and can create an invoice in the agency’s connected Stripe account. It does not replace a formal signature platform, notarization, accounting or tax records, or legal advice. The Stripe invoice is not proof of payment until Stripe reports it paid. Keep the exported approval record alongside the governing contract, Stripe invoice, proof of payment, and general-ledger entry for the period required by your tax adviser, contract, industry, and jurisdiction.</p>
 
         <h2>Synthetic walkthrough</h2>
         <p>The guided walkthrough is a presentation fallback that uses clearly labeled seeded outcomes. It does not run a browser, save screenshots, append audit events, retain a reviewer decision, or create a transaction export. Only the real verification and secure-review flow creates the records described above.</p>

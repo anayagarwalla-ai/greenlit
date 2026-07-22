@@ -1,6 +1,6 @@
 # Backup, restore, and legacy-source runbook
 
-MilestoneProof's retained records live in Postgres and its screenshots live in the private `evidence` bucket. Both must be backed up together. The scripts below stage data only in a randomly named system-temporary directory, create one GPG-encrypted archive, and remove the plaintext staging files.
+Greenlit's retained records live in Postgres and its screenshots live in the private `evidence` bucket. Both must be backed up together. The scripts below stage data only in a randomly named system-temporary directory, create one GPG-encrypted archive, and remove the plaintext staging files.
 
 ## Encrypted backup
 
@@ -21,7 +21,7 @@ The verifier refuses a non-empty database, validates the database-dump and every
 
 ## Legacy source-document inventory and purge
 
-Old releases created a `source_documents` table and private `source-documents` bucket. Current MilestoneProof does not use either. Run `pnpm ops:legacy-sources` first; it produces a metadata-only inventory in `docs/operations/` and never prints source text.
+Old releases created a `source_documents` table and private `source-documents` bucket. Current Greenlit does not use either. Run `pnpm ops:legacy-sources` first; it produces a metadata-only inventory in `docs/operations/` and never prints source text.
 
 After the adult operator verifies `EXPECTED_SUPABASE_HOST`, has a current encrypted backup, and approves deletion, set `PURGE_LEGACY_SOURCE_DATA=YES` and run:
 

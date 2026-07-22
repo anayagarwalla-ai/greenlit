@@ -2,7 +2,7 @@
 
 ## Project name
 
-MilestoneProof
+Greenlit
 
 ## Tagline
 
@@ -10,7 +10,7 @@ Turn every SOW promise into client-ready proof.
 
 ## One-line pitch
 
-MilestoneProof helps web agencies use Gemini to turn a statement of work into human-confirmed acceptance criteria, verify those promises against a staging build, and collect an evidence-backed client approval so the milestone is ready to invoice.
+Greenlit helps web agencies use Gemini to turn a statement of work into human-confirmed acceptance criteria, verify those promises against a staging build, and collect an evidence-backed client approval so the milestone is ready to invoice.
 
 ## Inspiration
 
@@ -20,17 +20,17 @@ We wanted to make the statement of work—not the test suite—the center of acc
 
 ## What it does
 
-MilestoneProof gives an agency one guided flow:
+Greenlit gives an agency one guided flow:
 
 1. Paste a non-confidential SOW excerpt or upload a selectable-text PDF, TXT, or Markdown document.
 2. Gemini extracts atomic, measurable acceptance criteria and returns an exact supporting source quote, evidence type, and rationale for each one.
-3. MilestoneProof independently grounds every quote against the extracted source. A human can edit and must confirm every criterion; ungrounded quotes cannot be frozen.
+3. Greenlit independently grounds every quote against the extracted source. A human can edit and must confirm every criterion; ungrounded quotes cannot be frozen.
 4. Confirmed promises are mapped only to safe, typed browser checks—never model-generated scripts.
 5. An isolated staging run captures the observed outcome and integrity metadata for every promise.
 6. The client receives a focused, no-login review packet and makes one clear decision: approve the milestone or request changes.
 7. Approval creates an invoice-ready proof record tying together the SOW revision, build, evidence, decision, timestamp, and milestone amount.
 
-The included demo deliberately contains a deceptive bug: the contact form shows “success” while its lead request returns HTTP 500. MilestoneProof catches the contradiction, then proves the fixed build against the same frozen scope.
+The included demo deliberately contains a deceptive bug: the contact form shows “success” while its lead request returns HTTP 500. Greenlit catches the contradiction, then proves the fixed build against the same frozen scope.
 
 For arbitrary imported SOWs, the agency proves ownership by serving a one-time token from the staging hostname, maps accessible labels and same-origin paths into typed checks, and explicitly authorizes any test-form mutation. It never presents fixture results as proof of a customer’s real project. A clearly labeled, non-retained synthetic walkthrough remains available if free runner capacity is unavailable.
 
@@ -83,14 +83,14 @@ TypeScript, React, Next.js, Gemini API, Google GenAI SDK, Zod, Cloudflare Worker
 
 ## Links
 
-- Live app: https://milestoneproof.vercel.app
-- GitHub: https://github.com/anayagarwalla-ai/milestoneproof
-- Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health
+- Live app: https://greenlit.vercel.app
+- GitHub: https://github.com/anayagarwalla-ai/greenlit
+- Runner health: https://greenlit-runner.anay-agarwalla-581.workers.dev/health
 
 ## Suggested Devpost gallery captions
 
 1. **Real SOW import:** Paste a non-confidential scope or upload a document; Gemini drafts source-backed acceptance criteria.
 2. **Human-controlled AI:** Every measurable outcome, exact quote, evidence family, and rationale is editable and must be confirmed.
-3. **A false success caught:** The page claimed the form worked, but MilestoneProof proved its lead request returned HTTP 500.
+3. **A false success caught:** The page claimed the form worked, but Greenlit proved its lead request returned HTTP 500.
 4. **Proof the client understands:** The review packet translates a passing browser run back into the six promises the client signed.
 5. **Invoice-ready, not an invoice:** The approval record binds revision, build, evidence hashes, decision, timestamp, and milestone value.

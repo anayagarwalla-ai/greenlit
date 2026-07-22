@@ -18,7 +18,7 @@ export default function Home() {
           <div className="hero-copy">
             <div className="eyebrow"><span className="eyebrow-dot" /> Acceptance-to-invoice proof</div>
             <h1>Turn your SOW{" "}<br />into <em>proof.</em></h1>
-            <p className="hero-lede">MilestoneProof turns fuzzy acceptance criteria into verified browser evidence, a one-click client approval, and an invoice-ready record.</p>
+            <p className="hero-lede">Greenlit turns fuzzy acceptance criteria into verified browser evidence, a one-click client approval, and an invoice-ready record.</p>
             <div className="hero-actions">
               <Link className="button button--lime" href="/workspace">Try the guided demo <ArrowRight size={18} /></Link>
               <a className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See how it works</a>
@@ -71,7 +71,7 @@ export default function Home() {
         <div className="section-kicker">The last mile problem</div>
         <div className="problem-heading">
           <h2>Finished work should not sit{" "}<br />in <em>approval limbo.</em></h2>
-          <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. MilestoneProof makes “done” concrete, reviewable, and auditable.</p>
+          <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. Greenlit makes “done” concrete, reviewable, and auditable.</p>
         </div>
         <div className="steps-grid">
           <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload a redacted, non-confidential SOW section. AI drafts measurable criteria with exact source citations.</p></article>

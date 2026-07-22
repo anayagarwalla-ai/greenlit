@@ -62,7 +62,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
         </>}
         <div className="auth-actions">
           {sent && <button type="button" className="text-action" onClick={() => setSent(false)}>Use a different email</button>}
-          <Link href="/">Back to MilestoneProof</Link>
+          <Link href="/">Back to Greenlit</Link>
         </div>
       </section>
     </main>

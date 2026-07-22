@@ -305,7 +305,7 @@ begin
   select * into v_record from public.transaction_records where id=p_record_id for update;
   if v_record.id is null or v_record.legal_hold or v_record.retention_until>now() then return false; end if;
   if exists(select 1 from public.evidence_artifacts_v2 where record_id=p_record_id and legal_hold) then return false; end if;
-  perform set_config('milestoneproof.retention_purge','on',true);
+  perform set_config('greenlit.retention_purge','on',true);
   delete from public.review_sessions_v2 where packet_id in (select id from public.review_packets_v2 where record_id=p_record_id);
   delete from public.review_packets_v2 where record_id=p_record_id;
   delete from public.evidence_artifacts_v2 where record_id=p_record_id;

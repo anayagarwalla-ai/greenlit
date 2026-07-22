@@ -197,7 +197,7 @@ grant execute on function public.append_transaction_event(uuid, text, text, text
 create or replace function public.prevent_transaction_event_mutation()
 returns trigger language plpgsql as $$
 begin
-  if tg_op = 'DELETE' and current_setting('milestoneproof.retention_purge', true) = 'on' then
+  if tg_op = 'DELETE' and current_setting('greenlit.retention_purge', true) = 'on' then
     return old;
   end if;
   raise exception 'Transaction audit events are append-only';
@@ -222,7 +222,7 @@ begin
     return false;
   end if;
 
-  perform set_config('milestoneproof.retention_purge', 'on', true);
+  perform set_config('greenlit.retention_purge', 'on', true);
   delete from public.review_packets_v2 where record_id = p_record_id;
   delete from public.evidence_artifacts_v2 where record_id = p_record_id;
   delete from public.verification_jobs_v2 where record_id = p_record_id;

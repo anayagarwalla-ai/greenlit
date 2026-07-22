@@ -17,7 +17,7 @@ export async function pinnedHttpsGet(url: URL, addresses: string[], options: { m
       method: "GET",
       lookup,
       servername: url.hostname,
-      headers: { "user-agent": options.userAgent ?? "MilestoneProof-Origin-Verifier/0.2", accept: "text/plain" },
+      headers: { "user-agent": options.userAgent ?? "Greenlit-Origin-Verifier/0.2", accept: "text/plain" },
     }, (response) => {
       const declared = Number(response.headers["content-length"] ?? "0");
       if (Number.isFinite(declared) && declared > maxBytes) { response.destroy(new Error("Ownership proof is too large.")); return; }

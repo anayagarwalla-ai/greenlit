@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { deliverPendingNotifications } from "@/lib/notifications";
+import { processInvoiceJob } from "@/lib/stripe-invoicing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,6 +24,16 @@ export async function GET(request: Request) {
     if (maintenanceStartError) throw new Error(`Maintenance heartbeat could not start: ${maintenanceStartError.message}`);
     maintenanceRunId = Number(maintenanceRun.id);
     const staleBefore = new Date(Date.now() - 12 * 60_000).toISOString();
+    const { data: strandedInvoiceJobs, error: strandedInvoiceError } = await database.from("invoice_jobs").select("id").eq("status", "PROCESSING").lt("claimed_at", staleBefore).limit(25);
+    if (strandedInvoiceError) throw new Error(strandedInvoiceError.message);
+    for (const job of strandedInvoiceJobs ?? []) await database.rpc("fail_invoice_job_atomic", { p_job_id: job.id, p_error: "Invoice processing exceeded the recovery window.", p_failed_at: now });
+    const { data: pendingInvoiceJobs, error: pendingInvoiceError } = await database.from("invoice_jobs").select("id,owner_user_id").eq("status", "PENDING").order("created_at").limit(3);
+    if (pendingInvoiceError) throw new Error(pendingInvoiceError.message);
+    let recoveredInvoices = 0;
+    for (const job of pendingInvoiceJobs ?? []) {
+      try { const result = await processInvoiceJob(job.id, job.owner_user_id); if (result.status === "COMPLETED") recoveredInvoices += 1; }
+      catch { /* processInvoiceJob records the durable failure and audit event */ }
+    }
     const { data: expiredJobs, error: staleJobError } = await database.rpc("expire_stale_verification_jobs_atomic", { p_stale_before: staleBefore, p_operator_email: "system:retention", p_limit: 50 });
     if (staleJobError) throw new Error(`Stale verification recovery failed: ${staleJobError.message}`);
     const { data: stagedEvidence, error: evidenceStageError } = await database.rpc("stage_expired_evidence_deletion", { p_limit: 500, p_now: now });
@@ -119,8 +130,13 @@ export async function GET(request: Request) {
     if (productEventError) throw new Error(productEventError.message);
     const { error: maintenanceCleanupError, count: deletedMaintenanceRuns } = await database.from("maintenance_runs").delete({ count: "exact" }).lte("retention_until", now).neq("id", maintenanceRunId);
     if (maintenanceCleanupError) throw new Error(maintenanceCleanupError.message);
+    const { error: oauthStateError, count: deletedOauthStates } = await database.from("stripe_oauth_states").delete({ count: "exact" }).lt("expires_at", now);
+    if (oauthStateError) throw new Error(oauthStateError.message);
+    const stripeEventCutoff = new Date(Date.now() - 4 * 365 * 24 * 60 * 60_000).toISOString();
+    const { error: webhookEventError, count: deletedStripeEvents } = await database.from("stripe_webhook_events").delete({ count: "exact" }).lt("received_at", stripeEventCutoff);
+    if (webhookEventError) throw new Error(webhookEventError.message);
     const notificationDelivery = await deliverPendingNotifications(20);
-    const summary = { expiredJobs: Number(expiredJobs ?? 0), deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, purgedRecords, recordDeletionFailures, deletedAccounts, accountDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, deletedOperatorEvents: deletedOperatorEvents ?? 0, deletedConsentEvents: deletedConsentEvents ?? 0, deletedProductEvents: deletedProductEvents ?? 0, deletedMaintenanceRuns: deletedMaintenanceRuns ?? 0, notificationDelivery, processedAt: now };
+    const summary = { expiredJobs: Number(expiredJobs ?? 0), strandedInvoiceJobs: strandedInvoiceJobs?.length ?? 0, recoveredInvoices, deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, purgedRecords, recordDeletionFailures, deletedAccounts, accountDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, deletedOperatorEvents: deletedOperatorEvents ?? 0, deletedConsentEvents: deletedConsentEvents ?? 0, deletedProductEvents: deletedProductEvents ?? 0, deletedMaintenanceRuns: deletedMaintenanceRuns ?? 0, deletedOauthStates: deletedOauthStates ?? 0, deletedStripeEvents: deletedStripeEvents ?? 0, notificationDelivery, processedAt: now };
     const { error: maintenanceCompleteError } = await database.from("maintenance_runs").update({ status: "SUCCEEDED", completed_at: new Date().toISOString(), summary }).eq("id", maintenanceRunId);
     if (maintenanceCompleteError) throw new Error(`Maintenance heartbeat could not complete: ${maintenanceCompleteError.message}`);
     return NextResponse.json({ ok: true, ...summary }, { headers: noStoreJsonHeaders() });

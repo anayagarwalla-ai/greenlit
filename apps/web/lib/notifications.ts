@@ -27,7 +27,7 @@ export async function deliverNotification(notification: NotificationPayload) {
     const response = await fetch(target, {
       method: "POST",
       headers: { "content-type": "application/json", ...(process.env.NOTIFICATION_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.NOTIFICATION_WEBHOOK_SECRET}` } : {}) },
-      body: JSON.stringify({ event: "milestoneproof.client-decision", notification }),
+      body: JSON.stringify({ event: "greenlit.client-decision", notification }),
       signal: AbortSignal.timeout(5_000),
     });
     httpStatus = response.status;

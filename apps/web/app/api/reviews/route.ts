@@ -7,6 +7,7 @@ import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { assertReviewSnapshotIntegrity } from "@/lib/review-session";
 import { logProductEvent } from "@/lib/operations";
+import { assertFrozenInvoicePlan } from "@/lib/invoice-plan";
 
 const schema = z.object({ recordId: z.string().uuid(), runId: z.string().uuid() });
 
@@ -37,6 +38,19 @@ export async function POST(request: Request) {
     if (activePacketError) throw new Error(activePacketError.message);
     if (activePacket) return NextResponse.json({ error: "An active client-review link already exists. Revoke it before creating a replacement link.", activePacketId: activePacket.public_id, expiresAt: activePacket.expires_at }, { status: 409, headers: noStoreJsonHeaders() });
 
+    const { data: planRow, error: planError } = await database.from("record_invoice_plans").select("billing_name,billing_email,days_until_due,memo,auto_send,stripe_customer_id,amount_minor,currency,criteria_revision,plan_sha256").eq("record_id", record.id).maybeSingle();
+    if (planError) throw new Error(planError.message);
+    let invoicePlan = undefined;
+    if (planRow) {
+      invoicePlan = assertFrozenInvoicePlan({ enabled: true, billingName: planRow.billing_name, billingEmail: planRow.billing_email, daysUntilDue: planRow.days_until_due, memo: planRow.memo, autoSend: planRow.auto_send, stripeCustomerId: planRow.stripe_customer_id, amountMinor: planRow.amount_minor, currency: planRow.currency, criteriaRevision: planRow.criteria_revision, planSha256: planRow.plan_sha256 });
+      if (invoicePlan.amountMinor !== record.amount_minor || invoicePlan.currency !== record.currency || invoicePlan.criteriaRevision !== record.criteria_revision) return NextResponse.json({ error: "Invoice details are stale. Review and save them again before creating the client review." }, { status: 409, headers: noStoreJsonHeaders() });
+      if (invoicePlan.autoSend) {
+        const { data: connection } = await database.from("stripe_connections").select("status,livemode").eq("owner_user_id", owner.userId).maybeSingle();
+        if (!connection || connection.status !== "CONNECTED") return NextResponse.json({ error: "Reconnect Stripe before creating a review with automatic invoice sending." }, { status: 409, headers: noStoreJsonHeaders() });
+        if (connection.livemode && process.env.STRIPE_ALLOW_LIVE_MODE !== "true") return NextResponse.json({ error: "Live-mode invoicing is disabled during the beta." }, { status: 409, headers: noStoreJsonHeaders() });
+      }
+    }
+
     const packetPublicId = publicRecordId("REVIEW");
     const token = randomToken();
     const expiresAt = new Date(Date.now() + REVIEW_EXPIRY_HOURS * 3_600_000).toISOString();
@@ -55,6 +69,7 @@ export async function POST(request: Request) {
       revision: record.criteria_revision,
       criteria: record.confirmed_criteria,
       run: { runId: run.id, buildLabel: run.build_label, buildUrl: run.build_url, results, artifacts: run.artifacts, browserVersion: run.browser_version, runnerVersion: run.runner_version, manifestSha256: run.manifest_sha256, startedAt: run.started_at, completedAt: run.completed_at },
+      ...(invoicePlan ? { invoicePlan } : {}),
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));

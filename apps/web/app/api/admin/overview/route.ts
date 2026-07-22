@@ -6,6 +6,7 @@ import { getOptionalUser } from "@/lib/supabase-server";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { signRunnerRequest } from "@/lib/hmac";
 import { deliverNotification, type NotificationPayload } from "@/lib/notifications";
+import { processInvoiceJob } from "@/lib/stripe-invoicing";
 
 async function authorize() {
   const user = await getOptionalUser();
@@ -18,7 +19,7 @@ export async function GET() {
   try {
     const database = requireSupabaseAdmin();
     const since = new Date(Date.now() - 86_400_000).toISOString();
-    const [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures] = await Promise.all([
+    const [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs] = await Promise.all([
       database.from("beta_feedback").select("id, public_id, email, category, message, page_path, status, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operational_events").select("id, severity, service, event_type, record_id, details, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("verification_jobs_v2").select("id, record_id, status, build_label, target_origin, last_error, acknowledged_at, acknowledged_by, retry_of, created_at, completed_at").in("status", ["QUEUED", "LEASED", "RUNNING", "FAILED"]).order("created_at", { ascending: false }).limit(100),
@@ -30,8 +31,9 @@ export async function GET() {
       database.from("beta_invites").select("id, email, status, adult_sponsor, invited_by, invited_at, removed_at, last_sign_in_requested_at").order("invited_at", { ascending: false }).limit(200),
       database.from("legal_holds_v2").select("id,record_id,privacy_request_id,reason,owner_email,review_at,active,created_at,released_at,released_by").eq("active", true).order("created_at", { ascending: false }).limit(500),
       database.from("privacy_account_deletions").select("id,request_id,email,status,attempts,last_error,requested_at,completed_at").eq("status", "FAILED").order("requested_at", { ascending: false }).limit(100),
+      database.from("invoice_jobs").select("id,record_id,owner_user_id,status,attempts,last_error,claimed_at,created_at,updated_at").in("status", ["FAILED", "PROCESSING"]).order("created_at", { ascending: false }).limit(100),
     ]);
-    const firstError = [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures].find((result) => result.error)?.error;
+    const firstError = [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs].find((result) => result.error)?.error;
     if (firstError) throw new Error(firstError.message);
     const staleBefore = Date.now() - 10 * 60_000;
     const jobIssues = (jobs.data ?? []).filter((job) => !job.acknowledged_at && (job.status === "FAILED" || new Date(job.created_at).getTime() < staleBefore));
@@ -55,11 +57,11 @@ export async function GET() {
       operator: user.email,
       summary: {
         newFeedback: (feedback.data ?? []).filter((item) => item.status === "NEW").length,
-        activeJobIssues: jobIssues.length,
+        activeJobIssues: jobIssues.length + (invoiceJobs.data ?? []).length,
         openPrivacyRequests,
         runsLast24Hours: (recentRuns.data ?? []).length,
       },
-      feedback: feedback.data ?? [], events: events.data ?? [], jobs: jobIssues, privacy: privacyWithRecords, notifications: notifications.data ?? [], deletionFailures: deletionFailures.data ?? [], accountDeletionFailures: accountDeletionFailures.data ?? [], maintenance: maintenance.data ?? [], invites: invites.data ?? [],
+      feedback: feedback.data ?? [], events: events.data ?? [], jobs: jobIssues, invoiceJobs: invoiceJobs.data ?? [], privacy: privacyWithRecords, notifications: notifications.data ?? [], deletionFailures: deletionFailures.data ?? [], accountDeletionFailures: accountDeletionFailures.data ?? [], maintenance: maintenance.data ?? [], invites: invites.data ?? [],
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Operator overview unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
@@ -76,6 +78,7 @@ const patchSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("invite"), email: z.string().trim().email().max(320), action: z.enum(["activate", "remove"]), responsibleOperator: z.string().trim().min(2).max(160) }),
   z.object({ kind: z.literal("job"), id: z.string().uuid(), action: z.enum(["acknowledge", "retry", "expire"]), reason: z.string().trim().max(500).optional() }),
   z.object({ kind: z.literal("notification"), id: z.string().uuid(), action: z.literal("retry") }),
+  z.object({ kind: z.literal("invoice_job"), id: z.string().uuid(), action: z.literal("retry") }),
 ]);
 
 export async function PATCH(request: Request) {
@@ -123,6 +126,10 @@ export async function PATCH(request: Request) {
       const { data: notification, error } = await database.rpc("prepare_notification_retry_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() }).single();
       if (error || !notification) throw new Error(error?.message ?? "Notification not found.");
       await deliverNotification(notification as NotificationPayload);
+    } else if (parsed.data.kind === "invoice_job") {
+      const { data: job, error } = await database.from("invoice_jobs").select("id,owner_user_id,status").eq("id", parsed.data.id).maybeSingle();
+      if (error || !job || job.status !== "FAILED") throw new Error(error?.message ?? "Failed invoice job not found.");
+      await processInvoiceJob(job.id, job.owner_user_id);
     } else if (parsed.data.action === "acknowledge") {
       const { error } = await database.rpc("acknowledge_verification_job_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);

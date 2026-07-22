@@ -17,7 +17,7 @@ export default function TermsPage() {
       <article>
         <div className="legal-kicker">Effective July 20, 2026 · Closed agency beta</div>
         <h1>Terms of use</h1>
-        <p className="legal-lede">MilestoneProof is a limited U.S. business beta for demonstrating evidence-backed milestone approval. By using it, you agree to these boundaries.</p>
+        <p className="legal-lede">Greenlit is a limited U.S. business beta for demonstrating evidence-backed milestone approval. By using it, you agree to these boundaries.</p>
 
         <h2>Eligibility and authority</h2>
         <p>You must be at least 18, use the Service for professional or business purposes, and have authority to submit the material and act for the organization you identify. The beta is not offered for consumer, medical, financial, employment, government, or child-directed use.</p>
@@ -29,7 +29,10 @@ export default function TermsPage() {
         <p>AI suggestions are drafts. You are responsible for reviewing source quotes, measurable outcomes, check mappings, and results. Browser evidence reflects only the recorded build, time, and typed checks and does not prove facts outside that scope.</p>
 
         <h2>Approval record—not a legal signature</h2>
-        <p>The client decision is a business approval record. It is not an invoice, payment instruction, payment guarantee, accounting or tax ledger, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use MilestoneProof for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
+        <p>The client decision is a business approval record. It is not a payment guarantee, accounting or tax ledger, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use Greenlit for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
+
+        <h2>Optional Stripe invoicing</h2>
+        <p>An agency may authorize Greenlit to create and email an invoice in its own connected Stripe account after approval. Automatic sending must be configured before client review and is disclosed to the reviewer; approval never charges a payment method by itself. Stripe, not Greenlit, hosts payment collection. The agency is the merchant, owns the Stripe customer and invoice, and remains responsible for prices, taxes, refunds, disputes, invoice terms, accounting, and compliance. Disconnecting Greenlit does not cancel invoices already created in Stripe.</p>
 
         <h2>Guided walkthrough</h2>
         <p>The synthetic walkthrough is not a transaction-record service. Its seeded outcomes and local sample decision are for demonstration only and are not retained, hash-chained, exported, or represented as browser evidence.</p>
@@ -41,7 +44,7 @@ export default function TermsPage() {
         <p>Do not probe third-party sites without authorization, upload secrets or regulated data, bypass origin verification, falsify identity or authority, interfere with the Service, or use generated evidence to mislead another person. Custom verification is limited to public HTTPS staging origins whose one-time ownership token has been verified for the signed-in agency. Potential form mutations require a separate authorization.</p>
 
         <h2>Availability and responsibility</h2>
-        <p>The beta is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoices, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
+        <p>The beta is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoice accuracy and delivery, payments, refunds, disputes, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
 
         <h2>Privacy and requests</h2>
         <p>The <Link href="/privacy">Privacy Notice</Link> describes collection, providers, security, and retention. Submit data-rights requests through the <Link href="/privacy-request">privacy request form</Link>.</p>

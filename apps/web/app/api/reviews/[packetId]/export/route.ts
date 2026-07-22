@@ -32,10 +32,14 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
       .eq("record_id", packet.record_id)
       .order("sequence", { ascending: true });
     if (auditError) throw new Error(auditError.message);
+    const [{ data: invoice }, { data: invoiceJob }] = await Promise.all([
+      database.from("record_invoices").select("status,invoice_number,amount_due_minor,amount_paid_minor,currency,billing_email,due_at,hosted_invoice_url,invoice_pdf_url,sent_at,paid_at,voided_at,last_error,created_at,updated_at").eq("packet_id", packet.id).maybeSingle(),
+      database.from("invoice_jobs").select("status,attempts,plan,last_error,created_at,updated_at,completed_at").eq("packet_id", packet.id).maybeSingle(),
+    ]);
 
     const exportedAt = new Date().toISOString();
     const body = {
-      format: "MilestoneProof transaction export v1",
+      format: "Greenlit transaction export v1",
       exportedAt,
       packetId: packet.public_id,
       snapshot: packet.snapshot,
@@ -53,6 +57,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
         decidedAt: packet.decided_at,
         receiptSha256: packet.receipt_sha256,
       },
+      invoicing: { provider: invoice || invoiceJob ? "Stripe" : null, invoice: invoice ?? null, job: invoiceJob ?? null },
       retention: { packetCreatedAt: packet.created_at, reviewExpiresAt: packet.expires_at, policy: "See /records and /privacy" },
       auditChain: events ?? [],
     };
@@ -60,7 +65,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
       headers: {
         ...noStoreJsonHeaders(),
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="milestoneproof-${packetId}.json"`,
+        "Content-Disposition": `attachment; filename="greenlit-${packetId}.json"`,
       },
     });
   } catch (error) {

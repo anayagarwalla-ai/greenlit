@@ -1,4 +1,4 @@
-name = "milestoneproof-runner"
+name = "greenlit-runner"
 main = "src/index.ts"
 compatibility_date = "2026-07-19"
 compatibility_flags = ["nodejs_compat"]
@@ -8,17 +8,17 @@ binding = "BROWSER"
 
 [[queues.producers]]
 binding = "JOB_QUEUE"
-queue = "milestoneproof-jobs"
+queue = "greenlit-jobs"
 
 [[queues.consumers]]
-queue = "milestoneproof-jobs"
+queue = "greenlit-jobs"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
 max_retries = 1
 
 [vars]
-WEB_APP_URL = "https://milestoneproof.vercel.app"
+WEB_APP_URL = "https://greenlit.vercel.app"
 
 # Secrets set with `wrangler secret put`:
 # RUNNER_HMAC_SECRET

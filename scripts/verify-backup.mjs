@@ -20,14 +20,17 @@ const encryptedBackup = resolve(process.argv[2] || required("BACKUP_FILE"));
 const restoreUrl = required("RESTORE_DATABASE_URL");
 const databaseName = decodeURIComponent(new URL(restoreUrl).pathname.replace(/^\//, ""));
 if (!/(restore|test|scratch)/i.test(databaseName)) throw new Error("RESTORE_DATABASE_URL must name an isolated database containing restore, test, or scratch.");
-const temporary = await mkdtemp(join(tmpdir(), "milestoneproof-restore-"));
+const temporary = await mkdtemp(join(tmpdir(), "greenlit-restore-"));
 
 try {
   const archive = join(temporary, basename(encryptedBackup).replace(/\.gpg$/, ""));
   await run("gpg", ["--batch", "--yes", "--output", archive, "--decrypt", encryptedBackup]);
   await run("tar", ["-C", temporary, "-xzf", archive]);
-  const bundleName = (await readdir(temporary)).find((name) => name.startsWith("milestoneproof-") && !name.endsWith(".tar.gz"));
-  if (!bundleName) throw new Error("Backup bundle is missing.");
+  const extractedDirectories = (await readdir(temporary, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  if (extractedDirectories.length !== 1) throw new Error("Backup archive must contain exactly one bundle directory.");
+  const [bundleName] = extractedDirectories;
   const bundle = join(temporary, bundleName);
   const manifest = JSON.parse(await readFile(join(bundle, "manifest.json"), "utf8"));
   const database = await readFile(join(bundle, manifest.database.file));
@@ -43,5 +46,5 @@ try {
   const verification = await run("psql", [restoreUrl, "-Atc", "select json_build_object('records',count(*),'latestAuditHead',max(audit_chain_head)) from public.transaction_records"], true);
   console.log(JSON.stringify({ ok: true, backup: encryptedBackup, evidenceHashesVerified: manifest.evidence.length, restoredDatabase: databaseName, databaseVerification: JSON.parse(verification) }, null, 2));
 } finally {
-  if (temporary.startsWith(`${tmpdir()}/milestoneproof-restore-`)) await rm(temporary, { recursive: true, force: true });
+  if (temporary.startsWith(`${tmpdir()}/greenlit-restore-`)) await rm(temporary, { recursive: true, force: true });
 }

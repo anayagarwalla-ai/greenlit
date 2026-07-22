@@ -152,13 +152,13 @@ async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "n
   return analysisResponse({
     input,
     criteria,
-    model: "MilestoneProof fast fallback",
+    model: "Greenlit fast fallback",
     analysisMode: "fallback",
     notice: reason === "unavailable"
-      ? "Gemini was unavailable or did not respond within 8 seconds, so MilestoneProof generated this source-grounded draft locally instead of making you wait. Review each item before continuing."
+      ? "Gemini was unavailable or did not respond within 8 seconds, so Greenlit generated this source-grounded draft locally instead of making you wait. Review each item before continuing."
       : reason === "region_restricted"
-        ? "Gemini's unpaid API tier is not offered for this region. MilestoneProof kept the source local and generated a source-grounded draft without sending it to Google."
-        : "Gemini is not configured, so MilestoneProof generated this source-grounded draft locally. Review each item before continuing.",
+        ? "Gemini's unpaid API tier is not offered for this region. Greenlit kept the source local and generated a source-grounded draft without sending it to Google."
+        : "Gemini is not configured, so Greenlit generated this source-grounded draft locally. Review each item before continuing.",
     startedAt,
     providerStartedAt,
   });
@@ -201,7 +201,7 @@ export async function POST(request: Request) {
   const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
-  const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "milestoneproof-global-analysis-capacity", { failClosed: true });
+  const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "greenlit-global-analysis-capacity", { failClosed: true });
   if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 
   const apiKey = process.env.GEMINI_API_KEY;

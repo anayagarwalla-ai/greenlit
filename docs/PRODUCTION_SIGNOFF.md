@@ -1,4 +1,4 @@
-# MilestoneProof production sign-off
+# Greenlit production sign-off
 
 Complete this with the adult operator before inviting an agency. Never paste secret values into this document; record only who verified each item, when, and the provider screen or internal ticket used as evidence.
 

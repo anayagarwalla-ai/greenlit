@@ -16,7 +16,7 @@ export default defineConfig({
     { name: "mobile-chromium", use: { ...devices["Pixel 5"] } },
   ],
   webServer: {
-    command: "pnpm --filter @milestoneproof/web exec next dev --port 3008",
+    command: "pnpm --filter @greenlit/web exec next dev --port 3008",
     url: "http://127.0.0.1:3008",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

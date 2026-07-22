@@ -62,10 +62,10 @@ describe("project draft storage", () => {
 
   it("keeps account keys case-insensitive and clears legacy bearer-token keys", () => {
     expect(draftStorageKey(" Agency@Example.com ", "one")).toBe(draftStorageKey("agency@example.com", "one"));
-    window.localStorage.setItem("milestoneproof-workspace-draft-v2", "legacy");
-    window.localStorage.setItem("milestoneproof-approved-url", "https://example.test/review/PACKET#t=secret");
+    window.localStorage.setItem("greenlit-workspace-draft-v2", "legacy");
+    window.localStorage.setItem("greenlit-approved-url", "https://example.test/review/PACKET#t=secret");
     clearLegacyGlobalDraftState();
-    expect(window.localStorage.getItem("milestoneproof-workspace-draft-v2")).toBeNull();
-    expect(window.localStorage.getItem("milestoneproof-approved-url")).toBeNull();
+    expect(window.localStorage.getItem("greenlit-workspace-draft-v2")).toBeNull();
+    expect(window.localStorage.getItem("greenlit-approved-url")).toBeNull();
   });
 });

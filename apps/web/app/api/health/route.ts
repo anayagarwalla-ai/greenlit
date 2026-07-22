@@ -82,5 +82,5 @@ export async function GET(request: Request) {
   }
 
   const ok = Object.values(checks).every((check) => check.ok);
-  return NextResponse.json({ ok, service: "milestoneproof-web", checkedAt, versions: { web: WEB_VERSION, runnerExpected: EXPECTED_RUNNER_VERSION, database: DATABASE_VERSION }, checks }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
+  return NextResponse.json({ ok, service: "greenlit-web", checkedAt, versions: { web: WEB_VERSION, runnerExpected: EXPECTED_RUNNER_VERSION, database: DATABASE_VERSION }, checks }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
 }

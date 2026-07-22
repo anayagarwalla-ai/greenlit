@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   reactStrictMode: true,
   serverExternalPackages: ["pdf-parse", "@napi-rs/canvas"],
-  transpilePackages: ["@milestoneproof/contracts"],
+  transpilePackages: ["@greenlit/contracts"],
   typedRoutes: true,
   poweredByHeader: false,
   async headers() {

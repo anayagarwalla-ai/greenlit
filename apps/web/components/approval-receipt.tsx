@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, Download, FileJson2, FileWarning } from "lucide-react";
+import { ArrowLeft, Check, CreditCard, Download, ExternalLink, FileJson2, FileWarning } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { demoCriteria, demoMilestone, seededDemoResults } from "@/lib/demo";
 import { formatTimestamp } from "@/lib/format";
@@ -20,6 +20,9 @@ type ReceiptPacket = {
   decidedAt: string;
   receiptSha256: string;
   auditHead?: { sequence: number; eventHash: string; occurredAt: string } | null;
+  viewerRole?: "OWNER" | "REVIEWER";
+  invoice?: { status: string; invoice_number?: string | null; amount_due_minor: number; amount_paid_minor: number; currency: string; billing_email: string; due_at?: string | null; hosted_invoice_url?: string | null; invoice_pdf_url?: string | null; sent_at?: string | null; paid_at?: string | null } | null;
+  invoiceJob?: { status: string; lastError?: string | null } | null;
 };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / 100);
@@ -67,7 +70,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
     if (demo) {
       const timer = window.setTimeout(() => {
         try {
-          const stored = window.localStorage.getItem("milestoneproof-demo-decision");
+          const stored = window.localStorage.getItem("greenlit-demo-decision");
           if (stored) setPacket(demoReceipt(JSON.parse(stored) as DemoReviewer));
         } catch { /* optional walkthrough convenience */ }
       }, 0);
@@ -91,7 +94,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const results = Object.fromEntries(snapshot.run.results.map((result) => [result.criterionId, result]));
   return (
     <main className="receipt-shell">
-      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions"><Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button></div></div>
+      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions"><Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button></div></div>
       <article className="receipt-page" aria-label="Milestone approval record">
         {demo && <div className="analysis-notice"><FileWarning size={15} /><div><strong>Synthetic sample — not a retained approval record</strong><span>This printable page illustrates the final format. It has no evidence hashes, audit chain, server-side decision, or legal-record status.</span></div></div>}
         <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{dateStamp(packet.decidedAt)}</span></div></header>
@@ -99,9 +102,10 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
         <span className="receipt-section-title">Approved scope · revision {snapshot.revision}</span>
         <div className="receipt-criteria">{snapshot.criteria.map((criterion) => { const result = results[criterion.id]; return <div className="receipt-criterion" key={criterion.id}><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><small>{result?.observed ?? "Accepted by the client as a human-reviewed promise"}</small></div><span className={`status-badge ${result ? "status-badge--pass" : "status-badge--neutral"}`}><Check size={10} /> {result ? "Passed" : "Client accepted"}</span></div>; })}</div>
         <section className="receipt-approval"><div><span className="receipt-section-title">Client decision</span><h3>Approved for invoicing</h3><p>{packet.reviewerName} · {packet.reviewerEmail} · {dateTime(packet.decidedAt)}</p>{packet.reviewerNote && <p>“{packet.reviewerNote}”</p>}</div><div className="receipt-sign">{packet.reviewerName}</div></section>
+        {packet.invoice && <section className="receipt-invoice"><div><span className="receipt-section-title">Stripe invoice</span><h3>{packet.invoice.invoice_number ?? "Invoice"} · {packet.invoice.status}</h3><p>{money(packet.invoice.amount_due_minor, packet.invoice.currency)} sent to {packet.invoice.billing_email}{packet.invoice.due_at ? ` · due ${dateTime(packet.invoice.due_at)}` : ""}{packet.invoice.paid_at ? ` · paid ${dateTime(packet.invoice.paid_at)}` : ""}</p></div>{packet.invoice.hosted_invoice_url && <a href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer">Open hosted invoice <ExternalLink size={12} /></a>}</section>}
         <section className="hash-block"><div><span className="receipt-section-title">{demo ? "Illustrative outcomes" : "Evidence transaction"}</span><p>Run ID: {snapshot.run.runId}<br />Build: {snapshot.run.buildLabel}<br />Target: {snapshot.run.buildUrl}<br />{snapshot.run.browserVersion} · {snapshot.run.results.length} automated results<br />{demo ? "No manifest was generated" : `Evidence manifest SHA-256: ${snapshot.run.manifestSha256}`}</p></div><div><span className="receipt-section-title">{demo ? "Walkthrough status" : "Canonical source and record"}</span><p>{snapshot.recordPublicId} · criteria revision {snapshot.revision}<br />Source: {snapshot.sourceName ?? "Not named"}<br />Source SHA-256: {snapshot.sourceSha256 ?? "Unavailable"}<br />{demo ? "No snapshot, receipt, or audit hashes were generated" : <>Snapshot SHA-256: {packet.snapshotSha256}<br />Receipt SHA-256: {packet.receiptSha256}<br />Audit event {packet.auditHead?.sequence ?? "—"}: {packet.auditHead?.eventHash ?? "Unavailable"}</>}</p></div></section>
         <p className="receipt-disclaimer">{demo ? "This is a synthetic walkthrough artifact only. It is not evidence of a browser run, client approval, invoice, payment, signature, or retained transaction." : "This record documents acceptance evidence and a client business decision for the named project milestone. It is not an invoice, payment guarantee, notarization, legal e-signature, or certification of Web Content Accessibility Guidelines compliance. Evidence reflects only the specified build and checks at the recorded time. Retention and legal effect can vary by contract, industry, and jurisdiction."}</p>
-        <footer className="receipt-page__foot"><span>Generated by MilestoneProof</span><span>{demo ? "DEMO · NOT RETAINED" : packet.packetId}</span></footer>
+        <footer className="receipt-page__foot"><span>Generated by Greenlit</span><span>{demo ? "DEMO · NOT RETAINED" : packet.packetId}</span></footer>
       </article>
       {toast && <div className="toast" role="status"><Check size={15} /> {toast}</div>}
     </main>

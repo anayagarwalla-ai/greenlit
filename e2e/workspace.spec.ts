@@ -102,6 +102,12 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
     reviews: [],
   }) }));
   let submitted: Record<string, unknown> | null = null;
+  let invoicePlan: Record<string, unknown> | null = null;
+  await page.route("**/api/account/stripe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, connection: { accountId: "acct_test", livemode: false, status: "CONNECTED" } }) }));
+  await page.route(`**/api/account/records/${recordId}/invoice-plan`, async (route) => {
+    if (route.request().method() === "POST") invoicePlan = await route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(route.request().method() === "POST" ? { plan: { planSha256: "f".repeat(64) } } : { plan: null }) });
+  });
   await page.route("**/api/runs", async (route) => {
     submitted = await route.request().postDataJSON();
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ runId: "new-run", recordId, status: "QUEUED" }) });
@@ -112,6 +118,14 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   await expect(page.getByRole("heading", { name: "One automated check needs work." })).toBeVisible();
   await page.getByRole("button", { name: "Verify fixed build" }).click();
   await expect(page.getByRole("heading", { name: "Every promise has browser evidence." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stripe invoice" })).toBeVisible();
+  await expect(page.getByText("$12,000.50 for this exact milestone.")).toBeVisible();
+  await page.getByLabel("Billing contact name").fill("Acme Outdoors LLC");
+  await page.getByLabel("Billing email").fill("billing@acme.test");
+  await page.getByLabel(/Automatically send this invoice/).check();
+  await page.getByRole("button", { name: "Save invoice details" }).click();
+  await expect(page.getByText(/Client approval will queue this Stripe invoice automatically/)).toBeVisible();
+  expect(invoicePlan).toMatchObject({ billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, autoSend: true });
   expect(submitted).toMatchObject({ recordId, version: "rc2" });
   expect(submitted).not.toHaveProperty("targetUrl");
   expect(submitted).not.toHaveProperty("checks");

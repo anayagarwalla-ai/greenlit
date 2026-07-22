@@ -392,3 +392,54 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .side-nav button:disabled { color: #78827b; }
 .receipt-page__foot,.approval-success .receipt-id { color: #4f5a52; }
 .evidence-consent { margin-top: 16px; }
+
+/* Stripe invoicing is an optional layer on top of the retained approval. */
+.stripe-account-banner { margin-top: 20px; padding: 10px 13px; display: flex; align-items: center; gap: 8px; border: 1px solid #b8cfbd; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 750; }
+.stripe-account-banner .text-action { margin-left: auto; }
+.invoice-status { margin-top: 12px; padding: 11px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-left: 3px solid var(--green); background: var(--green-soft); }
+.invoice-status strong,.invoice-status span { display: flex; align-items: center; gap: 5px; }
+.invoice-status strong { font-size: 10px; }
+.invoice-status span { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.invoice-status p { margin: 6px 0 0; color: var(--red); font-size: 8px; }
+.invoice-status a { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; color: var(--green); font-size: 9px; font-weight: 850; }
+.invoice-job-state { margin-top: 12px; padding: 9px; background: var(--amber-soft); color: #735408; font-size: 9px; }
+.invoice-plan-card { margin-top: 18px; padding: 20px; }
+.invoice-plan-card .panel-header h3 { display: flex; align-items: center; gap: 7px; }
+.invoice-plan-card .panel-header p { margin-top: 4px; }
+.invoice-connection-state { padding: 22px 0 4px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+.invoice-connect { margin-top: 15px; padding: 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #f6f5f0; border: 1px solid var(--line); }
+.invoice-connect strong { display: block; font-size: 11px; }
+.invoice-connect p,.invoice-connect span { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
+.invoice-fields { margin-top: 16px; display: grid; grid-template-columns: 1.2fr 1.3fr .7fr; gap: 10px; }
+.invoice-fields label,.invoice-memo,.invoice-customer-row label { display: grid; gap: 6px; color: var(--ink); font-size: 8px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.invoice-fields input,.invoice-fields select,.invoice-customer-row select,.invoice-memo textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbbfb9; border-radius: 4px; background: white; color: var(--ink); font-size: 10px; font-weight: 500; letter-spacing: normal; text-transform: none; }
+.invoice-customer-row { margin-top: 10px; display: flex; align-items: end; gap: 12px; }
+.invoice-customer-row label { flex: 1; }
+.invoice-memo { margin-top: 11px; }
+.invoice-memo textarea { min-height: 66px; resize: vertical; }
+.invoice-auto-send { margin-top: 12px; }
+.invoice-actions { margin-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.invoice-actions small { max-width: 430px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.invoice-dialog { width: min(720px,100%); }
+.invoice-dialog > .invoice-plan-card { padding: 0; border: 0; box-shadow: none; }
+.invoice-dialog > .invoice-plan-card > .panel-header { display: none; }
+.invoice-disclosure { margin: 15px 0; padding: 14px 16px; display: flex; gap: 11px; border: 1px solid #b8cfbd; background: var(--green-soft); }
+.invoice-disclosure > svg { flex: 0 0 auto; color: var(--green); }
+.invoice-disclosure strong { font-size: 10px; }
+.invoice-disclosure p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.invoice-decision-note { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.receipt-invoice { margin-top: 18px; padding: 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--line); background: var(--green-soft); }
+.receipt-invoice h3 { margin: 6px 0; font: 500 19px/1 var(--display); }
+.receipt-invoice p { margin: 0; color: var(--muted); font-size: 9px; }
+.receipt-invoice a { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-size: 9px; font-weight: 850; }
+
+@media (max-width: 680px) {
+  .invoice-fields { grid-template-columns: 1fr; }
+  .invoice-connect,.invoice-actions,.receipt-invoice,.invoice-status { align-items: stretch; flex-direction: column; }
+  .invoice-actions .button,.invoice-connect .button { width: 100%; }
+  .invoice-customer-row { align-items: stretch; flex-direction: column; }
+  .stripe-account-banner { align-items: flex-start; flex-wrap: wrap; }
+  .stripe-account-banner .text-action { margin-left: 0; }
+}
+
+@media print { .receipt-invoice a { display: none!important; } }

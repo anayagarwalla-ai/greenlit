@@ -1,4 +1,4 @@
-# MilestoneProof demo video script (2:45)
+# Greenlit demo video script (2:45)
 
 Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zoom. Keep the cursor deliberate and captions on.
 
@@ -8,7 +8,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 **Narration:**
 
-“Web agencies often finish a milestone days before they get permission to invoice. The hard part is not delivery—it is proving, in language the client recognizes, that every promise in the statement of work is actually done. MilestoneProof turns that approval limbo into an evidence-backed workflow.”
+“Web agencies often finish a milestone days before they get permission to invoice. The hard part is not delivery—it is proving, in language the client recognizes, that every promise in the statement of work is actually done. Greenlit turns that approval limbo into an evidence-backed workflow.”
 
 ## 0:18–0:52 — Real Gemini import
 
@@ -16,7 +16,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 **Narration:**
 
-“An agency can paste a non-confidential scope or upload a PDF, text, or Markdown SOW. Gemini finds atomic, measurable acceptance criteria and returns the exact supporting quote for each one. MilestoneProof independently matches every quote against the extracted source, so the model cannot quietly invent a requirement.”
+“An agency can paste a non-confidential scope or upload a PDF, text, or Markdown SOW. Gemini finds atomic, measurable acceptance criteria and returns the exact supporting quote for each one. Greenlit independently matches every quote against the extracted source, so the model cannot quietly invent a requirement.”
 
 ## 0:52–1:12 — Show the human/AI boundary
 
@@ -32,7 +32,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 **Narration:**
 
-“The safe fixture lets us exercise the whole workflow. This release looks successful: the contact form displays a cheerful confirmation. But the lead request actually returned HTTP 500. MilestoneProof catches that false success and attaches the observed result to the exact SOW promise.”
+“The safe fixture lets us exercise the whole workflow. This release looks successful: the contact form displays a cheerful confirmation. But the lead request actually returned HTTP 500. Greenlit catches that false success and attaches the observed result to the exact SOW promise.”
 
 ## 1:38–1:58 — Prove the fix without moving the goalposts
 
@@ -56,7 +56,7 @@ Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zo
 
 **Narration:**
 
-“The app is live on Vercel, uses Gemini structured output, a signed Cloudflare Queue and Browser runner, private Supabase storage with row-level security, and shared Zod contracts. The complete guided path remains available if an optional service is unavailable, and the free-tier build enables no paid services. MilestoneProof: give the client proof, not a test report.”
+“The app is live on Vercel, uses Gemini structured output, a signed Cloudflare Queue and Browser runner, private Supabase storage with row-level security, and shared Zod contracts. The complete guided path remains available if an optional service is unavailable, and the free-tier build enables no paid services. Greenlit: give the client proof, not a test report.”
 
 ## Recording safety net
 

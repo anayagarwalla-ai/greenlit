@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, CircleDot, Clipboard, ExternalLink, LoaderCircle, LockKeyhole, Play, ShieldCheck } from "lucide-react";
-import { checkSpecSchema, type CheckSpec } from "@milestoneproof/contracts";
+import { checkSpecSchema, type CheckSpec } from "@greenlit/contracts";
 import type { AnalysisCriterion } from "@/lib/analysis";
 
 export type CheckDraft = {
@@ -38,7 +38,7 @@ export function initialDraft(): CheckDraft {
     assertion: "visible",
     expectedCount: "1",
     expectedPath: "/",
-    fields: "Email=qa+milestoneproof@example.com",
+    fields: "Email=qa+greenlit@example.com",
     submitRef: "button:Submit",
     successText: "",
     successPath: "",
@@ -161,7 +161,7 @@ function MappingFields({ criterion, draft, update, error }: { criterion: Analysi
       {criterion.checkType === "element_state" && <><label>{criterion.id} assertion<select aria-label={`${criterion.id} assertion`} aria-invalid={invalid("assertion")} aria-describedby={describedBy("assertion")} value={draft.assertion} onChange={(event) => update({ assertion: event.target.value as CheckDraft["assertion"] })}><option value="visible">Visible</option><option value="enabled">Enabled</option><option value="count">Exact count</option></select></label>{draft.assertion === "count" && <label>{criterion.id} expected count<input aria-label={`${criterion.id} expected count`} aria-invalid={invalid("expected count")} aria-describedby={describedBy("expected count")} type="number" min="0" max="100" value={draft.expectedCount} onChange={(event) => update({ expectedCount: event.target.value })} /></label>}</>}
       {criterion.checkType === "link_destination" && <label>{criterion.id} expected same-origin path<input aria-label={`${criterion.id} expected same-origin path`} aria-invalid={invalid("expected destination")} aria-describedby={describedBy("expected destination")} value={draft.expectedPath} onChange={(event) => update({ expectedPath: event.target.value })} placeholder="/contact" /></label>}
       {criterion.checkType === "form_submission" && <>
-        <label className="mapping-wide">{criterion.id} test values<textarea aria-label={`${criterion.id} test values`} aria-invalid={invalid("form values")} aria-describedby={describedBy("form values")} value={draft.fields} onChange={(event) => update({ fields: event.target.value })} placeholder={"Email=qa@example.com\nMessage=MilestoneProof beta test"} /><small>One accessible field label and test value per line.</small></label>
+        <label className="mapping-wide">{criterion.id} test values<textarea aria-label={`${criterion.id} test values`} aria-invalid={invalid("form values")} aria-describedby={describedBy("form values")} value={draft.fields} onChange={(event) => update({ fields: event.target.value })} placeholder={"Email=qa@example.com\nMessage=Greenlit beta test"} /><small>One accessible field label and test value per line.</small></label>
         <label>{criterion.id} submit element<input aria-label={`${criterion.id} submit element`} aria-invalid={invalid("submit element")} aria-describedby={describedBy("submit element")} value={draft.submitRef} onChange={(event) => update({ submitRef: event.target.value })} placeholder="button:Send" /></label>
         <label>{criterion.id} success message<input aria-label={`${criterion.id} success message`} aria-invalid={invalid("success message")} aria-describedby={describedBy("success message")} value={draft.successText} onChange={(event) => update({ successText: event.target.value })} placeholder="Thanks, we received it" /></label>
         <label>{criterion.id} success page path<input aria-label={`${criterion.id} success page path`} aria-invalid={invalid("success path")} aria-describedby={describedBy("success path")} value={draft.successPath} onChange={(event) => update({ successPath: event.target.value })} placeholder="/thank-you (optional)" /></label>
@@ -258,7 +258,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
         <div className="setup-section">
           <div className="setup-section__head"><span>1</span><div><h3>Prove staging ownership</h3><p>Only public HTTPS staging sites are supported. Login screens, localhost, and private networks are blocked.</p></div></div>
           <div className="setup-fields"><label>Staging URL<input type="url" value={target} onChange={(event) => { setTarget(event.target.value); setReceipt(""); setVerifiedOrigin(""); }} placeholder="https://staging.example.com" /></label><label>Build label<input value={buildLabel} onChange={(event) => setBuildLabel(event.target.value)} placeholder="client-launch-rc3" /></label></div>
-          <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/milestoneproof.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>
+          <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/greenlit.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>
           <button className="button button--outline" type="button" disabled={busy || !signedInEmail || !target || !token} onClick={() => void verify()}>{busy ? <LoaderCircle className="spin" size={15} /> : <ShieldCheck size={15} />}{busy ? "Checking token…" : "Verify staging origin"}</button>
           {verifiedOrigin && <div className="origin-verified"><CheckCircle2 size={15} /><span><strong>{verifiedOrigin}</strong> verified for this account for 30 minutes.</span></div>}
           <label className="mapping-consent evidence-consent"><input type="checkbox" checked={evidenceConsent} onChange={(event) => setEvidenceConsent(event.target.checked)} /><span>I am authorized to capture this public staging build. It contains no confidential data or real personal data. Screenshots will be shared with the reviewer and retained privately for 90 days. Cross-origin scripts, images, and fonts are blocked, so this staging build must render with same-origin resources.</span></label>

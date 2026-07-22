@@ -12,7 +12,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
   }
   admin = createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { "x-application-name": "milestoneproof-server" } },
+    global: { headers: { "x-application-name": "greenlit-server" } },
   });
   return admin;
 }

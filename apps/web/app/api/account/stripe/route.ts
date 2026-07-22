@@ -1,0 +1,35 @@
+import { NextResponse } from "next/server";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
+import { requireSupabaseAdmin } from "@/lib/database";
+import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { deauthorizeStripeAccount, stripeConfigured } from "@/lib/stripe-api";
+import { getOptionalUser } from "@/lib/supabase-server";
+
+async function authenticatedUser() {
+  const user = await getOptionalUser();
+  if (!user || !await betaAccessAllowedFresh(user)) return null;
+  return user;
+}
+
+export async function GET() {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: "Sign in with an invited account to manage Stripe." }, { status: 401, headers: noStoreJsonHeaders() });
+  const database = requireSupabaseAdmin();
+  const { data, error } = await database.from("stripe_connections").select("stripe_account_id,livemode,status,connected_at,disconnected_at,last_error").eq("owner_user_id", user.id).maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  return NextResponse.json({ configured: stripeConfigured(), connection: data ? { accountId: data.stripe_account_id, livemode: data.livemode, status: data.status, connectedAt: data.connected_at, disconnectedAt: data.disconnected_at, lastError: data.last_error } : null }, { headers: noStoreJsonHeaders() });
+}
+
+export async function DELETE() {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: "Sign in with an invited account to manage Stripe." }, { status: 401, headers: noStoreJsonHeaders() });
+  const database = requireSupabaseAdmin();
+  const { data } = await database.from("stripe_connections").select("stripe_account_id,status").eq("owner_user_id", user.id).maybeSingle();
+  if (data?.status === "CONNECTED") {
+    try { await deauthorizeStripeAccount(data.stripe_account_id); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Stripe could not be disconnected." }, { status: 502, headers: noStoreJsonHeaders() }); }
+  }
+  const { error } = await database.from("stripe_connections").update({ status: "DISCONNECTED", access_token_ciphertext: null, refresh_token_ciphertext: null, access_token_expires_at: null, disconnected_at: new Date().toISOString(), last_error: null }).eq("owner_user_id", user.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  return NextResponse.json({ disconnected: true }, { headers: noStoreJsonHeaders() });
+}

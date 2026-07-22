@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const [v4, v6] = await Promise.all([resolve4(validated.url.hostname).catch(() => []), resolve6(validated.url.hostname).catch(() => [])]);
     const addresses = [...v4, ...v6].sort();
     assertSafeResolvedAddresses(addresses);
-    const proofUrl = new URL("/.well-known/milestoneproof.txt", validated.url.origin);
+    const proofUrl = new URL("/.well-known/greenlit.txt", validated.url.origin);
     const response = await pinnedHttpsGet(proofUrl, addresses);
     if (response.location || response.status < 200 || response.status >= 300 || response.text !== body.data.token) return NextResponse.json({ error: "The ownership token did not match." }, { status: 409 });
     const verifiedAt = new Date().toISOString();

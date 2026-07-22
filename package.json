@@ -1,20 +1,20 @@
 {
-  "name": "milestoneproof",
+  "name": "greenlit",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "pnpm --filter @milestoneproof/web dev",
-    "build": "pnpm --filter @milestoneproof/contracts build && pnpm --filter @milestoneproof/web build",
-    "typecheck": "pnpm --filter @milestoneproof/contracts build && pnpm --filter @milestoneproof/web typecheck && pnpm --filter @milestoneproof/runner typecheck",
-    "test": "pnpm --filter @milestoneproof/contracts test && pnpm --filter @milestoneproof/web test && pnpm --filter @milestoneproof/runner test",
+    "dev": "pnpm --filter @greenlit/web dev",
+    "build": "pnpm --filter @greenlit/contracts build && pnpm --filter @greenlit/web build",
+    "typecheck": "pnpm --filter @greenlit/contracts build && pnpm --filter @greenlit/web typecheck && pnpm --filter @greenlit/runner typecheck",
+    "test": "pnpm --filter @greenlit/contracts test && pnpm --filter @greenlit/web test && pnpm --filter @greenlit/runner test",
     "test:e2e": "playwright test",
-    "lint": "pnpm --filter @milestoneproof/web lint",
+    "lint": "pnpm --filter @greenlit/web lint",
     "ops:backup": "node scripts/backup-production.mjs",
     "ops:restore-check": "node scripts/verify-backup.mjs",
     "ops:legacy-sources": "node scripts/legacy-source-inventory.mjs",
-    "runner:dev": "pnpm --filter @milestoneproof/runner dev",
-    "runner:deploy": "pnpm --filter @milestoneproof/runner run deploy"
+    "runner:dev": "pnpm --filter @greenlit/runner dev",
+    "runner:deploy": "pnpm --filter @greenlit/runner run deploy"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

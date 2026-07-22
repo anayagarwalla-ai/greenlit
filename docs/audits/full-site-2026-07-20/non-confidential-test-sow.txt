@@ -1,1 +1,0 @@
-Synthetic QA scope: The homepage must display a visible heading and a primary call-to-action. The primary call-to-action must navigate to the contact page. The contact form must show a confirmation after a successful staging submission. This file contains no personal, confidential, or client information.

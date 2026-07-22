@@ -47,13 +47,13 @@ jobs:
       PGPORT: 5432
       PGUSER: postgres
       PGPASSWORD: postgres
-      PGDATABASE: milestoneproof_test
+      PGDATABASE: greenlit_test
     steps:
       - uses: actions/checkout@v4
       - name: Prepare isolated Supabase-compatible database
         run: |
           psql -d postgres -v ON_ERROR_STOP=1 -c "create role anon; create role authenticated; create role service_role bypassrls;"
-          createdb milestoneproof_test
+          createdb greenlit_test
           psql -v ON_ERROR_STOP=1 -f supabase/tests/00_local_supabase_stub.sql
           psql -v ON_ERROR_STOP=1 -c "grant usage on schema auth,storage,extensions,public to service_role; grant all on all tables in schema auth,storage,public to service_role; grant all on all sequences in schema public to service_role; grant execute on all functions in schema auth,storage,public to service_role;"
       - name: Apply every migration in order

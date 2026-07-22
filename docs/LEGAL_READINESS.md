@@ -1,4 +1,4 @@
-# MilestoneProof legal and recordkeeping readiness
+# Greenlit legal and recordkeeping readiness
 
 Last reviewed: July 20, 2026  
 Product scope: U.S. business beta using synthetic or expressly non-confidential SOW material  
@@ -6,7 +6,7 @@ Status: hackathon-ready controls, not a substitute for advice from qualified cou
 
 ## What the product records
 
-MilestoneProof records a milestone-approval transaction, not a payment transaction or formal contract signature. The durable record includes:
+Greenlit records a milestone-approval transaction, not a payment transaction or formal contract signature. The durable record includes:
 
 - the agency, client, project, milestone, stated value, currency, and source name;
 - SHA-256 hashes of the imported source and confirmed criteria, without persisting the full SOW;
@@ -18,7 +18,7 @@ MilestoneProof records a milestone-approval transaction, not a payment transacti
 - a sequential append-only event chain containing the previous hash and current event hash; and
 - a final receipt hash plus a printable PDF view and downloadable JSON transaction export.
 
-Raw IP addresses are not intentionally stored in the transaction record. Request context is converted to a keyed one-way actor hash. Original SOW text is processed in memory by MilestoneProof, but eligible Gemini requests are still subject to Google's data practices described below.
+Raw IP addresses are not intentionally stored in the transaction record. Request context is converted to a keyed one-way actor hash. Original SOW text is processed in memory by Greenlit, but eligible Gemini requests are still subject to Google's data practices described below.
 
 ## Retention implemented
 
@@ -56,7 +56,7 @@ Product response: the app provides just-in-time collection notices, Privacy/Term
 
 - The IRS says a business may choose a recordkeeping system that clearly shows income and expenses, but must keep supporting records for as long as they may be needed to substantiate a tax return. It identifies invoices, receipts, payment records, journals, and ledgers as accounting support, and requires electronic tax records to remain complete, accurate, accessible, and reproducible. Sources: [IRS Recordkeeping](https://www.irs.gov/businesses/small-businesses-self-employed/recordkeeping) and [IRS Publication 583](https://www.irs.gov/publications/p583).
 
-Product response: MilestoneProof records a milestone-evidence and client-decision event only. It does not record payment settlement, revenue recognition, tax treatment, the final invoice, or the general ledger entry. Businesses must keep the MilestoneProof export alongside—never instead of—their contract, invoice, payment, and accounting records for the period their tax adviser and governing law require.
+Product response: Greenlit records a milestone-evidence and client-decision event only. It does not record payment settlement, revenue recognition, tax treatment, the final invoice, or the general ledger entry. Businesses must keep the Greenlit export alongside—never instead of—their contract, invoice, payment, and accounting records for the period their tax adviser and governing law require.
 
 ### Gemini unpaid-tier restriction
 
@@ -76,7 +76,7 @@ The app should not be represented as generally “legally approved” or product
 6. Adopt the included incident-response and beta-operations runbooks; then schedule access reviews, secret rotation, backups/restore testing, dependency monitoring, and alert escalation with named owners.
 7. Add stronger reviewer identity verification if customers will rely on decisions for payment disputes. Email text entry and contextual evidence support attribution but are not high-assurance identity proofing.
 8. Define contract-specific legal holds and retention by jurisdiction and industry. Four years is only a beta default.
-9. Keep invoices, payments, tax records, accounting ledgers, and formal signatures in the appropriate systems of record. MilestoneProof does not replace them.
+9. Keep invoices, payments, tax records, accounting ledgers, and formal signatures in the appropriate systems of record. Greenlit does not replace them.
 10. Complete a full accessibility audit and security assessment before public commercial use.
 
 ## Operator checklist for the hackathon demo

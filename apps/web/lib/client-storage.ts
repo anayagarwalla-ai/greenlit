@@ -5,30 +5,30 @@
 // workspace snapshot.
 const DRAFT_VERSION = "v4";
 const LEGACY_GLOBAL_KEYS = [
-  "milestoneproof-workspace-draft-v2",
-  "milestoneproof-approved-url",
-  "milestoneproof-demo-decision",
+  "greenlit-workspace-draft-v2",
+  "greenlit-approved-url",
+  "greenlit-demo-decision",
 ];
-const PENDING_CLAIM_KEY = `milestoneproof-pending-draft-claim-${DRAFT_VERSION}`;
+const PENDING_CLAIM_KEY = `greenlit-pending-draft-claim-${DRAFT_VERSION}`;
 
 function ownerKey(email: string | null | undefined): string {
   return (email || "anon").trim().toLowerCase() || "anon";
 }
 
 function draftIndexKey(email: string | null | undefined): string {
-  return `milestoneproof-draft-index-${DRAFT_VERSION}:${ownerKey(email)}`;
+  return `greenlit-draft-index-${DRAFT_VERSION}:${ownerKey(email)}`;
 }
 
 export function activeDraftStorageKey(email: string | null | undefined): string {
-  return `milestoneproof-active-draft-${DRAFT_VERSION}:${ownerKey(email)}`;
+  return `greenlit-active-draft-${DRAFT_VERSION}:${ownerKey(email)}`;
 }
 
 export function legacyDraftStorageKey(email: string | null | undefined): string {
-  return `milestoneproof-draft-v3:${ownerKey(email)}`;
+  return `greenlit-draft-v3:${ownerKey(email)}`;
 }
 
 export function draftStorageKey(email: string | null | undefined, draftId = "default"): string {
-  return `milestoneproof-draft-${DRAFT_VERSION}:${ownerKey(email)}:${draftId}`;
+  return `greenlit-draft-${DRAFT_VERSION}:${ownerKey(email)}:${draftId}`;
 }
 
 function readIndex(email: string | null | undefined): string[] {

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, randomToken, RECORD_NOTICE_VERSION, requestActorHash, sha256 } from "@/lib/recordkeeping";
@@ -7,6 +7,7 @@ import { deliverNotification, type NotificationPayload } from "@/lib/notificatio
 import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { assertReviewSnapshotIntegrity, receiptSessionCookieName, receiptSessionExpiry, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
+import { processInvoiceJob } from "@/lib/stripe-invoicing";
 
 const schema = z.object({
   decision: z.enum(["APPROVED", "CHANGES_REQUESTED"]),
@@ -45,10 +46,17 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     const deliveryStatus = process.env.NOTIFICATION_WEBHOOK_URL ? "PENDING_EMAIL" : "IN_APP";
     const { data: decisionData, error: updateError } = await database.rpc("record_review_decision_with_notification_atomic", { p_packet_id: packet.id, p_decision: parsed.data.decision, p_reviewer_name: parsed.data.reviewerName, p_reviewer_email: parsed.data.reviewerEmail, p_reviewer_note: parsed.data.reviewerNote, p_notice_version: parsed.data.noticeVersion, p_actor_hash: actorHash, p_country_code: request.headers.get("x-vercel-ip-country") ?? null, p_decided_at: decidedAt, p_receipt_sha256: provisionalReceiptSha256, p_delivery_status: deliveryStatus, p_receipt_session_hash: sha256(receiptSession), p_receipt_session_expires_at: receiptExpiresAt });
     if (updateError) return NextResponse.json({ error: /already|unavailable/i.test(updateError.message) ? "Another decision was recorded first, or this review is no longer available. Refresh the review." : updateError.message }, { status: 409, headers: noStoreJsonHeaders() });
-    const committedDecision = decisionData && typeof decisionData === "object" ? decisionData as { notificationId?: string | null; receiptSha256?: string; auditSequence?: number } : null;
+    const committedDecision = decisionData && typeof decisionData === "object" ? decisionData as { notificationId?: string | null; receiptSha256?: string; auditSequence?: number; invoiceJobId?: string | null } : null;
     const notificationId = committedDecision?.notificationId ?? null;
     const receiptSha256 = committedDecision?.receiptSha256;
     if (!receiptSha256 || !/^[a-f0-9]{64}$/.test(receiptSha256)) throw new Error("The decision committed without a valid receipt hash.");
+    if (committedDecision.invoiceJobId) {
+      const invoiceJobId = committedDecision.invoiceJobId;
+      after(async () => {
+        const { data: job } = await database.from("invoice_jobs").select("owner_user_id").eq("id", invoiceJobId).maybeSingle();
+        if (job?.owner_user_id) await processInvoiceJob(invoiceJobId, job.owner_user_id).catch(() => undefined);
+      });
+    }
     if (notificationId && process.env.NOTIFICATION_WEBHOOK_URL) {
       const { data: notification, error: notificationError } = await database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, created_at").eq("id", notificationId).single();
       if (notificationError || !notification) await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "NOTIFICATION_LOOKUP_FAILED", recordId: packet.record_id, details: { notificationId, error: notificationError?.message ?? "Notification missing after decision commit" } });
@@ -56,7 +64,7 @@ export async function POST(request: Request, context: { params: Promise<{ packet
       catch (deliveryError) { await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "NOTIFICATION_STATUS_UPDATE_FAILED", recordId: packet.record_id, details: { notificationId, error: deliveryError instanceof Error ? deliveryError.message : "Notification delivery status failed" } }); }
     }
     await logProductEvent({ eventType: "REVIEW_DECIDED", recordId: packet.record_id, properties: { status: parsed.data.decision } });
-    const response = NextResponse.json({ decision: parsed.data.decision, decidedAt, receiptSha256, auditSequence: committedDecision?.auditSequence ?? null, receiptUrl: `/receipt/${packetId}`, receiptAccessExpiresAt: receiptExpiresAt }, { headers: noStoreJsonHeaders() });
+    const response = NextResponse.json({ decision: parsed.data.decision, decidedAt, receiptSha256, auditSequence: committedDecision?.auditSequence ?? null, invoiceStatus: committedDecision?.invoiceJobId ? "QUEUED" : null, receiptUrl: `/receipt/${packetId}`, receiptAccessExpiresAt: receiptExpiresAt }, { headers: noStoreJsonHeaders() });
     response.cookies.set(receiptSessionCookieName(packetId), receiptSession, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 30 * 24 * 60 * 60 });
     return response;
   } catch (error) {

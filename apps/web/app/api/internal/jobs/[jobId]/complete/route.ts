@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { criterionResultSchema } from "@milestoneproof/contracts";
+import { criterionResultSchema } from "@greenlit/contracts";
 import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";

@@ -1,5 +1,5 @@
 import { launch, type BrowserWorker } from "@cloudflare/playwright";
-import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@milestoneproof/contracts";
+import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@greenlit/contracts";
 import { z } from "zod";
 import axe from "axe-core";
 import { addressMatchesFrozenSet, pathWithQueryAndHash } from "./security";
@@ -299,16 +299,16 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "milestoneproof-runner", version: RUNNER_VERSION, queueConfigured: Boolean(env.JOB_QUEUE), browserConfigured: Boolean(env.BROWSER), webCallbackConfigured: Boolean(env.WEB_APP_URL && env.RUNNER_HMAC_SECRET) });
+    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "greenlit-runner", version: RUNNER_VERSION, queueConfigured: Boolean(env.JOB_QUEUE), browserConfigured: Boolean(env.BROWSER), webCallbackConfigured: Boolean(env.WEB_APP_URL && env.RUNNER_HMAC_SECRET) });
     if (request.method === "POST" && url.pathname === "/health/deep") {
       const body = await request.text();
       if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       let browser: Awaited<ReturnType<typeof launchWithBackoff>> | null = null;
       try {
         browser = await launchWithBackoff(env.BROWSER);
-        return Response.json({ ok: true, service: "milestoneproof-runner", version: RUNNER_VERSION, browserVersion: browser.version() });
+        return Response.json({ ok: true, service: "greenlit-runner", version: RUNNER_VERSION, browserVersion: browser.version() });
       } catch (error) {
-        return Response.json({ ok: false, service: "milestoneproof-runner", version: RUNNER_VERSION, error: error instanceof Error ? error.message.slice(0, 200) : "Browser launch failed" }, { status: 503 });
+        return Response.json({ ok: false, service: "greenlit-runner", version: RUNNER_VERSION, error: error instanceof Error ? error.message.slice(0, 200) : "Browser launch failed" }, { status: 503 });
       } finally {
         if (browser) await browser.close();
       }

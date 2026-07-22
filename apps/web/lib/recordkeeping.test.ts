@@ -10,12 +10,12 @@ describe("recordkeeping primitives", () => {
   });
 
   it("produces a stable SHA-256 digest", () => {
-    expect(sha256("MilestoneProof")).toBe("46acc2387d05bf22c555ffcada7e29cc12d8c729d4c302cecb354afee1dd3f10");
+    expect(sha256("Greenlit")).toBe("a6dfce4195d15641e5fe81dfc1b5d6939b0d22e684ac823f1bdbcdb44b3fb9fa");
   });
 
   it("uses a keyed, deterministic actor hash instead of retaining raw request metadata", () => {
     vi.stubEnv("RECORD_HASH_SECRET", "unit-test-record-secret");
-    const request = new Request("https://example.test", { headers: { "x-forwarded-for": "203.0.113.4", "x-vercel-ip-country": "US", "user-agent": "MilestoneProof test" } });
+    const request = new Request("https://example.test", { headers: { "x-forwarded-for": "203.0.113.4", "x-vercel-ip-country": "US", "user-agent": "Greenlit test" } });
     const first = requestActorHash(request);
     expect(first).toBe(requestActorHash(request));
     expect(first).toMatch(/^[a-f0-9]{64}$/);

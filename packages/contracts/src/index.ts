@@ -99,8 +99,8 @@ export type MilestoneStatus = z.infer<typeof milestoneStatusSchema>;
 export function isSafeRelativePath(value: string): boolean {
   if (!value.startsWith("/") || value.startsWith("//")) return false;
   try {
-    const parsed = new URL(value, "https://milestoneproof.invalid");
-    return parsed.origin === "https://milestoneproof.invalid" && !parsed.username && !parsed.password;
+    const parsed = new URL(value, "https://greenlit.invalid");
+    return parsed.origin === "https://greenlit.invalid" && !parsed.username && !parsed.password;
   } catch {
     return false;
   }

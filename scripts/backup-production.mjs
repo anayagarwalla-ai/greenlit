@@ -18,9 +18,9 @@ const outputDir = resolve(required("BACKUP_OUTPUT_DIR"));
 const recipient = required("BACKUP_ENCRYPTION_RECIPIENT");
 const supabase = supabaseConfig();
 const stamp = safeTimestamp();
-const temporary = await mkdtemp(join(tmpdir(), "milestoneproof-backup-"));
-const bundle = join(temporary, `milestoneproof-${stamp}`);
-const encryptedOutput = join(outputDir, `milestoneproof-${stamp}.tar.gz.gpg`);
+const temporary = await mkdtemp(join(tmpdir(), "greenlit-backup-"));
+const bundle = join(temporary, `greenlit-${stamp}`);
+const encryptedOutput = join(outputDir, `greenlit-${stamp}.tar.gz.gpg`);
 
 try {
   await mkdir(join(bundle, "evidence"), { recursive: true, mode: 0o700 });
@@ -49,5 +49,5 @@ try {
   await run("gpg", ["--batch", "--yes", "--trust-model", "always", "--recipient", recipient, "--output", encryptedOutput, "--encrypt", archive]);
   console.log(JSON.stringify({ ok: true, encryptedBackup: encryptedOutput, evidenceObjects: evidence.length, createdAt: manifest.createdAt }, null, 2));
 } finally {
-  if (temporary.startsWith(`${tmpdir()}/milestoneproof-backup-`)) await rm(temporary, { recursive: true, force: true });
+  if (temporary.startsWith(`${tmpdir()}/greenlit-backup-`)) await rm(temporary, { recursive: true, force: true });
 }

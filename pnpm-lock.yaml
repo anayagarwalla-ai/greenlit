@@ -24,7 +24,7 @@ importers:
       '@google/genai':
         specifier: ^1.38.0
         version: 1.52.0
-      '@milestoneproof/contracts':
+      '@greenlit/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@supabase/ssr':
@@ -92,7 +92,7 @@ importers:
       '@cloudflare/playwright':
         specifier: ^1.3.0
         version: 1.3.0
-      '@milestoneproof/contracts':
+      '@greenlit/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       axe-core:

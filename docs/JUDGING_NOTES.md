@@ -84,9 +84,9 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 
 ### Deployment
 
-- App: https://milestoneproof.vercel.app
-- Public repository: https://github.com/anayagarwalla-ai/milestoneproof
-- Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health
+- App: https://greenlit.vercel.app
+- Public repository: https://github.com/anayagarwalla-ai/greenlit
+- Runner health: https://greenlit-runner.anay-agarwalla-581.workers.dev/health
 - Mention the repeatable deployment files: `vercel.json`, `wrangler.toml`, Supabase migration, and README commands.
 
 ## Video evaluation (6 points)
@@ -105,7 +105,7 @@ Spend the final 20 seconds on the trust boundary and architecture. Name Gemini, 
 
 ## Judge-facing answers
 
-**Why is this not just Playwright with an AI prompt?**  Playwright starts from test code. MilestoneProof starts from the client’s contractual language, requires exact source grounding and bilateral scope confirmation, then translates evidence back into a client decision and invoice-ready record.
+**Why is this not just Playwright with an AI prompt?**  Playwright starts from test code. Greenlit starts from the client’s contractual language, requires exact source grounding and bilateral scope confirmation, then translates evidence back into a client decision and invoice-ready record.
 
 **Can Gemini execute anything?**  No. Gemini returns structured criterion drafts only. It cannot submit selectors, JavaScript, credentials, headers, or off-origin actions. Human-confirmed data must pass a shared typed schema before the runner sees a job ID.
 
