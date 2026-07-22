@@ -4,6 +4,7 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { assertDecisionReceiptIntegrity, assertReviewSnapshotIntegrity, receiptSessionAuthorized, receiptSessionCookieName, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 
 export async function GET(_request: Request, context: { params: Promise<{ packetId: string }> }) {
   const { packetId } = await context.params;
@@ -22,7 +23,8 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
     assertReviewSnapshotIntegrity(packet.snapshot, packet.snapshot_sha256);
     const reviewerAuthorized = await reviewSessionAuthorized(database, packet.id, session);
     const receiptAuthorized = packet.decision ? await receiptSessionAuthorized(database, packet.id, receiptSession) : false;
-    const { data: ownerRecord } = user ? await database.from("transaction_records").select("id").eq("id", packet.record_id).eq("owner_user_id", user.id).maybeSingle() : { data: null };
+    const activeOwner = user && await betaAccessAllowedFresh(user) ? user : null;
+    const { data: ownerRecord } = activeOwner ? await database.from("transaction_records").select("id").eq("id", packet.record_id).eq("owner_user_id", activeOwner.id).maybeSingle() : { data: null };
     if (!reviewerAuthorized && !receiptAuthorized && !ownerRecord) return NextResponse.json({ error: "The review session is invalid or this account does not own the record." }, { status: 401, headers: noStoreJsonHeaders() });
     if (!packet.decision) return NextResponse.json({ error: "A final decision has not been recorded yet." }, { status: 409, headers: noStoreJsonHeaders() });
     await assertDecisionReceiptIntegrity(database, packet);

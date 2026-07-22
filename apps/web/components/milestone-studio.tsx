@@ -44,6 +44,7 @@ import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, no
 import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
+import { isActiveRunStatus, isTerminalRunFailure, terminalRunMessage } from "@/lib/run-status";
 import {
   activeDraftId,
   claimPendingAnonymousDraft,
@@ -487,9 +488,13 @@ export function MilestoneStudio() {
             else if (isImportedFixture) setCustomRun(null);
             const openReview = (resumed.reviews as Array<{ decision?: string | null; public_id: string }> ?? []).find((item) => !item.decision);
             if (openReview) { setReviewPacketId(openReview.public_id); setReviewCreated(true); }
-            if (["QUEUED", "LEASED", "RUNNING"].includes(latest.status)) setPhase("running1");
+            if (isActiveRunStatus(latest.status)) setPhase("running1");
             else if (record.status === "READY_FOR_REVIEW" || record.status === "IN_REVIEW") { setPhase("run2"); setLastVerificationPhase("run2"); }
-            else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
+            else if (isTerminalRunFailure(latest.status)) {
+              setRunError(terminalRunMessage(latest.status, latest.last_error));
+              setPhase(isImportedFixture ? "criteria" : "handoff");
+              setLastVerificationPhase(null);
+            } else { setPhase(record.status === "CHANGES_REQUESTED" ? "criteria" : "run1"); setLastVerificationPhase("run1"); }
           } else setPhase("criteria");
           setToast("Retained project restored");
           draftHydrated.current = true;
@@ -589,7 +594,7 @@ export function MilestoneStudio() {
   }, [sourceMode, recordId, sessionEmail, workspaceSnapshot, saveRetainedSnapshot]);
 
   useEffect(() => {
-    if (!activeRunId || !activeRunStatus || !["QUEUED", "LEASED", "RUNNING"].includes(activeRunStatus) || runController.current) return;
+    if (!activeRunId || !isActiveRunStatus(activeRunStatus) || runController.current) return;
     const controller = new AbortController();
     const poll = async () => {
       try {
@@ -601,8 +606,11 @@ export function MilestoneStudio() {
         if (payload.status === "COMPLETED") {
           const completedPhase: Phase = payload.outcome === "READY_FOR_REVIEW" ? "run2" : "run1";
           setPhase(completedPhase); setLastVerificationPhase(completedPhase); setRunError("");
-        } else if (payload.status === "FAILED") {
-          setRunError(payload.error ?? "The retained verification job failed."); setPhase("handoff");
+        } else if (isTerminalRunFailure(payload.status)) {
+          setRunRequestId(null);
+          setRunError(terminalRunMessage(payload.status, payload.error));
+          setPhase(canUseImportedFixture ? "criteria" : "handoff");
+          setLastVerificationPhase(null);
         }
       } catch (cause) {
         if (controller.signal.aborted) return;
@@ -617,7 +625,7 @@ export function MilestoneStudio() {
     const timer = window.setInterval(() => void poll(), 2_000);
     void poll();
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [activeRunId, activeRunStatus]);
+  }, [activeRunId, activeRunStatus, canUseImportedFixture]);
 
   useEffect(() => {
     if (phase === "intake") return;
@@ -951,7 +959,14 @@ export function MilestoneStudio() {
           setToast(`${statusPayload.results.filter((result) => result.status === "PASS").length} of ${statusPayload.results.length} checks passed`);
           return;
         }
-        if (statusPayload.status === "FAILED") throw new Error(statusPayload.error ?? "The verification runner failed.");
+        if (isTerminalRunFailure(statusPayload.status)) {
+          setLatestRun(statusPayload);
+          setRunRequestId(null);
+          setRunError(terminalRunMessage(statusPayload.status, statusPayload.error));
+          setPhase(canUseImportedFixture ? "criteria" : "handoff");
+          setLastVerificationPhase(null);
+          return;
+        }
         await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       }
       if (!controller.signal.aborted) {

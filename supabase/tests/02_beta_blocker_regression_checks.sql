@@ -12,6 +12,7 @@ declare
   v_checks jsonb:='[{"id":"CHK-01","criterionId":"AC-01","type":"element_state","path":"/","sourceQuote":"Required source quote","confirmedByHuman":true,"elementRef":"main:Content","assertion":"visible"}]'::jsonb;
 begin
   insert into auth.users(id,email) values(v_owner,'blocker-owner@example.test'),(v_off_owner,'offboard@example.test');
+  insert into auth.sessions(user_id) values(v_off_owner);
   insert into beta_invites(email,status,adult_sponsor,invited_by) values
     ('blocker-owner@example.test','ACTIVE','Test operator','regression test'),
     ('offboard@example.test','ACTIVE','Test operator','regression test');
@@ -67,6 +68,7 @@ begin
   assert exists(select 1 from review_packets_v2 where id=v_off_packet and revoked_at is not null), 'offboarding did not revoke the review link';
   assert (select status from invoice_jobs where packet_id=v_off_packet)='CANCELLED', 'offboarding did not cancel the invoice job';
   assert (select status from stripe_connections where owner_user_id=v_off_owner)='DISCONNECTED', 'offboarding did not disconnect Stripe';
+  assert not exists(select 1 from auth.sessions where user_id=v_off_owner), 'offboarding did not revoke refresh sessions';
   begin
     perform record_review_decision_with_notification_atomic(v_off_packet,'APPROVED','Reviewer','reviewer@example.test','','2026-07-20','actor','US',now(),'receipt','IN_APP','session',now()+interval '1 day');
     raise exception 'BLOCKER CHECK FAILED: removed agency accepted a client decision';
@@ -85,5 +87,108 @@ begin
   exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
 
   raise notice '=== ALL 2026-07-22 BETA BLOCKER REGRESSIONS PASSED ===';
+end;
+$$;
+
+do $$
+declare
+  v_owner uuid:=gen_random_uuid();
+  v_privacy_owner uuid:=gen_random_uuid();
+  v_legacy_owner uuid:=gen_random_uuid();
+  v_record uuid;
+  v_job uuid;
+  v_packet uuid:=gen_random_uuid();
+  v_request uuid:=gen_random_uuid();
+  v_legacy_request uuid:=gen_random_uuid();
+  v_first jsonb;
+  v_second jsonb;
+  v_old_scope text;
+  v_criteria jsonb:='[{"id":"AC-01","title":"Criterion","sourceQuote":"Required source quote","supported":true,"checkType":"element_state"}]'::jsonb;
+  v_checks jsonb:='[{"id":"CHK-01","criterionId":"AC-01","type":"element_state","path":"/","sourceQuote":"Required source quote","confirmedByHuman":true,"elementRef":"main:Content","assertion":"visible"}]'::jsonb;
+begin
+  insert into auth.users(id,email) values
+    (v_owner,'revision-owner@example.test'),
+    (v_privacy_owner,'privacy-rollout-owner@example.test'),
+    (v_legacy_owner,'legacy-allowlist-owner@example.test');
+  insert into auth.sessions(user_id) values(v_privacy_owner),(v_legacy_owner);
+  insert into beta_invites(email,status,adult_sponsor,invited_by) values
+    ('revision-owner@example.test','ACTIVE','Test operator','regression test'),
+    ('privacy-rollout-owner@example.test','ACTIVE','Test operator','regression test');
+
+  -- Changing value/target/check scope is a new frozen milestone revision even
+  -- when the source and criteria hashes do not change.
+  v_first:=queue_verification_job_idempotent_atomic(
+    null,'MP-MATERIAL-REVISION',v_owner,'revision-owner-hash','IMPORTED_FIXTURE','Agency','Client','Project','Milestone',1000,'USD',
+    'sow.txt','source-hash',v_criteria,'criteria-hash','https://example.test','https://example.test','build-1',v_checks,
+    '0.7.1','{}'::jsonb,'actor','2026-07-20','[]'::jsonb,gen_random_uuid()::text
+  );
+  v_record:=(v_first->>'recordId')::uuid;
+  v_job:=(v_first->>'jobId')::uuid;
+  select scope_sha256 into v_old_scope from transaction_records where id=v_record;
+  update verification_jobs_v2 set status='FAILED',last_error='test reset',completed_at=now() where id=v_job;
+  update transaction_records set status='READY',active_job_id=null where id=v_record;
+  v_second:=queue_verification_job_idempotent_atomic(
+    v_record,'MP-MATERIAL-REVISION',v_owner,'revision-owner-hash','IMPORTED_FIXTURE','Agency','Client','Project','Milestone',1250,'USD',
+    'sow.txt','source-hash',v_criteria,'criteria-hash','https://example.test','https://example.test','build-2',v_checks,
+    '0.7.1','{}'::jsonb,'actor','2026-07-20','[]'::jsonb,gen_random_uuid()::text
+  );
+  assert (v_second->>'criteriaRevision')::integer=2, 'material milestone change did not increment revision';
+  assert (select scope_sha256<>v_old_scope from transaction_records where id=v_record), 'material milestone scope hash did not change';
+  assert exists(
+    select 1 from transaction_audit_events where record_id=v_record and event_type='MILESTONE_REVISED'
+      and payload#>>'{previousScope,amountMinor}'='1000' and payload#>>'{newScope,amountMinor}'='1250'
+  ), 'revision event did not retain the exact prior and new milestone value';
+
+  -- Privacy deletion must fail closed while Stripe is processing, then revoke
+  -- all undecided owner access once the job is safely terminal.
+  v_job:=gen_random_uuid();
+  insert into transaction_records(public_id,owner_token_hash,owner_user_id,mode,agency_name,client_name,project_name,milestone_title,amount_minor,currency,source_name,source_sha256,confirmed_criteria,criteria_sha256,target_origin,criteria_revision,status,last_run_id)
+  values('MP-PRIVACY-OFFBOARD','privacy-owner-hash',v_privacy_owner,'IMPORTED_FIXTURE','Agency','Client','Project','Milestone',1500,'USD','sow.txt','source',v_criteria,'criteria','https://example.test',1,'APPROVED',v_job)
+  returning id into v_record;
+  insert into verification_jobs_v2(id,record_id,status,target_origin,build_url,build_label,checks,results,artifacts,runner_version,criteria_revision,criteria_sha256,origin_addresses)
+  values(v_job,v_record,'COMPLETED','https://example.test','https://example.test','build',v_checks,'[]'::jsonb,'[]'::jsonb,'0.7.1',1,'criteria','[]'::jsonb);
+  insert into review_packets_v2(id,record_id,run_id,public_id,snapshot,snapshot_sha256,bearer_token_hash,expires_at,criteria_revision)
+  values(v_packet,v_record,v_job,'REVIEW-PRIVACY-OFFBOARD','{}'::jsonb,repeat('9',64),repeat('a',64),now()+interval '1 day',1);
+  insert into invoice_jobs(packet_id,record_id,owner_user_id,plan,status,idempotency_prefix)
+  values(v_packet,v_record,v_privacy_owner,jsonb_build_object('planSha256',repeat('b',64)),'PROCESSING','privacy-processing-job');
+  insert into privacy_requests_v2(id,public_id,request_type,email,status,identity_verified_at)
+  values(v_request,'PRIV-OFFBOARD','DELETION','privacy-rollout-owner@example.test','PROCESSING',now());
+  assert exists(select 1 from auth.users where id=v_privacy_owner and email='privacy-rollout-owner@example.test'), 'privacy owner fixture was not created';
+  assert exists(select 1 from invoice_jobs where owner_user_id=v_privacy_owner and status='PROCESSING'), 'processing invoice fixture was not created';
+  begin
+    perform schedule_privacy_deletion_atomic(v_request,'operator@example.test',now());
+    raise exception 'BLOCKER CHECK FAILED: privacy deletion raced a processing invoice';
+  exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
+  assert (select status from beta_invites where email='privacy-rollout-owner@example.test')='ACTIVE', 'failed privacy deletion partially removed the invitation';
+  assert (select revoked_at is null from review_packets_v2 where id=v_packet), 'failed privacy deletion partially revoked review access';
+  assert exists(select 1 from auth.sessions where user_id=v_privacy_owner), 'failed privacy deletion partially revoked the Auth session';
+
+  update invoice_jobs set status='FAILED',claimed_at=null where packet_id=v_packet;
+  perform schedule_privacy_deletion_atomic(v_request,'operator@example.test',now());
+  assert (select status from beta_invites where email='privacy-rollout-owner@example.test')='REMOVED', 'privacy deletion did not remove beta access';
+  assert (select revoked_at is not null from review_packets_v2 where id=v_packet), 'privacy deletion did not revoke undecided review access';
+  assert (select status from invoice_jobs where packet_id=v_packet)='CANCELLED', 'privacy deletion did not cancel a failed invoice job';
+  assert not exists(select 1 from auth.sessions where user_id=v_privacy_owner), 'privacy deletion did not revoke refresh sessions';
+
+  -- Even if an obsolete worker retained a remote response, completion cannot
+  -- commit after the account's durable invitation has been removed.
+  update invoice_jobs set status='PROCESSING' where packet_id=v_packet;
+  insert into record_invoices(packet_id,record_id,owner_user_id,stripe_account_id,stripe_customer_id,stripe_invoice_id,status,amount_due_minor,amount_paid_minor,currency,billing_email)
+  values(v_packet,v_record,v_privacy_owner,'acct_privacy','cus_privacy','in_privacy','DRAFT',1500,0,'USD','client@example.test');
+  begin
+    perform record_invoice_sent_atomic((select id from invoice_jobs where packet_id=v_packet),'INV-1',1500,0,'USD',now()+interval '14 days','https://stripe.example/invoice','https://stripe.example/pdf',now());
+    raise exception 'BLOCKER CHECK FAILED: removed owner completed an invoice';
+  exception when others then if sqlerrm like 'BLOCKER CHECK FAILED%' then raise; end if; end;
+  assert (select status from record_invoices where packet_id=v_packet)='DRAFT', 'blocked invoice completion mutated the retained invoice';
+
+  -- A legacy environment-allowlisted account without an invite row receives
+  -- a REMOVED tombstone, so config fallback cannot restore its access.
+  insert into privacy_requests_v2(id,public_id,request_type,email,status,identity_verified_at)
+  values(v_legacy_request,'PRIV-LEGACY-OFFBOARD','DELETION','legacy-allowlist-owner@example.test','PROCESSING',now());
+  perform schedule_privacy_deletion_atomic(v_legacy_request,'operator@example.test',now());
+  assert (select status from beta_invites where email='legacy-allowlist-owner@example.test')='REMOVED', 'privacy deletion did not tombstone legacy allowlist access';
+  assert not exists(select 1 from auth.sessions where user_id=v_legacy_owner), 'legacy allowlist privacy deletion did not revoke refresh sessions';
+
+  raise notice '=== ALL 2026-07-22 ROLLOUT SAFETY REGRESSIONS PASSED ===';
 end;
 $$;

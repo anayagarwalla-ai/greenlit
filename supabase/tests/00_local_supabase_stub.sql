@@ -18,6 +18,11 @@ create table if not exists auth.users (
   email text
 );
 
+create table if not exists auth.sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade
+);
+
 create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
 
 create table if not exists storage.buckets (

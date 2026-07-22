@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { getOwnerIdentity } from "@/lib/owner-auth";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { betaAccessAllowedFresh } from "@/lib/beta-access";
 
 export const runtime = "nodejs";
 
@@ -17,8 +18,9 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
 
     const owner = await getOwnerIdentity();
     if (!owner.userId) return NextResponse.json({ error: "Sign in to access this verification run." }, { status: 401, headers: noStoreJsonHeaders() });
+    if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const { data: record } = await database.from("transaction_records")
-      .select("public_id, owner_user_id, owner_token_hash, agency_name, client_name, project_name, milestone_title, amount_minor, currency, source_name, source_sha256, confirmed_criteria, revision, status")
+      .select("public_id, owner_user_id, owner_token_hash, agency_name, client_name, project_name, milestone_title, amount_minor, currency, source_name, source_sha256, confirmed_criteria, criteria_revision, status")
       .eq("id", run.record_id)
       .single();
     if (!record || record.owner_user_id !== owner.userId) return NextResponse.json({ error: "This account cannot access the run." }, { status: 403, headers: noStoreJsonHeaders() });
@@ -49,7 +51,7 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       startedAt: run.started_at,
       completedAt: run.completed_at,
       createdAt: run.created_at,
-      record,
+      record: { ...record, revision: record.criteria_revision },
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Verification status is unavailable." }, { status: 503, headers: noStoreJsonHeaders() });

@@ -19,8 +19,8 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 ## Secrets and deployments
 
 - [ ] `RECORD_HASH_SECRET` is separate from `RUNNER_HMAC_SECRET`; web and runner HMAC values match.
-- [x] Gemini is labeled as unpaid and no paid Cloudflare/Vercel/Supabase service was enabled accidentally.
-- [x] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210006` versions.
+- [ ] Gemini is on the intended paid API tier and `NEXT_PUBLIC_GEMINI_SERVICE_TIER=paid`; until then the product must continue blocking confidential SOW use.
+- [ ] `/api/health` is green, `readyForBeta` is true, and it reports the expected web, runner `0.7.1`, and database `202607220005` versions.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.
 - [x] Production migration history contains every file in `supabase/migrations` exactly once.
 

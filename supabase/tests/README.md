@@ -84,5 +84,5 @@ fail outright on a fresh database (`function ... does not exist`).
 `02_beta_blocker_regression_checks.sql` locks in the release-blocker fixes:
 idempotent run creation, current-plan manual invoicing, recoverable Stripe
 customer correction, receipt-link sessions, legal-hold/deletion mutual
-exclusion, and complete offboarding of run, review, receipt, and financial
-workflows.
+exclusion, material milestone revision hashing, privacy/invoice serialization,
+and complete offboarding of run, review, receipt, and financial workflows.

@@ -113,15 +113,6 @@ export async function PATCH(request: Request) {
       const normalizedEmail = parsed.data.email.toLowerCase();
       const { error } = await database.rpc("manage_beta_invite_atomic", { p_email: normalizedEmail, p_status: parsed.data.action === "activate" ? "ACTIVE" : "REMOVED", p_responsible_operator: parsed.data.responsibleOperator, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
-      if (parsed.data.action === "remove") {
-        for (let page = 1; page <= 5; page += 1) {
-          const { data: accounts, error: accountsError } = await database.auth.admin.listUsers({ page, perPage: 200 });
-          if (accountsError) throw new Error(accountsError.message);
-          const account = accounts.users.find((candidate) => candidate.email?.toLowerCase() === normalizedEmail);
-          if (account) { await database.auth.admin.signOut(account.id, "global"); break; }
-          if (accounts.users.length < 200) break;
-        }
-      }
     } else if (parsed.data.kind === "notification") {
       const { data: notification, error } = await database.rpc("prepare_notification_retry_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() }).single();
       if (error || !notification) throw new Error(error?.message ?? "Notification not found.");

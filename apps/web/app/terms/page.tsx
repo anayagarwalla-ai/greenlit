@@ -47,7 +47,7 @@ export default function TermsPage() {
         <p>The beta is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoice accuracy and delivery, payments, refunds, disputes, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
 
         <h2>Invitation removal</h2>
-        <p>Closed-beta access may be removed at any time. Removing an invitation blocks future sign-in but does not silently delete retained transaction records or legally held evidence. The retention and deletion rules in the <Link href="/records">Records policy</Link> continue to apply, and a former user may still submit a request through the public privacy-request form.</p>
+        <p>Closed-beta access may be removed at any time. Removing an invitation ends active agency sessions, blocks owner-only routes, revokes undecided client-review links, and cancels work that has not completed; it does not silently delete retained transaction records or legally held evidence. The retention and deletion rules in the <Link href="/records">Records policy</Link> continue to apply, and a former user may still submit a request through the public privacy-request form.</p>
 
         <h2>Privacy and requests</h2>
         <p>The <Link href="/privacy">Privacy Notice</Link> describes collection, providers, security, and retention. Submit data-rights requests through the <Link href="/privacy-request">privacy request form</Link>.</p>

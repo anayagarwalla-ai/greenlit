@@ -142,6 +142,22 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   expect(submitted).not.toHaveProperty("originReceipt");
 });
 
+test("an expired retained run returns to a retryable setup instead of an endless spinner", async ({ page }) => {
+  const recordId = "7e793117-cdeb-402a-b2b1-0d8359b4581a";
+  const criterion = { id: "AC-01", title: "Hero is visible", sourceQuote: "The launch page must display a visible hero.", checkType: "element_state" };
+  await mockSignedIn(page);
+  await page.route(`**/api/account/records/${recordId}`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    record: { id: recordId, public_id: "MP-EXPIRED", mode: "IMPORTED_FIXTURE", status: "READY", agency_name: "Test Agency", client_name: "Test Client", project_name: "Launch", milestone_title: "Launch", amount_minor: 250000, currency: "USD", source_name: "Pasted SOW", confirmed_criteria: [criterion], criteria_revision: 1 },
+    runs: [{ id: "expired-run", status: "EXPIRED", target_origin: "http://127.0.0.1:3008", build_url: "http://127.0.0.1:3008/fixture/rc1", build_label: "launch-rc1", checks: [], results: [], artifacts: [], last_error: "The retained run expired before a runner completed it.", completed_at: "2026-07-22T20:00:00.000Z" }],
+    reviews: [],
+  }) }));
+
+  await page.goto(`/workspace?record=${recordId}`);
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await expect(page.locator(".workspace-error")).toContainText("expired before a runner completed it");
+  await expect(page.getByText("Verification in progress")).toHaveCount(0);
+});
+
 test("drafts are isolated per signed-in account and never leak across accounts on the same browser", async ({ page }) => {
   await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-a", email: "agency-a@example.test" } }) }));
   await page.goto("/workspace");

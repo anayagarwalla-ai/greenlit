@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/database";
 import { retryHealthQuery } from "@/lib/health-check";
 import { DATABASE_VERSION } from "@/lib/health-version";
 import { signRunnerRequest } from "@/lib/hmac";
+import { legalLaunchReadiness } from "@/lib/launch-readiness";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
   const database = getSupabaseAdmin();
   const runnerUrl = process.env.RUNNER_URL;
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
+  const legalConfiguration = legalLaunchReadiness();
 
   if (!database) {
     checks.database = { ok: false, detail: "not configured" };
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
     checks.retention = { ok: !maintenance.error && maintenance.data?.status === "SUCCEEDED" && lastMaintenance >= heartbeatBefore, detail: maintenance.error ? "query failed" : maintenance.data?.status === "SUCCEEDED" ? "heartbeat recorded" : "successful heartbeat missing" };
     const evidenceBytes = Number(evidence.data ?? 0);
     checks.evidenceStorage = { ok: !evidence.error && evidenceBytes < 850_000_000, detail: evidence.error ? "query failed" : evidenceBytes < 850_000_000 ? "within beta guardrail" : "approaching free storage limit" };
-    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 3)));
+    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 8)));
     checks.dailyCapacity = { ok: !dailyRuns.error && (dailyRuns.count ?? 0) < dailyLimit, detail: dailyRuns.error ? "query failed" : `${dailyRuns.count ?? 0}/${dailyLimit} runs used today` };
   }
 
@@ -83,5 +85,16 @@ export async function GET(request: Request) {
   }
 
   const ok = Object.values(checks).every((check) => check.ok);
-  return NextResponse.json({ ok, service: "greenlit-web", checkedAt, versions: { web: WEB_VERSION, runnerExpected: EXPECTED_RUNNER_VERSION, database: DATABASE_VERSION }, checks }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
+  const launchChecks = {
+    legalConfiguration: {
+      ok: legalConfiguration.ok,
+      detail: legalConfiguration.ok ? "complete" : `missing ${legalConfiguration.missing.join(", ")}`,
+    },
+    geminiDataMode: {
+      ok: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid",
+      detail: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid" ? "paid API data terms configured" : "unpaid tier: confidential SOWs remain blocked",
+    },
+  };
+  const readyForBeta = ok && Object.values(launchChecks).every((check) => check.ok);
+  return NextResponse.json({ ok, readyForBeta, service: "greenlit-web", checkedAt, versions: { web: WEB_VERSION, runnerExpected: EXPECTED_RUNNER_VERSION, database: DATABASE_VERSION }, checks, launchChecks }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
 }

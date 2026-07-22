@@ -5,10 +5,10 @@ This runbook is the minimum operating cadence for inviting web agencies. Assign 
 ## Before the first invitation
 
 - Set `BETA_ALLOWED_EMAILS` to the exact business emails invited to use the retained workflow.
-- Set `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`.
+- Set `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_OPERATOR_ADDRESS`, `NEXT_PUBLIC_GOVERNING_LAW`, and `NEXT_PUBLIC_VENUE`.
 - Confirm the Supabase Site URL is `https://greenlitproof.vercel.app` and `https://greenlitproof.vercel.app/auth/callback` is allowed.
-- Keep `BETA_DAILY_RUN_LIMIT=3` and each run at six checks or fewer until measured Cloudflare usage demonstrates safe headroom.
-- Confirm `/api/health` reports matching web, database, and runner versions with no stale jobs, notification failures, storage warning, or missing retention heartbeat.
+- Keep `BETA_DAILY_RUN_LIMIT=8`, each account at the built-in three-run daily limit, and each run at six checks or fewer. The eight-run application cap is a guardrail beneath Cloudflare Browser Rendering's free 10-minute daily browser allowance; lower it if measured run duration approaches that allowance.
+- Confirm `/api/health` reports matching web, database, and runner versions with no stale jobs, notification failures, storage warning, or missing retention heartbeat. `readyForBeta` must also be `true`; `ok` alone means only that the running services are healthy.
 - Run the protected deep check with `Authorization: Bearer $CRON_SECRET` against `/api/health?deep=1` before a cohort launch; it performs a real browser-binding launch without visiting a tester site.
 - Verify custom SMTP, sender-domain SPF/DKIM/DMARC, corporate link-scanner behavior, Supabase Auth public signup disabled, and the production callback allowlist.
 - Confirm the adult operator has reviewed the current Vercel entitlement and Supabase Free pause/recovery procedure before using the pilot commercially.
@@ -43,7 +43,7 @@ The in-product form creates an intake record; it does not complete the request a
 4. Assign an owner, update status, and record concise internal notes and the completion time in the privacy-request queue.
 5. Send the response through the monitored support channel. Do not put exported personal data into an unauthenticated link.
 
-Scheduling deletion immediately removes eligible ancillary account data and makes account-owned records due for hold-aware staged deletion. Auth cleanup runs only after those records are gone. Reviewer-only matches are retained for an explicit operator retain/deny decision so one client cannot erase another agency's legal transaction.
+Scheduling deletion immediately removes the beta invitation, revokes owner-only application access and undecided review links, cancels pending work, removes eligible ancillary account data, and makes account-owned records due for hold-aware staged deletion. A currently processing Stripe invoice must be resolved first so deletion cannot race a remote invoice send. The Auth session is globally revoked immediately; final Auth-account deletion runs after retained records are gone. Reviewer-only matches are retained for an explicit operator retain/deny decision so one client cannot erase another agency's legal transaction.
 
 ## Beta pause criteria
 
