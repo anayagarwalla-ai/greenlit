@@ -14,7 +14,10 @@ describe("Stripe token encryption", () => {
   });
 
   it("fails closed when ciphertext is modified", () => {
-    const encrypted = encryptStripeSecret("token");
-    expect(() => decryptStripeSecret(`${encrypted.slice(0, -1)}x`)).toThrow();
+    const segments = encryptStripeSecret("token").split(".");
+    const tag = segments[3];
+    if (!tag) throw new Error("Encrypted token did not contain an authentication tag.");
+    segments[3] = `${tag[0] === "A" ? "B" : "A"}${tag.slice(1)}`;
+    expect(() => decryptStripeSecret(segments.join("."))).toThrow();
   });
 });

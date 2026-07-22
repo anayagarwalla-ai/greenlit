@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/database";
+import { DATABASE_VERSION } from "@/lib/health-version";
 import { signRunnerRequest } from "@/lib/hmac";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
-const DATABASE_VERSION = "202607210004";
 const EXPECTED_RUNNER_VERSION = "0.6.0";
 
 export async function GET(request: Request) {

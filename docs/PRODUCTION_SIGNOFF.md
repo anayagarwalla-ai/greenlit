@@ -20,7 +20,7 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 
 - [ ] `RECORD_HASH_SECRET` is separate from `RUNNER_HMAC_SECRET`; web and runner HMAC values match.
 - [x] Gemini is labeled as unpaid and no paid Cloudflare/Vercel/Supabase service was enabled accidentally.
-- [x] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210004` versions.
+- [x] `/api/health` is green and reports the expected web, runner `0.6.0`, and database `202607210006` versions.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.
 - [x] Production migration history contains every file in `supabase/migrations` exactly once.
 
