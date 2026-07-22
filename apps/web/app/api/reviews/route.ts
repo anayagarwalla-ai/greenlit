@@ -44,6 +44,7 @@ export async function POST(request: Request) {
     const { data: planRow, error: planError } = await database.from("record_invoice_plans").select("billing_name,billing_email,days_until_due,memo,auto_send,stripe_customer_id,amount_minor,currency,criteria_revision,plan_sha256").eq("record_id", record.id).maybeSingle();
     if (planError) throw new Error(planError.message);
     let invoicePlan = undefined;
+    let invoiceDeliveryMode: "TEST_DRAFT" | "LIVE_EMAIL" | "MANUAL_AFTER_APPROVAL" | undefined;
     if (planRow) {
       invoicePlan = assertFrozenInvoicePlan({ enabled: true, billingName: planRow.billing_name, billingEmail: planRow.billing_email, daysUntilDue: planRow.days_until_due, memo: planRow.memo, autoSend: planRow.auto_send, stripeCustomerId: planRow.stripe_customer_id, amountMinor: planRow.amount_minor, currency: planRow.currency, criteriaRevision: planRow.criteria_revision, planSha256: planRow.plan_sha256 });
       if (invoicePlan.amountMinor !== record.amount_minor || invoicePlan.currency !== record.currency || invoicePlan.criteriaRevision !== record.criteria_revision) return NextResponse.json({ error: "Invoice details are stale. Review and save them again before creating the client review." }, { status: 409, headers: noStoreJsonHeaders() });
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
         const { data: connection } = await database.from("stripe_connections").select("status,livemode").eq("owner_user_id", owner.userId).maybeSingle();
         if (!connection || connection.status !== "CONNECTED") return NextResponse.json({ error: "Reconnect Stripe before creating a review with automatic invoice sending." }, { status: 409, headers: noStoreJsonHeaders() });
         if (connection.livemode && process.env.STRIPE_ALLOW_LIVE_MODE !== "true") return NextResponse.json({ error: "Live-mode invoicing is disabled during the beta." }, { status: 409, headers: noStoreJsonHeaders() });
+        invoiceDeliveryMode = connection.livemode ? "LIVE_EMAIL" : "TEST_DRAFT";
+      } else {
+        invoiceDeliveryMode = "MANUAL_AFTER_APPROVAL";
       }
     }
 
@@ -73,6 +77,7 @@ export async function POST(request: Request) {
       criteria: record.confirmed_criteria,
       run: { runId: run.id, buildLabel: run.build_label, buildUrl: run.build_url, results, artifacts: run.artifacts, browserVersion: run.browser_version, runnerVersion: run.runner_version, manifestSha256: run.manifest_sha256, startedAt: run.started_at, completedAt: run.completed_at },
       ...(invoicePlan ? { invoicePlan } : {}),
+      ...(invoiceDeliveryMode ? { invoiceDeliveryMode } : {}),
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));

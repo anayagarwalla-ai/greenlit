@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { adminAccessAllowed, betaAccessAllowed, betaEmailAllowed } from "./beta-access";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const databaseMock = vi.hoisted(() => ({ maybeSingle: vi.fn() }));
+
+vi.mock("./database", () => ({
+  getSupabaseAdmin: () => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: databaseMock.maybeSingle }) }) }),
+  }),
+}));
+
+import { adminAccessAllowed, betaAccessAllowed, betaAccessAllowedFresh, betaEmailAllowed } from "./beta-access";
 
 describe("betaEmailAllowed", () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -67,5 +76,29 @@ describe("adminAccessAllowed", () => {
     vi.stubEnv("ADMIN_EMAILS", "operator@example.com");
     expect(betaEmailAllowed("agency@example.com")).toBe(true);
     expect(adminAccessAllowed({ email: "agency@example.com" })).toBe(false);
+  });
+});
+
+describe("durable beta invitations", () => {
+  beforeEach(() => {
+    vi.stubEnv("BETA_ALLOWED_EMAILS", "invited@example.test");
+    databaseMock.maybeSingle.mockReset();
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("treats an INVITED reservation as blocked until provisioning activates it", async () => {
+    databaseMock.maybeSingle.mockResolvedValue({ data: { status: "INVITED" }, error: null });
+    await expect(betaAccessAllowedFresh("invited@example.test")).resolves.toBe(false);
+  });
+
+  it("allows a durable ACTIVE invitation", async () => {
+    databaseMock.maybeSingle.mockResolvedValue({ data: { status: "ACTIVE" }, error: null });
+    await expect(betaAccessAllowedFresh("invited@example.test")).resolves.toBe(true);
+  });
+
+  it("uses the configured allowlist only when no durable row exists", async () => {
+    databaseMock.maybeSingle.mockResolvedValue({ data: null, error: null });
+    await expect(betaAccessAllowedFresh("invited@example.test")).resolves.toBe(true);
   });
 });
