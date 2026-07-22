@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/database";
+import { retryHealthQuery } from "@/lib/health-check";
 import { DATABASE_VERSION } from "@/lib/health-version";
 import { signRunnerRequest } from "@/lib/hmac";
 
@@ -23,13 +24,13 @@ export async function GET(request: Request) {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const [databaseProbe, schemaVersion, staleJobs, notifications, maintenance, evidence, dailyRuns] = await Promise.all([
-      database.from("transaction_records").select("id", { head: true, count: "exact" }).limit(1),
-      database.from("app_schema_versions").select("version").order("version", { ascending: false }).limit(1).maybeSingle(),
-      database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).or("status.eq.QUEUED,status.eq.LEASED,status.eq.RUNNING").lt("created_at", staleBefore),
-      database.from("operator_notifications").select("id", { head: true, count: "exact" }).eq("delivery_status", "FAILED"),
-      database.from("maintenance_runs").select("status,completed_at").eq("task", "retention-and-recovery").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-      database.rpc("evidence_storage_usage_bytes"),
-      database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).gte("created_at", today.toISOString()),
+      retryHealthQuery(() => database.from("transaction_records").select("id", { head: true, count: "exact" }).limit(1)),
+      retryHealthQuery(() => database.from("app_schema_versions").select("version").order("version", { ascending: false }).limit(1).maybeSingle()),
+      retryHealthQuery(() => database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).or("status.eq.QUEUED,status.eq.LEASED,status.eq.RUNNING").lt("created_at", staleBefore)),
+      retryHealthQuery(() => database.from("operator_notifications").select("id", { head: true, count: "exact" }).eq("delivery_status", "FAILED")),
+      retryHealthQuery(() => database.from("maintenance_runs").select("status,completed_at").eq("task", "retention-and-recovery").order("started_at", { ascending: false }).limit(1).maybeSingle()),
+      retryHealthQuery(() => database.rpc("evidence_storage_usage_bytes")),
+      retryHealthQuery(() => database.from("verification_jobs_v2").select("id", { head: true, count: "exact" }).gte("created_at", today.toISOString())),
     ]);
     const currentDatabaseVersion = schemaVersion.data?.version ?? "missing";
     checks.database = { ok: !databaseProbe.error && !schemaVersion.error && currentDatabaseVersion === DATABASE_VERSION, detail: databaseProbe.error || schemaVersion.error ? "query failed" : currentDatabaseVersion };

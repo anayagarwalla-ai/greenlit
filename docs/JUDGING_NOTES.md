@@ -84,9 +84,9 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 
 ### Deployment
 
-- App: https://greenlit.vercel.app
-- Public repository: https://github.com/anayagarwalla-ai/greenlit
-- Runner health: https://greenlit-runner.anay-agarwalla-581.workers.dev/health
+- App: https://greenlitproof.vercel.app
+- Public repository: https://github.com/anayagarwalla-ai/milestoneproof
+- Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health (legacy infrastructure hostname)
 - Mention the repeatable deployment files: `vercel.json`, `wrangler.toml`, Supabase migration, and README commands.
 
 ## Video evaluation (6 points)

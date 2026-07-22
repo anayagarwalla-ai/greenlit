@@ -83,9 +83,9 @@ TypeScript, React, Next.js, Gemini API, Google GenAI SDK, Zod, Cloudflare Worker
 
 ## Links
 
-- Live app: https://greenlit.vercel.app
-- GitHub: https://github.com/anayagarwalla-ai/greenlit
-- Runner health: https://greenlit-runner.anay-agarwalla-581.workers.dev/health
+- Live app: https://greenlitproof.vercel.app
+- GitHub: https://github.com/anayagarwalla-ai/milestoneproof
+- Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health (legacy infrastructure hostname)
 
 ## Suggested Devpost gallery captions
 

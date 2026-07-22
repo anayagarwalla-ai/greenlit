@@ -31,8 +31,8 @@ If Gemini or free browser capacity is unavailable, click **Launch the reliable g
 
 ### Hosted build
 
-- **Product:** [greenlit.vercel.app](https://greenlit.vercel.app)
-- **Runner health:** [greenlit-runner.anay-agarwalla-581.workers.dev/health](https://greenlit-runner.anay-agarwalla-581.workers.dev/health)
+- **Product:** [greenlitproof.vercel.app](https://greenlitproof.vercel.app)
+- **Runner health:** [milestoneproof-runner.anay-agarwalla-581.workers.dev/health](https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health) (legacy infrastructure hostname)
 
 The production build is connected to a Cloudflare Queue and Browser Run worker with signed HMAC callbacks. The real verification flow records each run, result, evidence hash, review packet, and client decision in Supabase. Gemini has a short deadline and a local, source-grounded analysis fallback; real verification still requires the deployed database and runner.
 

@@ -14,7 +14,7 @@ Before upload, verify that every image:
 
 - is readable at Devpost gallery size;
 - contains only synthetic Acme/Northstar data;
-- shows the deployed `greenlit.vercel.app` build;
+- shows the deployed `greenlitproof.vercel.app` build;
 - avoids cursor hover states over important copy;
 - uses consistent viewport and zoom;
 - has no toasts obscuring important information.

@@ -6,7 +6,7 @@ This runbook is the minimum operating cadence for inviting web agencies. Assign 
 
 - Set `BETA_ALLOWED_EMAILS` to the exact business emails invited to use the retained workflow.
 - Set `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`.
-- Confirm the Supabase Site URL is `https://greenlit.vercel.app` and the `/auth/callback` redirect is allowed.
+- Confirm the Supabase Site URL is `https://greenlitproof.vercel.app` and `https://greenlitproof.vercel.app/auth/callback` is allowed.
 - Keep `BETA_DAILY_RUN_LIMIT=3` and each run at six checks or fewer until measured Cloudflare usage demonstrates safe headroom.
 - Confirm `/api/health` reports matching web, database, and runner versions with no stale jobs, notification failures, storage warning, or missing retention heartbeat.
 - Run the protected deep check with `Authorization: Bearer $CRON_SECRET` against `/api/health?deep=1` before a cohort launch; it performs a real browser-binding launch without visiting a tester site.

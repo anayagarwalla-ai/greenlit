@@ -1,4 +1,6 @@
-name = "greenlit-runner"
+# Retain the original Cloudflare resource name so the production queue and
+# Workers.dev hostname continue to work across the Greenlit rebrand.
+name = "milestoneproof-runner"
 main = "src/index.ts"
 compatibility_date = "2026-07-19"
 compatibility_flags = ["nodejs_compat"]
@@ -8,17 +10,17 @@ binding = "BROWSER"
 
 [[queues.producers]]
 binding = "JOB_QUEUE"
-queue = "greenlit-jobs"
+queue = "milestoneproof-jobs"
 
 [[queues.consumers]]
-queue = "greenlit-jobs"
+queue = "milestoneproof-jobs"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
 max_retries = 1
 
 [vars]
-WEB_APP_URL = "https://greenlit.vercel.app"
+WEB_APP_URL = "https://greenlitproof.vercel.app"
 
 # Secrets set with `wrangler secret put`:
 # RUNNER_HMAC_SECRET
