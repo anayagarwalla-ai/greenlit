@@ -443,3 +443,55 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 
 @media print { .receipt-invoice a { display: none!important; } }
+
+/* Beta pass 2: autosave states, confirmation modal, corrections, no-charge. */
+/* Modals must stack above the floating feedback trigger (z-index 45). */
+.dialog-backdrop { z-index: 60; }
+
+.save-status { display: inline-flex; align-items: center; gap: 7px; min-height: 27px; padding: 0 9px; border-radius: 99px; background: #e2e2de; color: #4c5650; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .07em; }
+.save-status > span { display: inline-flex; align-items: center; gap: 5px; }
+.save-status--saved { background: var(--green-soft); color: var(--green); }
+.save-status--error { background: var(--red-soft); color: var(--red); }
+.save-status--error .mini-action { min-height: 27px; padding: 0 7px; border-color: var(--red); color: var(--red); background: white; }
+
+.confirm-wrap { display: grid; justify-items: center; gap: 3px; }
+.confirm-caption { color: var(--muted); font-size: 8px; font-weight: 850; text-transform: uppercase; letter-spacing: .05em; }
+.confirm-caption.is-confirmed { color: var(--green); }
+
+.correction-history { margin-top: 12px; padding: 11px 12px; border-left: 3px solid var(--amber); background: var(--amber-soft); }
+.correction-history strong { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); font-size: 10px; }
+.correction-history p { margin: 4px 0 6px; color: #715d36; font-size: 9px; line-height: 1.45; }
+.correction-history ol { margin: 0; padding-left: 16px; display: grid; gap: 5px; color: #4e4429; font-size: 9px; line-height: 1.5; }
+.correction-history ol span { color: #8a7746; }
+
+.receipt-corrections { margin-top: 24px; padding: 16px; border: 1px solid var(--line); background: #faf8f2; }
+.receipt-corrections__note { margin: 6px 0 10px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.receipt-corrections ol { margin: 0; padding-left: 17px; display: grid; gap: 7px; font-size: 10px; line-height: 1.5; }
+.receipt-corrections li span { display: block; color: var(--muted); font-size: 8px; }
+
+.no-charge-note { margin-top: 14px; padding: 12px 13px; border-left: 3px solid var(--green); background: var(--green-soft); color: #2c4a3b; font-size: 10px; line-height: 1.5; }
+.invoice-plan-card .no-charge-note { margin: 16px 20px 20px; }
+.invoice-mode-note { margin: 14px 0 0; padding: 9px 11px; background: var(--amber-soft); color: #735408; font-size: 9px; line-height: 1.45; }
+.invoice-auto-send-hint { display: block; margin-top: 4px; color: var(--amber); font-style: normal; }
+
+.invoice-confirm-dialog { width: min(560px, 100%); }
+.invoice-confirm-dialog h2:focus-visible { outline-offset: 6px; }
+.invoice-confirm-facts { margin: 0 0 4px; display: grid; border: 1px solid var(--line); background: #faf9f5; }
+.invoice-confirm-facts > div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 8px 12px; }
+.invoice-confirm-facts > div + div { border-top: 1px solid var(--line); }
+.invoice-confirm-facts dt { color: var(--muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; align-self: center; }
+.invoice-confirm-facts dd { margin: 0; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.invoice-decision-note .text-action { display: inline-flex; gap: 4px; margin-left: 4px; min-height: 0; text-decoration: underline; }
+
+/* The four-step workflow stepper wraps to a 2×2 grid on narrow phones so the
+   labels never collide. */
+@media (max-width: 480px) {
+  .stepper { grid-template-columns: 1fr 1fr; gap: 16px 14px; margin-bottom: 24px; }
+  .invoice-confirm-facts > div { grid-template-columns: 96px 1fr; gap: 8px; }
+  .workspace-head__meta { gap: 8px; }
+}
+
+@media print {
+  .mini-action,.text-action,.confirm-control,.save-status,.dialog-close,.correction-history button,.feedback-trigger { display: none !important; }
+  .receipt-corrections { break-inside: avoid; page-break-inside: avoid; }
+}

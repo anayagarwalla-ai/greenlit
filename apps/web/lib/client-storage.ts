@@ -10,6 +10,10 @@ const LEGACY_GLOBAL_KEYS = [
   "greenlit-demo-decision",
 ];
 const PENDING_CLAIM_KEY = `greenlit-pending-draft-claim-${DRAFT_VERSION}`;
+// An unsigned draft on a shared browser can be read by the next person at the
+// keyboard, so it is purged after this window — the same window the sign-in
+// handoff marker already used.
+export const ANONYMOUS_DRAFT_TTL_MS = 24 * 60 * 60_000;
 
 function ownerKey(email: string | null | undefined): string {
   return (email || "anon").trim().toLowerCase() || "anon";
@@ -31,6 +35,10 @@ export function draftStorageKey(email: string | null | undefined, draftId = "def
   return `greenlit-draft-${DRAFT_VERSION}:${ownerKey(email)}:${draftId}`;
 }
 
+function draftSavedAtKey(email: string | null | undefined, draftId: string): string {
+  return `greenlit-draft-saved-${DRAFT_VERSION}:${ownerKey(email)}:${draftId}`;
+}
+
 function readIndex(email: string | null | undefined): string[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(draftIndexKey(email)) ?? "[]");
@@ -47,23 +55,55 @@ export function activeDraftId(email: string | null | undefined): string | null {
   catch { return null; }
 }
 
-export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): void {
+export function isDraftStorageAvailable(): boolean {
+  try {
+    const probe = `greenlit-storage-probe-${DRAFT_VERSION}`;
+    window.localStorage.setItem(probe, "1");
+    window.localStorage.removeItem(probe);
+    return true;
+  } catch { return false; }
+}
+
+function anonymousDraftExpired(draftId: string): boolean {
+  const savedAtRaw = window.localStorage.getItem(draftSavedAtKey(null, draftId));
+  const savedAt = Number(savedAtRaw);
+  // An anonymous draft with no readable timestamp has an unknown age on a
+  // possibly shared browser; treat it as expired rather than keep it forever.
+  if (!savedAtRaw || !Number.isFinite(savedAt)) return true;
+  return Date.now() - savedAt > ANONYMOUS_DRAFT_TTL_MS;
+}
+
+/**
+ * Persists a draft. Returns false — instead of silently pretending the draft
+ * was saved — when the browser rejects the write (quota, private mode,
+ * blocked storage). Callers surface that honestly.
+ */
+export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): boolean {
   try {
     window.localStorage.setItem(draftStorageKey(email, draftId), raw);
+    if (!email) window.localStorage.setItem(draftSavedAtKey(null, draftId), String(Date.now()));
     window.localStorage.setItem(activeDraftStorageKey(email), draftId);
     writeIndex(email, [...readIndex(email), draftId]);
     if (!email && markForSignIn) window.localStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now() }));
-  } catch { /* Browser storage is a convenience layer, never the legal record. */ }
+    return true;
+  } catch { return false; /* Browser storage is a convenience layer, never the legal record. */ }
 }
 
 export function readProjectDraft(email: string | null | undefined, draftId: string): string | null {
-  try { return window.localStorage.getItem(draftStorageKey(email, draftId)); }
+  try {
+    if (!email && anonymousDraftExpired(draftId)) {
+      removeProjectDraft(null, draftId);
+      return null;
+    }
+    return window.localStorage.getItem(draftStorageKey(email, draftId));
+  }
   catch { return null; }
 }
 
 export function removeProjectDraft(email: string | null | undefined, draftId: string): void {
   try {
     window.localStorage.removeItem(draftStorageKey(email, draftId));
+    window.localStorage.removeItem(draftSavedAtKey(email, draftId));
     const remaining = readIndex(email).filter((id) => id !== draftId);
     writeIndex(email, remaining);
     if (activeDraftId(email) === draftId) {
@@ -74,13 +114,29 @@ export function removeProjectDraft(email: string | null | undefined, draftId: st
   } catch { /* best-effort browser cleanup */ }
 }
 
+/**
+ * Deletes every anonymous draft older than the 24-hour retention window — the
+ * draft content itself, not only the sign-in handoff marker.
+ */
+export function purgeExpiredAnonymousDrafts(): void {
+  try {
+    for (const draftId of readIndex(null)) {
+      if (anonymousDraftExpired(draftId)) removeProjectDraft(null, draftId);
+    }
+    const pending = JSON.parse(window.localStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { markedAt?: unknown } | null;
+    if (pending && (typeof pending.markedAt !== "number" || Date.now() - pending.markedAt > ANONYMOUS_DRAFT_TTL_MS)) {
+      window.localStorage.removeItem(PENDING_CLAIM_KEY);
+    }
+  } catch { /* best-effort browser cleanup */ }
+}
+
 export function claimPendingAnonymousDraft(email: string): { draftId: string; raw: string } | null {
   try {
     const pending = JSON.parse(window.localStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { draftId?: unknown; markedAt?: unknown } | null;
     if (!pending || typeof pending.draftId !== "string" || typeof pending.markedAt !== "number") return null;
     // A stale marker should never move an old shared-browser draft into a later
     // visitor's account.
-    if (Date.now() - pending.markedAt > 24 * 60 * 60_000) {
+    if (Date.now() - pending.markedAt > ANONYMOUS_DRAFT_TTL_MS) {
       window.localStorage.removeItem(PENDING_CLAIM_KEY);
       return null;
     }
@@ -99,9 +155,24 @@ export function clearLegacyGlobalDraftState(): void {
   } catch { /* best-effort browser cleanup */ }
 }
 
+/**
+ * Ends the server session and clears the account's local drafts — in that
+ * order. A failed sign-out (non-2xx or a network error) leaves the local
+ * draft untouched so a still-signed-in user does not lose work.
+ */
+export async function signOutAndClearDraftState(email: string | null | undefined): Promise<boolean> {
+  const response = await fetch("/api/account/session", { method: "DELETE" });
+  if (!response.ok) return false;
+  clearAccountDraftState(email);
+  return true;
+}
+
 export function clearAccountDraftState(email: string | null | undefined): void {
   try {
-    for (const draftId of readIndex(email)) window.localStorage.removeItem(draftStorageKey(email, draftId));
+    for (const draftId of readIndex(email)) {
+      window.localStorage.removeItem(draftStorageKey(email, draftId));
+      window.localStorage.removeItem(draftSavedAtKey(email, draftId));
+    }
     window.localStorage.removeItem(draftIndexKey(email));
     window.localStorage.removeItem(activeDraftStorageKey(email));
     window.localStorage.removeItem(legacyDraftStorageKey(email));

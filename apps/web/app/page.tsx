@@ -20,7 +20,7 @@ export default function Home() {
             <h1>Turn your SOW{" "}<br />into <em>proof.</em></h1>
             <p className="hero-lede">Greenlit turns fuzzy acceptance criteria into verified browser evidence, a one-click client approval, and an invoice-ready record.</p>
             <div className="hero-actions">
-              <Link className="button button--lime" href="/workspace">Try the guided demo <ArrowRight size={18} /></Link>
+              <Link className="button button--lime" href="/workspace?demo=guided">Try the guided demo <ArrowRight size={18} /></Link>
               <a className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See how it works</a>
             </div>
             <div className="trust-line">

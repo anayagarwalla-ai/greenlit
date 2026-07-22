@@ -104,6 +104,7 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   let submitted: Record<string, unknown> | null = null;
   let invoicePlan: Record<string, unknown> | null = null;
   await page.route("**/api/account/stripe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, connection: { accountId: "acct_test", livemode: false, status: "CONNECTED" } }) }));
+  await page.route("**/api/account/stripe/customers**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ customers: [{ id: "cus_test1", name: "Acme Outdoors LLC", email: "billing@acme.test" }] }) }));
   await page.route(`**/api/account/records/${recordId}/invoice-plan`, async (route) => {
     if (route.request().method() === "POST") invoicePlan = await route.request().postDataJSON();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(route.request().method() === "POST" ? { plan: { planSha256: "f".repeat(64) } } : { plan: null }) });
@@ -122,10 +123,19 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   await expect(page.getByText("$12,000.50 for this exact milestone.")).toBeVisible();
   await page.getByLabel("Billing contact name").fill("Acme Outdoors LLC");
   await page.getByLabel("Billing email").fill("billing@acme.test");
-  await page.getByLabel(/Automatically send this invoice/).check();
-  await page.getByRole("button", { name: "Save invoice details" }).click();
-  await expect(page.getByText(/Client approval will queue this Stripe invoice automatically/)).toBeVisible();
-  expect(invoicePlan).toMatchObject({ billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, autoSend: true });
+  // Automatic invoicing requires a confirmed existing Stripe customer first.
+  await expect(page.getByLabel(/Automatically create this invoice/)).toBeDisabled();
+  await page.getByRole("button", { name: "Check for existing Stripe customer" }).click();
+  await expect(page.getByText(/Matched Acme Outdoors LLC/)).toBeVisible();
+  await page.getByLabel(/Automatically create this invoice/).check();
+  await page.getByRole("button", { name: "Review automatic invoicing" }).click();
+  const confirmDialog = page.getByRole("dialog", { name: "Enable automatic invoicing?" });
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog.getByText("billing@acme.test", { exact: true })).toBeVisible();
+  await expect(confirmDialog.getByText("acct_test (test mode)")).toBeVisible();
+  await confirmDialog.getByRole("button", { name: "Enable automatic $12,000.50 test invoice" }).click();
+  await expect(page.getByText(/Client approval will automatically create a \$12,000\.50 draft invoice in the connected Stripe test account/)).toBeVisible();
+  expect(invoicePlan).toMatchObject({ billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, autoSend: true, stripeCustomerId: "cus_test1" });
   expect(submitted).toMatchObject({ recordId, version: "rc2" });
   expect(submitted).not.toHaveProperty("targetUrl");
   expect(submitted).not.toHaveProperty("checks");

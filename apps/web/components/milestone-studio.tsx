@@ -48,7 +48,9 @@ import {
   activeDraftId,
   claimPendingAnonymousDraft,
   clearLegacyGlobalDraftState,
+  isDraftStorageAvailable,
   legacyDraftStorageKey,
+  purgeExpiredAnonymousDrafts,
   readProjectDraft,
   removeProjectDraft,
   saveProjectDraft,
@@ -251,9 +253,13 @@ export function MilestoneStudio() {
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
   const [retainedFixtureRecord, setRetainedFixtureRecord] = useState(false);
   const [draftId, setDraftId] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [storageBlocked, setStorageBlocked] = useState(false);
+  const [pollNetworkFailure, setPollNetworkFailure] = useState(false);
   const analysisController = useRef<AbortController | null>(null);
   const runController = useRef<AbortController | null>(null);
   const draftHydrated = useRef(false);
+  const launchDemoRef = useRef<() => void>(() => undefined);
   const phaseHeading = useRef<HTMLHeadingElement | null>(null);
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase, Boolean(sourceText.trim() || selectedFile));
@@ -298,6 +304,9 @@ export function MilestoneStudio() {
     // URL. Never trust or carry them forward now that drafts are scoped per
     // signed-in account.
     clearLegacyGlobalDraftState();
+    // The unsigned-draft retention window applies to the draft content itself,
+    // not only the sign-in handoff marker.
+    purgeExpiredAnonymousDrafts();
     let cancelled = false;
 
     const hydrateDraft = (draft: Partial<WorkspaceDraft>, fallbackDraftId: string) => {
@@ -359,8 +368,17 @@ export function MilestoneStudio() {
       } catch { /* treated as signed out below */ }
       if (cancelled) return;
       setSessionEmail(email);
+      setStorageBlocked(!isDraftStorageAvailable());
 
       const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.get("demo") === "guided") {
+        // The landing-page CTA starts the guided demo directly instead of
+        // landing on the blank intake step.
+        window.history.replaceState({}, "", "/workspace");
+        launchDemoRef.current();
+        draftHydrated.current = true;
+        return;
+      }
       const resumeId = currentUrl.searchParams.get("record");
       const requestedDraftId = currentUrl.searchParams.get("draft");
       if (email && resumeId) {
@@ -455,7 +473,32 @@ export function MilestoneStudio() {
 
   useEffect(() => {
     if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
-    saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+    setSaveState("saving");
+    const timer = window.setTimeout(() => {
+      const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+      setSaveState(saved ? "saved" : "error");
+      if (!saved) setStorageBlocked(!isDraftStorageAvailable());
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [sourceMode, sessionEmail, draftId, workspaceSnapshot]);
+
+  const retrySave = () => {
+    if (sourceMode === "demo" || !draftId) return;
+    setSaveState("saving");
+    const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+    setSaveState(saved ? "saved" : "error");
+    setStorageBlocked(saved ? false : !isDraftStorageAvailable());
+  };
+
+  useEffect(() => {
+    // The debounced autosave above can lose the last keystrokes when the user
+    // leaves immediately; flush the pending draft as the page is hidden.
+    const flush = () => {
+      if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
+      saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
   }, [sourceMode, sessionEmail, draftId, workspaceSnapshot]);
 
   useEffect(() => {
@@ -481,6 +524,7 @@ export function MilestoneStudio() {
         const payload = await response.json() as RunResponse & { error?: string };
         if (!response.ok) throw new Error(payload.error ?? "Verification status is unavailable.");
         setLatestRun(payload);
+        setPollNetworkFailure(false);
         if (payload.status === "COMPLETED") {
           const completedPhase: Phase = payload.outcome === "READY_FOR_REVIEW" ? "run2" : "run1";
           setPhase(completedPhase); setLastVerificationPhase(completedPhase); setRunError("");
@@ -488,7 +532,13 @@ export function MilestoneStudio() {
           setRunError(payload.error ?? "The retained verification job failed."); setPhase("handoff");
         }
       } catch (cause) {
-        if (!controller.signal.aborted) setRunError(cause instanceof Error ? cause.message : "Verification status is temporarily unavailable. This job remains saved and will resume when you reopen the project.");
+        if (controller.signal.aborted) return;
+        // A dropped connection only hides status — the retained job keeps
+        // running on the server, so offer a way out instead of a dead spinner.
+        setPollNetworkFailure(cause instanceof TypeError);
+        setRunError(cause instanceof TypeError
+          ? "The verification status could not be checked because of a network problem. The retained job is still active on the server; you can keep waiting here or return to the dashboard and reopen this project later."
+          : cause instanceof Error ? cause.message : "Verification status is temporarily unavailable. This job remains saved and will resume when you reopen the project.");
       }
     };
     const timer = window.setInterval(() => void poll(), 2_000);
@@ -501,8 +551,8 @@ export function MilestoneStudio() {
     phaseHeading.current?.focus({ preventScroll: true });
   }, [phase]);
 
-  const preserveDraft = async (markForSignIn = false) => {
-    if (sourceMode === "demo" || !draftId) return;
+  const preserveDraft = async (markForSignIn = false): Promise<boolean> => {
+    if (sourceMode === "demo" || !draftId) return true;
     const snapshot = workspaceSnapshot(true);
     let durableFile = snapshot.selectedFileMeta;
     if (selectedFile && selectedFile.size <= MAX_PERSISTED_FILE_BYTES && (!durableFile || durableFile.name !== selectedFile.name)) {
@@ -510,7 +560,16 @@ export function MilestoneStudio() {
       durableFile = { name: selectedFile.name, type: selectedFile.type, base64 };
       setSelectedFileMeta(durableFile);
     }
-    saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
+    const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
+    if (!saved) { setSaveState("error"); setStorageBlocked(!isDraftStorageAvailable()); }
+    return saved;
+  };
+
+  const leaveForAccountPage = async (target: string) => {
+    const saved = await preserveDraft(!sessionEmail);
+    const hasWork = Boolean(sourceText.trim() || selectedFile || criteria.length);
+    if (!saved && hasWork && !window.confirm("This draft could not be saved in this browser, so it will not be here when you come back. Leave this page anyway?")) return;
+    window.location.assign(target);
   };
 
   const reset = () => {
@@ -542,6 +601,8 @@ export function MilestoneStudio() {
     setRecordId(null);
     setLatestRun(null);
     setRunError("");
+    setPollNetworkFailure(false);
+    setSaveState("idle");
     setReviewUrl("");
     setReviewPacketId("");
     setChangeRequest("");
@@ -582,9 +643,13 @@ export function MilestoneStudio() {
     setCustomRun(null);
     setRetainedFixtureRecord(false);
     clearLegacyGlobalDraftState();
+    setSaveState("idle");
+    setPollNetworkFailure(false);
     setPhase("criteria");
     setToast("Guided demo loaded");
   };
+
+  useEffect(() => { launchDemoRef.current = launchDemo; });
 
   const analyze = async () => {
     if (!attested || !aiDisclosureAccepted || !adultBusinessUseAttested) {
@@ -759,8 +824,23 @@ export function MilestoneStudio() {
       setLatestRun({ runId: created.runId, recordId: created.recordId, status: created.status ?? "QUEUED", buildUrl: activeCustomRun?.targetUrl ?? window.location.origin, buildLabel: activeCustomRun?.buildLabel ?? `launch-${second ? "rc2" : "rc1"}`, results: [], artifacts: [] });
       const deadline = Date.now() + 12 * 60_000;
       while (!controller.signal.aborted && Date.now() < deadline) {
-        const statusResponse = await fetch(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" });
-        const statusPayload = await statusResponse.json() as RunResponse & { error?: string };
+        let statusResponse: Response;
+        let statusPayload: RunResponse & { error?: string };
+        try {
+          statusResponse = await fetch(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" });
+          statusPayload = await statusResponse.json() as RunResponse & { error?: string };
+        } catch (statusError) {
+          if (controller.signal.aborted) return;
+          if (!(statusError instanceof TypeError)) throw statusError;
+          // Keep polling through connection drops: the retained job is still
+          // active on the server and this status check is read-only.
+          setPollNetworkFailure(true);
+          setRunError("The verification status could not be checked because of a network problem. The retained job is still active on the server; you can keep waiting here or return to the dashboard and reopen this project later.");
+          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+          continue;
+        }
+        setPollNetworkFailure(false);
+        setRunError("");
         if (!statusResponse.ok) throw new Error(statusPayload.error ?? "Verification status is unavailable.");
         if (statusPayload.status === "COMPLETED") {
           setLatestRun(statusPayload);
@@ -892,7 +972,7 @@ export function MilestoneStudio() {
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
-          <Link className="app-account-link" onClick={(event) => { event.preventDefault(); void preserveDraft(!sessionEmail).then(() => window.location.assign(sessionEmail ? "/dashboard" : signInHref)); }} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
+          <Link className="app-account-link" onClick={(event) => { event.preventDefault(); void leaveForAccountPage(sessionEmail ? "/dashboard" : signInHref); }} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
           <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
         </div>
@@ -926,6 +1006,12 @@ export function MilestoneStudio() {
             <div className="workspace-head__meta">
               <span className={`status-badge ${status.className}`}>{phase === "analyzing" || phase.startsWith("running") ? <LoaderCircle className="spin" size={12} /> : <CircleDot size={11} />}{status.text}</span>
               {currentStep >= 2 && phase !== "handoff" && <span className="status-badge status-badge--neutral"><Globe2 size={11} /> {sourceMode === "demo" ? "Synthetic sample" : "Staging verified"}</span>}
+              {sourceMode === "live" && draftId && saveState !== "idle" && (
+                <span className={`save-status save-status--${saveState}`}>
+                  <span role="status">{saveState === "saving" ? <><LoaderCircle className="spin" size={11} aria-hidden="true" /> Saving…</> : saveState === "saved" ? <><Check size={11} aria-hidden="true" /> Saved</> : <><AlertTriangle size={11} aria-hidden="true" /> Save failed</>}</span>
+                  {saveState === "error" && <button type="button" className="mini-action" onClick={retrySave}>Retry</button>}
+                </span>
+              )}
             </div>
           </div>
 
@@ -938,7 +1024,8 @@ export function MilestoneStudio() {
 
           <div className="sr-only" aria-live="polite" aria-atomic="true">{phase === "analyzing" ? "Gemini analysis in progress" : phase.startsWith("running") ? "Verification in progress" : status.text}</div>
 
-          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span><button className="mini-action" type="button" onClick={launchDemo}>Open synthetic walkthrough</button></div>}
+          {storageBlocked && sourceMode === "live" && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span><strong>This browser is not saving drafts.</strong> Local storage is unavailable (private browsing, blocked storage, or a full disk), so this draft exists only in this open tab and will be lost if you reload or leave. {sessionEmail ? "Completed verification runs are still retained to your account." : "Sign in and run verification to retain the work server-side."}</span></div>}
+          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span>{pollNetworkFailure ? <Link className="mini-action" href="/dashboard">Return to dashboard</Link> : <button className="mini-action" type="button" onClick={launchDemo}>Open synthetic walkthrough</button>}</div>}
           {changeRequest && <div className="analysis-notice change-request-note" role="status"><PencilLine size={15} /><div><strong>Client change request</strong><span>{changeRequest}</span></div></div>}
 
           {(phase === "intake" || phase === "analyzing") && (
@@ -961,7 +1048,7 @@ export function MilestoneStudio() {
               onDemo={launchDemo}
               signedInEmail={sessionEmail}
               signInHref={signInHref}
-              onSignIn={() => preserveDraft(true)}
+              onSignIn={() => leaveForAccountPage(signInHref)}
             />
           )}
           {phase === "criteria" && sourceMode === "demo" && (
@@ -984,7 +1071,7 @@ export function MilestoneStudio() {
           {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
-          {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
+          {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
           {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
@@ -1035,7 +1122,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn().then(() => window.location.assign(signInHref)); }} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
+            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
             <span>or</span>
             <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
           </div>
@@ -1078,7 +1165,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work. A signed-out draft handoff remains available for 24 hours on this device.</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft can be opened by anyone who uses this browser profile on this device, and it is deleted automatically after 24 hours."}</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>
@@ -1119,7 +1206,10 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
               <div className="criterion-card__top">
                 <span className="criterion-id">{item.id}</span>
                 <div><h3>{item.title}</h3><p>“{item.source}”</p></div>
-                <button className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item.id)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
+                <span className="confirm-wrap">
+                  <button className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item.id)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
+                  <span className={`confirm-caption ${confirmed[item.id] ? "is-confirmed" : ""}`} aria-hidden="true">{confirmed[item.id] ? "Confirmed" : "Confirm"}</span>
+                </span>
               </div>
               <div className="criterion-check"><Code2 size={12} /><span><strong>{item.type} check · {item.path}</strong><br />{item.check}</span><span className="criterion-type">Safe typed check</span></div>
             </article>
@@ -1224,7 +1314,10 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
                     <label>{item.id} measurable outcome<input aria-invalid={item.title.trim().length < 3} aria-describedby={`${item.id}-validation`} value={item.title} onChange={(event) => update(item.id, { title: event.target.value })} /></label>
                     <label>{item.id} exact source quote<textarea aria-invalid={!item.grounded} aria-describedby={`${item.id}-validation`} value={item.sourceQuote} onChange={(event) => update(item.id, { sourceQuote: event.target.value })} /></label>
                   </div>
-                  <button disabled={!ready} className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
+                  <span className="confirm-wrap">
+                    <button disabled={!ready} className={`confirm-control ${confirmed[item.id] ? "is-checked" : ""}`} onClick={() => toggle(item)} aria-label={`${confirmed[item.id] ? "Unconfirm" : "Confirm"} ${item.id}`} aria-pressed={Boolean(confirmed[item.id])}>{confirmed[item.id] && <Check size={15} strokeWidth={3} />}</button>
+                    <span className={`confirm-caption ${confirmed[item.id] ? "is-confirmed" : ""}`} aria-hidden="true">{confirmed[item.id] ? "Confirmed" : "Confirm"}</span>
+                  </span>
                 </div>
                 <div className="criterion-metadata">
                   <label>{item.id} evidence type<select value={item.checkType} onChange={(event) => {

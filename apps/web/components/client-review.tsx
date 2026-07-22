@@ -26,15 +26,21 @@ type ReviewSnapshot = {
   criteria: ReviewCriterion[];
   run: { runId: string; buildLabel: string; buildUrl?: string; results: ReviewResult[]; artifacts?: Array<{ criterionId: string; kind: string; sha256: string; byteSize?: number; url?: string | null }>; manifestSha256: string; completedAt: string; browserVersion: string; runnerVersion: string };
   invoicePlan?: { enabled: true; billingName: string; billingEmail: string; daysUntilDue: number; memo: string; autoSend: boolean; amountMinor: number; currency: string; planSha256: string };
+  // Immutable at packet creation: how the invoice is delivered if the client
+  // approves. TEST_DRAFT creates a Stripe test draft (no email); LIVE_EMAIL
+  // emails the invoice; MANUAL_AFTER_APPROVAL means the agency may invoice later.
+  invoiceDeliveryMode?: "TEST_DRAFT" | "LIVE_EMAIL" | "MANUAL_AFTER_APPROVAL";
   expiresAt: string;
 };
-type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null; invoice?: { status: string; hosted_invoice_url?: string | null } | null; invoiceJob?: { status: string } | null };
+type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null; invoice?: { status: string; invoice_number?: string | null; hosted_invoice_url?: string | null } | null; invoiceJob?: { status: string } | null };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / 100);
 
 function demoPacket(): PacketResponse {
-  const completedAt = "2026-07-20T17:00:00.000Z";
-  const expiresAt = "2026-07-23T17:00:00.000Z";
+  // The walkthrough always shows a freshly completed run with the standard
+  // 72-hour review window, so its dates never contradict the real flow.
+  const completedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 72 * 3_600_000).toISOString();
   return {
     packetId: "DEMO-NOT-RETAINED",
     snapshotSha256: "synthetic-walkthrough-no-hash",
@@ -48,7 +54,7 @@ function demoPacket(): PacketResponse {
       milestoneTitle: demoMilestone.milestone,
       amountMinor: demoMilestone.amountMinor,
       currency: demoMilestone.currency,
-      sourceName: "Synthetic guided-demo SOW",
+      sourceName: "Acme × Northstar — SOW.pdf",
       sourceSha256: "synthetic-walkthrough-no-hash",
       revision: demoMilestone.revision,
       criteria: demoCriteria.map((item) => ({ id: item.id, title: item.title, sourceQuote: item.source })),
@@ -165,6 +171,15 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
       if (!response.ok) throw new Error(payload.error ?? "The decision could not be recorded.");
       setPacket((current) => current ? { ...current, decision: payload.decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt: payload.decidedAt, receiptSha256: payload.receiptSha256 } : current);
       setDialog(null);
+      if (payload.decision === "APPROVED") {
+        // Best-effort refresh so the decided view reports the real invoice/job
+        // state instead of assuming what the queue did.
+        void fetch(`/api/reviews/${encodeURIComponent(packetId)}`).then(async (statusResponse) => {
+          if (!statusResponse.ok) return;
+          const refreshed = await statusResponse.json() as PacketResponse;
+          setPacket((current) => current?.decision ? { ...current, invoice: refreshed.invoice ?? current.invoice ?? null, invoiceJob: refreshed.invoiceJob ?? current.invoiceJob ?? null } : current);
+        }).catch(() => undefined);
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "The decision could not be recorded.");
     } finally { setSubmitting(false); }
@@ -178,6 +193,33 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const approved = packet.decision === "APPROVED";
   const changes = packet.decision === "CHANGES_REQUESTED";
   const manualCount = snapshot.criteria.filter((criterion) => !results[criterion.id]).length;
+  // The immutable snapshot decides what approval does with the invoice; a
+  // packet minted before delivery modes existed falls back to neutral wording
+  // (except that a non-auto plan is always manual-after-approval).
+  const deliveryMode = snapshot.invoiceDeliveryMode ?? (snapshot.invoicePlan && !snapshot.invoicePlan.autoSend ? "MANUAL_AFTER_APPROVAL" : undefined);
+  const invoiceStatus = packet.invoice?.status?.toUpperCase();
+  const jobStatus = packet.invoiceJob?.status?.toUpperCase();
+  // Truthful post-decision invoice state. A DRAFT invoice was created, never
+  // "sent"; job states are reported as-is.
+  const invoiceDecisionNote = invoiceStatus === "DRAFT"
+    ? "A draft invoice was created in Stripe — nothing has been emailed to you."
+    : invoiceStatus === "OPEN"
+      ? `The invoice was sent to ${snapshot.invoicePlan?.billingEmail ?? "the billing contact"}.`
+      : invoiceStatus === "PAID"
+        ? "The invoice has been paid."
+        : invoiceStatus
+          ? `The Stripe invoice is currently ${invoiceStatus.toLowerCase()}.`
+          : jobStatus === "PENDING"
+            ? "The Stripe invoice job is queued and has not run yet."
+            : jobStatus === "PROCESSING"
+              ? "The Stripe invoice is being prepared."
+              : jobStatus === "FAILED"
+                ? "The Stripe invoice could not be created. The agency can review and retry — nothing was emailed."
+                : snapshot.invoicePlan?.autoSend
+                  ? deliveryMode === "TEST_DRAFT"
+                    ? "A Stripe test draft invoice was queued — test mode sends no email."
+                    : `The Stripe invoice was queued for ${snapshot.invoicePlan.billingEmail}.`
+                  : null;
 
   return (
     <main className="review-shell">
@@ -186,7 +228,13 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         {!packet.decision ? <>
           {demo && <div className="analysis-notice"><ShieldCheck size={15} /><div><strong>Interactive sample — no legal record is created</strong><span>This page uses seeded outcomes to demonstrate the decision experience when free browser capacity is unavailable.</span></div></div>}
           <div className="review-hero"><div><span>{snapshot.agencyName} submitted for approval</span><h1>{snapshot.milestoneTitle}</h1><p>{snapshot.projectName} · {demo ? "Sample outcomes for" : "Evidence captured from"} {snapshot.run.buildLabel}</p></div><div className="review-amount"><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></div>
-          {snapshot.invoicePlan && <section className="invoice-disclosure" aria-label="Invoice disclosure"><CreditCard size={18} /><div><strong>{snapshot.invoicePlan.autoSend ? "Approval will send the invoice" : "Approved work is ready to invoice"}</strong><p>{snapshot.invoicePlan.autoSend ? `${snapshot.agencyName} has instructed Greenlit to email a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail} after approval. Payment is handled on Stripe’s hosted page and is separate from this approval decision.` : `${snapshot.agencyName} may send a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice after approval. This approval does not itself charge a payment method.`}</p></div></section>}
+          {snapshot.invoicePlan && <section className="invoice-disclosure" aria-label="Invoice disclosure"><CreditCard size={18} /><div><strong>{deliveryMode === "LIVE_EMAIL" ? "Approval sends the invoice" : deliveryMode === "TEST_DRAFT" ? "Approval creates a test draft invoice — no email" : deliveryMode === "MANUAL_AFTER_APPROVAL" ? "The agency may invoice after approval" : "Approval queues a Stripe invoice"}</strong><p>{deliveryMode === "LIVE_EMAIL"
+            ? `${snapshot.agencyName} has instructed Greenlit to email a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail} after approval. Payment is handled on Stripe’s hosted page and is separate from this approval decision.`
+            : deliveryMode === "TEST_DRAFT"
+              ? `${snapshot.agencyName}’s Stripe account is in test mode: approving creates a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} draft invoice in their Stripe test account. No email is sent to you and nothing is charged by this approval.`
+              : deliveryMode === "MANUAL_AFTER_APPROVAL"
+                ? `${snapshot.agencyName} may create and send a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice after approval — nothing is sent automatically. This approval does not itself charge a payment method.`
+                : `${snapshot.agencyName} has instructed Greenlit to queue a ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice after approval. Payment is handled on Stripe’s hosted page and is separate from this approval decision.`}</p></div></section>}
           <section className="panel review-proof">
             <div className="review-proof__head"><div><h2>What was promised—and what we observed</h2><p>{demo ? "Every result below is a seeded illustration of a passing run." : manualCount ? `${snapshot.run.results.length} promises have browser evidence; ${manualCount} require your judgment.` : "Every result below comes from the same verified staging run."}</p></div><span className="seal"><Check size={16} /> {demo ? "SAMPLE PASS" : manualCount ? "READY TO REVIEW" : "ALL VERIFIED"}</span></div>
             <div className="review-summary"><div><span>Result</span><strong>{snapshot.run.results.filter((result) => result.status === "PASS").length} of {snapshot.run.results.length} passed</strong></div><div><span>Verified</span><strong>{dateTime(snapshot.run.completedAt)}</strong></div><div><span>Build</span><strong>{snapshot.run.buildLabel}</strong></div><div><span>Source</span><strong>Revision {snapshot.revision}</strong></div></div>
@@ -201,10 +249,10 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
             })}</div>
           </section>
           <div className="review-footer"><p><ShieldCheck size={12} /> {demo ? "This local sample decision is not sent to the server, retained, hash-chained, or usable as a transaction record." : `Your decision is timestamped and bound to snapshot ${packet.snapshotSha256.slice(0, 12)}…. It is a business approval record, not a legal e-signature or payment guarantee.`}</p><div className="review-footer__actions"><button className="button button--outline" aria-expanded={dialog === "changes"} onClick={(event) => openDialog("changes", event.currentTarget)}><MessageSquareText size={14} /> Request changes</button><button className="button button--lime" aria-expanded={dialog === "approve"} onClick={(event) => openDialog("approve", event.currentTarget)}><Check size={15} /> Approve milestone</button></div></div>
-        </> : <section className="panel approval-success" role="status" aria-live="polite"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2 ref={decisionHeadingRef} tabIndex={-1}>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && snapshot.invoicePlan?.autoSend && <p className="invoice-decision-note"><CreditCard size={14} /> The Stripe invoice was queued for {snapshot.invoicePlan.billingEmail}. No payment method was charged by this approval.</p>}{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
+        </> : <section className="panel approval-success" role="status" aria-live="polite"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2 ref={decisionHeadingRef} tabIndex={-1}>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && !demo && invoiceDecisionNote && <p className="invoice-decision-note" role="status"><CreditCard size={14} /> {invoiceDecisionNote} No payment method was charged by this approval.{packet.invoice?.hosted_invoice_url && <> <a className="text-action" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer">Open the hosted Stripe invoice <ExternalLink size={12} /></a></>}</p>}{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
       </div>
 
-      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.${snapshot.invoicePlan?.autoSend ? ` It will also queue the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : ""}` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
+      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.${snapshot.invoicePlan ? deliveryMode === "LIVE_EMAIL" ? ` It will also email the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : deliveryMode === "TEST_DRAFT" ? ` It will also create the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} invoice as a Stripe test draft — no email is sent.` : deliveryMode === "MANUAL_AFTER_APPROVAL" ? ` ${snapshot.agencyName} may invoice the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} later; nothing is sent automatically.` : ` It will also queue the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : ""}` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
         <div className="form-field"><label htmlFor="reviewer-name">Your full name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required /></div>
         <div className="form-field"><label htmlFor="reviewer-email">Business email</label><input id="reviewer-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div>
         <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" placeholder={dialog === "approve" ? "Looks ready to launch." : "Describe the requested change…"} value={note} onChange={(event) => setNote(event.target.value)} required={dialog === "changes"} /></div>

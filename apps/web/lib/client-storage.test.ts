@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ANONYMOUS_DRAFT_TTL_MS,
   activeDraftId,
   claimPendingAnonymousDraft,
   clearAccountDraftState,
   clearLegacyGlobalDraftState,
   draftStorageKey,
+  isDraftStorageAvailable,
+  purgeExpiredAnonymousDrafts,
   readProjectDraft,
   saveProjectDraft,
+  signOutAndClearDraftState,
 } from "./client-storage";
 
 class FakeStorage {
@@ -15,8 +19,10 @@ class FakeStorage {
   setItem(key: string, value: string) { this.store.set(key, value); }
   removeItem(key: string) { this.store.delete(key); }
   clear() { this.store.clear(); }
+  keys() { return [...this.store.keys()]; }
 }
 (globalThis as unknown as { window: { localStorage: FakeStorage } }).window = { localStorage: new FakeStorage() };
+const fakeStorage = () => (window.localStorage as unknown as FakeStorage);
 
 describe("project draft storage", () => {
   beforeEach(() => { window.localStorage.clear(); vi.restoreAllMocks(); });
@@ -42,12 +48,51 @@ describe("project draft storage", () => {
     expect(readProjectDraft(null, "unrelated-project")).toBe("unrelated-draft");
   });
 
-  it("does not claim a stale shared-browser draft", () => {
+  it("does not claim a stale shared-browser draft and purges the expired draft content", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "old-project", "old-draft", true);
-    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + 24 * 60 * 60_000 + 1);
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
     expect(claimPendingAnonymousDraft("agency@example.com")).toBeNull();
-    expect(readProjectDraft(null, "old-project")).toBe("old-draft");
+    // The 24-hour window expires the draft itself, not only the sign-in marker.
+    expect(readProjectDraft(null, "old-project")).toBeNull();
+    expect(window.localStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
+  });
+
+  it("keeps an anonymous draft readable inside the 24-hour window", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    saveProjectDraft(null, "fresh-project", "fresh-draft");
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS - 1);
+    expect(readProjectDraft(null, "fresh-project")).toBe("fresh-draft");
+  });
+
+  it("purgeExpiredAnonymousDrafts removes only expired anonymous drafts", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    saveProjectDraft(null, "expired-project", "expired-draft");
+    saveProjectDraft("agency@example.com", "account-project", "account-draft");
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
+    saveProjectDraft(null, "recent-project", "recent-draft");
+    purgeExpiredAnonymousDrafts();
+    expect(window.localStorage.getItem(draftStorageKey(null, "expired-project"))).toBeNull();
+    expect(readProjectDraft(null, "recent-project")).toBe("recent-draft");
+    // Signed-in drafts are account-scoped and retained; only anonymous drafts age out.
+    expect(readProjectDraft("agency@example.com", "account-project")).toBe("account-draft");
+  });
+
+  it("treats an anonymous draft with no timestamp as expired instead of keeping it forever", () => {
+    saveProjectDraft(null, "untimed-project", "untimed-draft");
+    for (const key of fakeStorage().keys()) if (key.startsWith("greenlit-draft-saved-")) window.localStorage.removeItem(key);
+    expect(readProjectDraft(null, "untimed-project")).toBeNull();
+  });
+
+  it("reports a failed save instead of pretending the draft was stored", () => {
+    expect(saveProjectDraft("agency@example.com", "ok-project", "ok-draft")).toBe(true);
+    vi.spyOn(fakeStorage(), "setItem").mockImplementation(() => { throw new DOMException("QuotaExceededError"); });
+    expect(saveProjectDraft("agency@example.com", "failing-project", "failing-draft")).toBe(false);
+    expect(isDraftStorageAvailable()).toBe(false);
+  });
+
+  it("detects available storage", () => {
+    expect(isDraftStorageAvailable()).toBe(true);
   });
 
   it("clearAccountDraftState removes every project for only that account", () => {
@@ -58,6 +103,30 @@ describe("project draft storage", () => {
     expect(readProjectDraft("agency-a@example.com", "a-1")).toBeNull();
     expect(readProjectDraft("agency-a@example.com", "a-2")).toBeNull();
     expect(readProjectDraft("agency-b@example.com", "b-1")).toBe("draft-b1");
+  });
+
+  it("sign-out clears the account draft only after the server ends the session", async () => {
+    saveProjectDraft("agency@example.com", "proj-1", "draft-content");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    await expect(signOutAndClearDraftState("agency@example.com")).resolves.toBe(true);
+    expect(readProjectDraft("agency@example.com", "proj-1")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("a failed sign-out preserves the local draft", async () => {
+    saveProjectDraft("agency@example.com", "proj-1", "draft-content");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    await expect(signOutAndClearDraftState("agency@example.com")).resolves.toBe(false);
+    expect(readProjectDraft("agency@example.com", "proj-1")).toBe("draft-content");
+    vi.unstubAllGlobals();
+  });
+
+  it("a network error during sign-out propagates and preserves the local draft", async () => {
+    saveProjectDraft("agency@example.com", "proj-1", "draft-content");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(signOutAndClearDraftState("agency@example.com")).rejects.toThrow();
+    expect(readProjectDraft("agency@example.com", "proj-1")).toBe("draft-content");
+    vi.unstubAllGlobals();
   });
 
   it("keeps account keys case-insensitive and clears legacy bearer-token keys", () => {

@@ -54,7 +54,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
           <p>Sign in with your business email to resume projects, see client decisions, and access retained approval records.</p>
           <form onSubmit={submit}>
             <label htmlFor="agency-email">Business email</label>
-            <div className="auth-input"><Mail size={16} /><input id="agency-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="you@agency.com" aria-invalid={Boolean(error)} aria-describedby={error ? "agency-email-error" : undefined} /></div>
+            <div className="auth-input"><Mail size={16} /><input id="agency-email" type="email" value={email} onChange={(event) => { setEmail(event.target.value); setError(""); }} autoComplete="email" required placeholder="you@agency.com" aria-invalid={error ? true : undefined} aria-describedby={error ? "agency-email-error" : undefined} /></div>
             {error && <div className="analysis-error" id="agency-email-error" role="alert">{error}</div>}
             <button className="button button--lime" disabled={busy || !email.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}{busy ? "Sending secure link…" : "Email me a sign-in link"}</button>
           </form>
