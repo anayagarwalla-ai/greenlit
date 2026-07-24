@@ -8,7 +8,7 @@ test("guided transaction reaches a client decision and printable receipt", async
   });
   await page.goto("/workspace");
   await page.getByRole("button", { name: /Launch the reliable guided demo/ }).click();
-  await page.getByRole("button", { name: /show sample/i }).click();
+  await page.getByRole("button", { name: /verify sample/i }).click();
   await expect(page.getByText(/automated check needs work/i)).toBeVisible();
   await page.getByRole("button", { name: "Verify fixed build" }).click();
   await expect(page.getByText(/every automated check passes/i)).toBeVisible();

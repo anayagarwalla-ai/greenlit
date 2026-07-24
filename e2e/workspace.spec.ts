@@ -16,6 +16,21 @@ test("real imports start blank and criteria navigation stays locked", async ({ p
   await expect(page.locator(".side-nav button").first()).toBeDisabled();
 });
 
+test("the import flow explains the next action and the sample completes non-legal fields", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.getByText(/Add the SOW and milestone details. Sign in only when you are ready/i)).toBeVisible();
+  await expect(page.getByText("Import details")).toBeVisible();
+  await expect(page.getByText("Paid services")).toBeHidden();
+  await page.getByRole("button", { name: "Use the synthetic sample" }).click();
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue(/STATEMENT OF WORK/);
+  await expect(page.getByLabel("Agency or vendor")).toHaveValue("Northstar Studio");
+  await expect(page.locator("#client-name")).toHaveValue("Acme Outdoors");
+  await expect(page.locator("#project-name")).toHaveValue("Spring launch website");
+  await expect(page.locator("#milestone-title")).toHaveValue("Production-ready marketing site");
+  await expect(page.locator("#milestone-value")).toHaveValue("12000.00");
+  await expect(page.getByRole("link", { name: "Sign in & generate criteria" })).toBeVisible();
+});
+
 test("unsigned intake survives sign-in navigation and a new import asks before erasing it", async ({ page }) => {
   await page.goto("/workspace");
   await page.getByLabel("Paste SOW text").fill(source);

@@ -1104,6 +1104,29 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         : phase === "shared"
           ? "Client review is ready"
           : "Verification evidence";
+  const nextStepCopy = phase === "analyzing"
+    ? "Gemini is drafting source-backed criteria. Keep this page open; no action is needed yet."
+    : phase === "intake"
+      ? sessionEmail
+        ? "Add the SOW and milestone details, accept the notices, then generate the criteria."
+        : "Add the SOW and milestone details. Sign in only when you are ready to generate the criteria."
+      : phase === "criteria"
+        ? sourceMode === "demo"
+          ? "Review the six source-backed checks, then confirm them to verify the sample build."
+          : "Review each source quote and outcome, edit anything unclear, then confirm the criteria."
+        : phase === "handoff"
+          ? "Connect the owner-verified staging build and choose the checks to run."
+          : phase === "running1" || phase === "running2"
+            ? "Keep this page open while Greenlit prepares the verification results."
+            : phase === "run1"
+              ? "Review the failed evidence, then verify the fixed build against the same criteria."
+              : phase === "run2"
+                ? sourceMode === "demo"
+                  ? "Open the sample client review to see the decision experience."
+                  : "Review the passing evidence and billing settings, then create the client review."
+                : sourceMode === "demo"
+                  ? "Open the client view and complete the sample decision."
+                  : "Copy the review link and send its access code to the named reviewer separately.";
 
   if (restorePending || restoreError) {
     return (
@@ -1148,11 +1171,14 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
             <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={openClientReview}><Send size={15} /><span>Client review</span></button>
             <button disabled={!reviewPacketId} onClick={() => void openApprovalRecord()}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
-          <div className="side-facts">
-            <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
-            <div><span>Source</span><strong>{sourceText ? "Local draft; server retains hash + quotes" : "Not loaded"}</strong></div>
-            <div><span>Paid services</span><strong>{geminiPaidService ? "Gemini API" : "None"}</strong></div>
-          </div>
+          <details className="side-details">
+            <summary>Import details</summary>
+            <div className="side-facts">
+              <div><span>AI</span><strong>{sourceMode === "demo" ? "Synthetic guided demo" : model}</strong></div>
+              <div><span>Source</span><strong>{sourceText ? "Local draft; server retains hash + quotes" : "Not loaded"}</strong></div>
+              <div><span>Paid services</span><strong>{geminiPaidService ? "Gemini API" : "None"}</strong></div>
+            </div>
+          </details>
         </aside>
 
         <section className="app-main">
@@ -1176,6 +1202,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
               return <li className={`step ${step < currentStep ? "is-done" : step === currentStep ? "is-active" : ""}`} aria-current={step === currentStep ? "step" : undefined} key={label}>{label}</li>;
             })}
           </ol>
+          <p className="workspace-next-step"><ArrowRight size={13} aria-hidden="true" /><span><strong>Next:</strong> {nextStepCopy}</span></p>
 
           <div className="sr-only" aria-live="polite" aria-atomic="true">{phase === "analyzing" ? "Gemini analysis in progress" : phase.startsWith("running") ? "Verification in progress" : status.text}</div>
 
@@ -1270,6 +1297,14 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
     setSelectedFile(null);
     setSourceText(demoSowText);
     setAttested(true);
+    setBusiness({
+      agencyName: "Northstar Studio",
+      clientName: "Acme Outdoors",
+      projectName: "Spring launch website",
+      milestoneTitle: "Production-ready marketing site",
+      amountDollars: "12000.00",
+      currency: "USD",
+    });
   };
   const updateBusiness = (field: keyof BusinessDetails, value: string) => setBusiness((current) => ({ ...current, [field]: value }));
 
@@ -1278,16 +1313,8 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       <section className="panel intake-panel">
         <div className="intake-kicker"><WandSparkles size={14} /> Gemini-powered SOW import</div>
         <h2>Turn contract language into proof-ready checks.</h2>
-        <p className="intake-lede">Paste a scope or upload a selectable-text document. Gemini gets a short deadline; if it is busy, a source-grounded fallback keeps you moving.</p>
-
-        <div className="intake-action-dock">
-          {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
-          <div className="intake-actions">
-            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in to analyze</Link>}
-            <span>or</span>
-            <button className="text-action" disabled={analyzing} onClick={onDemo}>Launch the reliable guided demo <ArrowRight size={13} /></button>
-          </div>
-        </div>
+        <p className="intake-lede">Add the relevant SOW section and the milestone details below. Then generate source-backed acceptance criteria.</p>
+        <button className="intake-demo-link" disabled={analyzing} onClick={onDemo}>Prefer to explore first? Open the guided demo <ArrowRight size={13} /></button>
 
         <div className="source-input-head"><label htmlFor="sow-text">Paste SOW text</label><button type="button" onClick={loadSample}>Use the synthetic sample</button></div>
         <textarea id="sow-text" className="sow-textarea" value={sourceText} disabled={Boolean(selectedFile) || analyzing} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste the acceptance criteria, deliverables, or relevant SOW section here…" />
@@ -1301,7 +1328,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         {selectedFile && <button className="clear-file" type="button" onClick={() => setSelectedFile(null)}>Remove file and use pasted text</button>}
 
         <fieldset className="business-details" disabled={analyzing}>
-          <legend>Business record details</legend>
+          <legend>Milestone details for the client record</legend>
           <label htmlFor="agency-name">Agency or vendor<input id="agency-name" maxLength={120} aria-invalid={Boolean(error && (!business.agencyName.trim() || business.agencyName.trim().length > 120))} aria-describedby={error && (!business.agencyName.trim() || business.agencyName.trim().length > 120) ? "agency-name-error" : undefined} value={business.agencyName} onChange={(event) => updateBusiness("agencyName", event.target.value)} required />{error && (!business.agencyName.trim() || business.agencyName.trim().length > 120) && <small id="agency-name-error">Agency or vendor is required and must be 120 characters or fewer.</small>}</label>
           <label htmlFor="client-name">Client<input id="client-name" maxLength={120} aria-invalid={Boolean(error && (!business.clientName.trim() || business.clientName.trim().length > 120))} aria-describedby={error && (!business.clientName.trim() || business.clientName.trim().length > 120) ? "client-name-error" : undefined} value={business.clientName} onChange={(event) => updateBusiness("clientName", event.target.value)} required />{error && (!business.clientName.trim() || business.clientName.trim().length > 120) && <small id="client-name-error">Client is required and must be 120 characters or fewer.</small>}</label>
           <label htmlFor="project-name">Project<input id="project-name" maxLength={180} aria-invalid={Boolean(error && (!business.projectName.trim() || business.projectName.trim().length > 180))} aria-describedby={error && (!business.projectName.trim() || business.projectName.trim().length > 180) ? "project-name-error" : undefined} value={business.projectName} onChange={(event) => updateBusiness("projectName", event.target.value)} required />{error && (!business.projectName.trim() || business.projectName.trim().length > 180) && <small id="project-name-error">Project is required and must be 180 characters or fewer.</small>}</label>
@@ -1324,6 +1351,14 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
           <input type="checkbox" checked={adultBusinessUseAttested} disabled={analyzing} onChange={(event) => setAdultBusinessUseAttested(event.target.checked)} />
           <span><strong>I am 18+, acting for a business, and accept the beta terms.</strong> I agree to the <Link href="/terms" target="_blank">Terms</Link>, <Link href="/privacy" target="_blank">Privacy Notice</Link>, and <Link href="/records" target="_blank">recordkeeping notice</Link>. {!geminiPaidService && "The unpaid Gemini flow is a U.S.-only beta; restricted regions use the local fallback."}</span>
         </label>
+
+        <div className="intake-action-dock">
+          {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
+          <div className="intake-actions">
+            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in & generate criteria</Link>}
+            <span>{signedInEmail ? "Greenlit checks every required field before analysis." : "Your draft will be preserved through sign-in."}</span>
+          </div>
+        </div>
 
       </section>
 
@@ -1360,7 +1395,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
 
       <section className="panel criteria-panel">
         <div className="panel-header">
-          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> Synthetic guided demo · every quote is source-matched.</p></div>
+          <div><h2>6 acceptance criteria</h2><p><Sparkles size={10} /> Review each source quote, then confirm the six checks.</p></div>
           <span className="status-badge status-badge--neutral">{confirmedCount}/6 confirmed</span>
         </div>
         <div className="criteria-list">
@@ -1380,7 +1415,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
         </div>
         <footer className="criteria-footer">
           <p><LockKeyhole size={11} /> The guided path uses a synthetic SOW and an isolated staging fixture.</p>
-          <button className="button button--ink" onClick={onRun}>{allConfirmed ? "Show sample check run" : "Confirm all & show sample"} <ArrowRight size={16} /></button>
+          <button className="button button--ink" onClick={onRun}>{allConfirmed ? "Verify the sample build" : "Confirm criteria & verify sample"} <ArrowRight size={16} /></button>
         </footer>
       </section>
     </div>
@@ -1578,6 +1613,15 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
     ?? run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true))
     ?? run.artifacts.find((artifact) => artifact.url);
   const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt)) : "Just now";
+  const actionBanner = (
+    <div className="action-banner">
+      <div><h3>{run.seededDemo ? isPass ? "Continue to the client decision." : "Next: verify the fixed sample build." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "Next: verify the fixed build." : "Next: verify another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only client review and try the decision flow." : "Run the same six checks against rc2—no re-analysis needed." : isPass ? "Create a focused review page with the latest passing evidence." : "Rerun the same frozen checks after the build is corrected."}</p></div>
+      <div className="action-banner__buttons">
+        {!isPass && <a className="button button--outline" href={run.buildUrl} target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
+        <button className="button button--lime" disabled={shareBusy} onClick={(event) => { if (isPass) onShare?.(event.currentTarget); else onRerun?.(); }}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
+      </div>
+    </div>
+  );
   return (
     <>
       <div className="report-grid">
@@ -1590,8 +1634,9 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
             </div>
             <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>
           </div>
+          {(run.seededDemo || !isPass) && actionBanner}
           <div className="panel result-list">
-            <div className="panel-header"><div><h3>{run.seededDemo ? "Sample acceptance outcomes" : "Acceptance evidence"}</h3><p>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</p></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
+            <div className="panel-header"><div><h3>{run.seededDemo ? "Sample acceptance outcomes" : "Acceptance evidence"}</h3><p>Compare the expected and observed result for every frozen check.</p><details className="run-technical"><summary>Run details</summary><span>Run {run.runId.slice(0, 13)}… · {run.browserVersion ?? "Chromium"} · runner {run.runnerVersion ?? "0.2"}</span></details></div><span className={`status-badge ${isPass ? "status-badge--pass" : "status-badge--fail"}`}>{passed} passed</span></div>
             {criteria.map((item) => {
               const result = resultByCriterion[item.id];
               const manual = !result && (item.supported === false || item.checkType === "manual");
@@ -1604,7 +1649,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
         <aside className="run-side">
           <div className="panel evidence-card">
             <div className="evidence-preview">
-              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="evidence-unavailable"><FileWarning size={28} /><strong>Evidence unavailable</strong><span>No captured screenshot was attached to this check.</span></div>}
+              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="evidence-unavailable"><FileWarning size={28} /><strong>{run.seededDemo ? "No screenshot in this sample" : "Evidence unavailable"}</strong><span>{run.seededDemo ? "A real verification run shows its captured screenshot here." : "No captured screenshot was attached to this check."}</span></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
             <div className="evidence-body"><strong>{run.seededDemo ? "Illustrative walkthrough frame" : isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{run.seededDemo ? "This visual and its outcomes are synthetic examples, not captured browser evidence." : isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. Greenlit caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
@@ -1613,13 +1658,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
         </aside>
       </div>
       {isPass && invoicePlan}
-      <div className="action-banner">
-        <div><h3>{run.seededDemo ? isPass ? "Continue the sample client journey." : "A polished UI can hide a broken handoff." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only sample review that creates no transaction record." : "Show the fixed rc2 sample against the same frozen promises." : isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
-        <div className="action-banner__buttons">
-          {!isPass && <a className="button button--outline" href={run.buildUrl} target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
-          <button className="button button--lime" disabled={shareBusy} onClick={(event) => { if (isPass) onShare?.(event.currentTarget); else onRerun?.(); }}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
-        </div>
-      </div>
+      {!run.seededDemo && isPass && actionBanner}
     </>
   );
 }
