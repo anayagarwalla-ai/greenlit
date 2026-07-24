@@ -3,6 +3,7 @@ import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@greenlit
 import { z } from "zod";
 import axe from "axe-core";
 import { addressMatchesFrozenSet, pathWithQueryAndHash, perCheckBudgetMs } from "./security";
+import { installNetworkIsolation } from "./network-isolation";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -23,7 +24,7 @@ type EvidenceArtifact = {
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
-const RUNNER_VERSION = "0.7.1";
+const RUNNER_VERSION = "0.7.2";
 const JOB_DEADLINE_MS = 48_000;
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
@@ -254,22 +255,11 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
       const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, { leaseId: message.leaseId });
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
+      await installNetworkIsolation(context, lease.targetOrigin);
       const page = await context.newPage();
       const addressValidations: Array<Promise<void>> = [];
       try {
         page.on("popup", (popup) => void popup.close());
-        // Constrain every request the page makes — top-level navigation,
-        // subresources (images/scripts/style), fetch/XHR, and frames — to
-        // the verified target origin. data:/blob: are same-document and
-        // carry no network egress risk.
-        await page.route("**/*", async (route) => {
-          const request = route.request();
-          let url: URL;
-          try { url = new URL(request.url()); } catch { await route.abort("blockedbyclient"); return; }
-          const benign = url.protocol === "data:" || url.protocol === "blob:";
-          if (!benign && url.origin !== lease.targetOrigin) { await route.abort("blockedbyclient"); return; }
-          await route.continue();
-        });
         // DNS rebinding / TOCTOU defense: validate-origin only proves the
         // hostname resolved safely *before* this check started. The browser
         // performs its own resolution when it actually connects, so inspect

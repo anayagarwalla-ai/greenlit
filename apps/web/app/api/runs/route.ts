@@ -16,6 +16,7 @@ import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 import { validateVerificationManifest } from "@/lib/verification-manifest";
 import { dispatchRunnerJob } from "@/lib/runner-dispatch";
+import { EXPECTED_RUNNER_VERSION } from "@/lib/runner-version";
 
 export const runtime = "nodejs";
 
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
       p_milestone_title: body.milestoneTitle, p_amount_minor: body.amountMinor, p_currency: body.currency,
       p_source_name: body.sourceName, p_source_sha256: sourceHash, p_criteria: body.criteria,
       p_criteria_sha256: criteriaHash, p_target_origin: targetOrigin, p_build_url: buildUrl,
-      p_build_label: buildLabel, p_checks: checks, p_runner_version: "0.7.1", p_workspace_state: workspaceState,
+      p_build_label: buildLabel, p_checks: checks, p_runner_version: EXPECTED_RUNNER_VERSION, p_workspace_state: workspaceState,
       p_actor_hash: actorHash, p_notice_version: body.noticeVersion, p_origin_addresses: originAddresses,
       p_request_key: body.requestId,
     });

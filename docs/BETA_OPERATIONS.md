@@ -12,6 +12,7 @@ This runbook is the minimum operating cadence for inviting web agencies. Assign 
 - Run the protected deep check with `Authorization: Bearer $CRON_SECRET` against `/api/health?deep=1` before a cohort launch; it performs a real browser-binding launch without visiting a tester site.
 - Verify custom SMTP, sender-domain SPF/DKIM/DMARC, corporate link-scanner behavior, Supabase Auth public signup disabled, and the production callback allowlist.
 - Confirm the adult operator has reviewed the current Vercel entitlement and Supabase Free pause/recovery procedure before using the pilot commercially.
+- Confirm the Gemini API project used by `GEMINI_API_KEY` is visibly marked Paid with usable billing balance. Set `NEXT_PUBLIC_GEMINI_SERVICE_TIER=paid` and server-only `GEMINI_PAID_TIER_CONFIRMED=true` together, redeploy, and require `/api/health` to report the paid data mode. If either flag is absent or mismatched, Greenlit intentionally stays in the unpaid/non-confidential mode.
 - Test one magic-link sign-in, one custom staging ownership file, one passing run, one client decision from a separate browser, and receipt/export access from the agency dashboard.
 - Tell testers to use only redacted, synthetic, or expressly non-confidential SOW sections while Gemini remains on the unpaid tier.
 

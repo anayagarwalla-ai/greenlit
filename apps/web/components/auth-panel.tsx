@@ -58,7 +58,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
             {error && <div className="analysis-error" id="agency-email-error" role="alert">{error}</div>}
             <button className="button button--lime" disabled={busy || !email.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}{busy ? "Sending secure link…" : "Email me a sign-in link"}</button>
           </form>
-          <small>Use only a pre-approved business email you control; signing in does not request an invitation. The beta currently accepts redacted or expressly non-confidential SOW sections.</small>
+          <small>Use only a pre-approved business email you control; signing in does not request an invitation. Before analysis, Greenlit shows the active Gemini data notice and requires confirmation that you are authorized to submit the SOW.</small>
         </>}
         <div className="auth-actions">
           {sent && <button type="button" className="text-action" onClick={() => setSent(false)}>Use a different email</button>}

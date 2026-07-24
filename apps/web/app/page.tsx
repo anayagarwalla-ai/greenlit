@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Check, FileCheck2, MousePointerClick, Play, ShieldCheck } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
 const proofRows = [
   ["AC-01", "Hero and CTA visible", "Passed"],
@@ -10,6 +11,7 @@ const proofRows = [
 ];
 
 export default function Home() {
+  const paidGemini = geminiServiceConfiguration().paidService;
   return (
     <main>
       <section className="hero-shell">
@@ -74,7 +76,7 @@ export default function Home() {
           <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. Greenlit makes “done” concrete, reviewable, and auditable.</p>
         </div>
         <div className="steps-grid">
-          <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload a redacted, non-confidential SOW section. AI drafts measurable criteria with exact source citations.</p></article>
+          <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload {paidGemini ? "a SOW section you are authorized to process" : "a redacted, non-confidential SOW section"}. AI drafts measurable criteria with exact source citations.</p></article>
           <article><span>02</span><Play /><h3>Verify the build</h3><p>Run safe, typed browser checks against a staging site and capture evidence for every claim.</p></article>
           <article><span>03</span><ShieldCheck /><h3>Collect approval</h3><p>Send one client-ready proof page, capture the decision, and create an invoice-ready record.</p></article>
         </div>

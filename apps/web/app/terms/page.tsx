@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
 export const metadata: Metadata = { title: "Beta terms", robots: { index: true, follow: true } };
 
 export default function TermsPage() {
   const operator = process.env.NEXT_PUBLIC_OPERATOR_NAME;
   const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
-  const paidGemini = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  const paidGemini = geminiServiceConfiguration().paidService;
   const operatorAddress = process.env.NEXT_PUBLIC_OPERATOR_ADDRESS;
   const governingLaw = process.env.NEXT_PUBLIC_GOVERNING_LAW;
   const venue = process.env.NEXT_PUBLIC_VENUE;

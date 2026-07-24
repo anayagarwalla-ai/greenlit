@@ -114,7 +114,6 @@ const checkLabels: Record<CheckType, string> = {
   manual: "Human review",
 };
 const fixtureCheckTypes: CheckType[] = ["element_state", "link_destination", "element_state", "form_submission", "axe_scan", "viewport_layout"];
-const geminiPaidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
 // Uploaded files under this size are persisted (base64) alongside the draft
 // so an uploaded-PDF draft survives sign-in exactly like pasted text does.
 // Larger files are intentionally not persisted to stay well under browsers'
@@ -221,7 +220,7 @@ async function browserSha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function MilestoneStudio() {
+export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: boolean }) {
   const [phase, setPhase] = useState<Phase>("intake");
   const [sourceMode, setSourceMode] = useState<SourceMode>("live");
   const [sourceText, setSourceText] = useState("");
@@ -801,15 +800,15 @@ export function MilestoneStudio() {
       if (selectedFile) {
         const form = new FormData();
         form.set("file", selectedFile);
-        form.set("syntheticDataAttested", "true");
-        form.set("unpaidAiDisclosureAccepted", "true");
+        form.set("sourceDataAttested", "true");
+        form.set("aiDisclosureAccepted", "true");
         form.set("adultBusinessUseAttested", "true");
         response = await fetch("/api/analyze", { method: "POST", body: form, signal: controller.signal });
       } else {
         response = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: sourceText, sourceName, syntheticDataAttested: true, unpaidAiDisclosureAccepted: true, adultBusinessUseAttested: true }),
+          body: JSON.stringify({ text: sourceText, sourceName, sourceDataAttested: true, aiDisclosureAccepted: true, adultBusinessUseAttested: true }),
           signal: controller.signal,
         });
       }
@@ -1184,6 +1183,7 @@ export function MilestoneStudio() {
               onDemo={launchDemo}
               signedInEmail={sessionEmail}
               signInHref={signInHref}
+              geminiPaidService={geminiPaidService}
               onSignIn={() => leaveForAccountPage(signInHref)}
             />
           )}
@@ -1219,7 +1219,7 @@ export function MilestoneStudio() {
   );
 }
 
-function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo, signedInEmail, signInHref, onSignIn }: {
+function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, attested, setAttested, aiDisclosureAccepted, setAiDisclosureAccepted, adultBusinessUseAttested, setAdultBusinessUseAttested, business, setBusiness, error, analyzing, onAnalyze, onDemo, signedInEmail, signInHref, geminiPaidService, onSignIn }: {
   sourceText: string;
   setSourceText: (value: string) => void;
   selectedFile: File | null;
@@ -1238,6 +1238,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   onDemo: () => void;
   signedInEmail: string;
   signInHref: Route;
+  geminiPaidService: boolean;
   onSignIn: () => Promise<void>;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -1290,7 +1291,9 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
 
         <label className="attestation">
           <input type="checkbox" checked={attested} disabled={analyzing} onChange={(event) => setAttested(event.target.checked)} />
-          <span><strong>This SOW is synthetic or non-confidential.</strong> I will not submit personal, sensitive, regulated, or client-confidential information.</span>
+          <span>{geminiPaidService
+            ? <><strong>I am authorized to submit this SOW for Gemini processing.</strong> I will not submit passwords, API keys, payment data, regulated data, or sensitive personal information.</>
+            : <><strong>This SOW is synthetic or non-confidential.</strong> I will not submit personal, sensitive, regulated, or client-confidential information.</>}</span>
         </label>
         <label className="attestation">
           <input type="checkbox" checked={aiDisclosureAccepted} disabled={analyzing} onChange={(event) => setAiDisclosureAccepted(event.target.checked)} />
@@ -1304,7 +1307,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>Use non-confidential scopes only. Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft can be opened by anyone who uses this browser profile on this device, and it is deleted automatically after 24 hours."}</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>{geminiPaidService ? "Submit only scopes you are authorized to process, and never include secrets or regulated data." : "Use non-confidential scopes only."} Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft can be opened by anyone who uses this browser profile on this device, and it is deleted automatically after 24 hours."}</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>

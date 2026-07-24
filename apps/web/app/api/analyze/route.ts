@@ -10,6 +10,7 @@ import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { RECORD_NOTICE_VERSION, requestActorHash } from "@/lib/recordkeeping";
 import { extractSourceFileText, SourceInputError } from "@/lib/source-extraction";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
@@ -24,8 +25,8 @@ const GEMINI_UNPAID_RESTRICTED_COUNTRIES = new Set([
 
 const requestSchema = z.object({
   text: z.string().min(80).max(MAX_SOURCE_LENGTH),
-  syntheticDataAttested: z.literal(true),
-  unpaidAiDisclosureAccepted: z.literal(true),
+  sourceDataAttested: z.literal(true),
+  aiDisclosureAccepted: z.literal(true),
   adultBusinessUseAttested: z.literal(true),
   sourceName: z.string().min(1).max(160).optional(),
 });
@@ -40,25 +41,40 @@ const extractedCriterionSchema = z.object({
 
 const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).min(1).max(MAX_CRITERIA) });
 
-async function readInput(request: Request) {
+async function readInput(request: Request, paidService: boolean) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
-    if (form.get("syntheticDataAttested") !== "true") {
-      throw new SourceInputError("Confirm the SOW is synthetic or non-confidential before analysis.", "ATTESTATION_REQUIRED");
+    if (form.get("sourceDataAttested") !== "true") {
+      throw new SourceInputError(
+        paidService
+          ? "Confirm you are authorized to submit this SOW and that it contains no secrets or regulated data."
+          : "Confirm the SOW is synthetic or non-confidential before analysis.",
+        "ATTESTATION_REQUIRED",
+      );
     }
-    if (form.get("unpaidAiDisclosureAccepted") !== "true" || form.get("adultBusinessUseAttested") !== "true") {
-      throw new SourceInputError("Accept the Gemini free-tier data notice and confirm adult business use before analysis.", "AI_NOTICE_REQUIRED");
+    if (form.get("aiDisclosureAccepted") !== "true" || form.get("adultBusinessUseAttested") !== "true") {
+      throw new SourceInputError(
+        `Accept the Gemini ${paidService ? "paid-service" : "unpaid-tier"} data notice and confirm adult business use before analysis.`,
+        "AI_NOTICE_REQUIRED",
+      );
     }
     const file = form.get("file");
     if (!(file instanceof File)) throw new SourceInputError("Choose a SOW file to analyze.", "FILE_REQUIRED");
     const text = await extractSourceFileText(file);
-    return requestSchema.parse({ text, sourceName: file.name, syntheticDataAttested: true, unpaidAiDisclosureAccepted: true, adultBusinessUseAttested: true });
+    return requestSchema.parse({ text, sourceName: file.name, sourceDataAttested: true, aiDisclosureAccepted: true, adultBusinessUseAttested: true });
   }
 
   const body = await request.json().catch(() => null);
   const parsed = requestSchema.safeParse(body && typeof body === "object" ? { ...body, text: normalizeSourceText(String(body.text ?? "")) } : body);
-  if (!parsed.success) throw new SourceInputError("Paste at least 80 characters of SOW text and confirm it is synthetic or non-confidential.", "INVALID_SOURCE");
+  if (!parsed.success) {
+    throw new SourceInputError(
+      paidService
+        ? "Paste at least 80 characters of SOW text and confirm you are authorized to submit it."
+        : "Paste at least 80 characters of SOW text and confirm it is synthetic or non-confidential.",
+      "INVALID_SOURCE",
+    );
+  }
   return parsed.data;
 }
 
@@ -129,12 +145,13 @@ async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "n
 
 export async function POST(request: Request) {
   const startedAt = performance.now();
+  const geminiConfiguration = geminiServiceConfiguration();
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
   if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
   let input: AnalysisInput;
   try {
-    input = await readInput(request);
+    input = await readInput(request, geminiConfiguration.paidService);
   } catch (error) {
     if (error instanceof SourceInputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
@@ -149,7 +166,7 @@ export async function POST(request: Request) {
       source_mode: request.headers.get("content-type")?.includes("multipart/form-data") ? "UPLOAD" : "PASTE",
       source_byte_size: new TextEncoder().encode(input.text).byteLength,
       notice_version: RECORD_NOTICE_VERSION,
-      provider_notice_version: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid" ? "gemini-paid-2026-07" : "gemini-unpaid-2026-07",
+      provider_notice_version: geminiConfiguration.providerNoticeVersion,
       accepted_terms: true,
       accepted_data_notice: true,
     });
@@ -170,7 +187,7 @@ export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return fallbackResponse(input, "not_configured", startedAt, undefined, user.id);
   const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
-  const paidService = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  const paidService = geminiConfiguration.paidService;
   if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt, undefined, user.id);
 
   const ai = new GoogleGenAI({ apiKey });

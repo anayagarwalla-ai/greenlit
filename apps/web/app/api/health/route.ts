@@ -4,19 +4,20 @@ import { retryHealthQuery } from "@/lib/health-check";
 import { DATABASE_VERSION } from "@/lib/health-version";
 import { signRunnerRequest } from "@/lib/hmac";
 import { legalLaunchReadiness } from "@/lib/launch-readiness";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
+import { EXPECTED_RUNNER_VERSION } from "@/lib/runner-version";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
-const EXPECTED_RUNNER_VERSION = "0.7.1";
-
 export async function GET(request: Request) {
   const checkedAt = new Date().toISOString();
   const database = getSupabaseAdmin();
   const runnerUrl = process.env.RUNNER_URL;
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
   const legalConfiguration = legalLaunchReadiness();
+  const geminiConfiguration = geminiServiceConfiguration();
 
   if (!database) {
     checks.database = { ok: false, detail: "not configured" };
@@ -91,8 +92,8 @@ export async function GET(request: Request) {
       detail: legalConfiguration.ok ? "complete" : `missing ${legalConfiguration.missing.join(", ")}`,
     },
     geminiDataMode: {
-      ok: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid",
-      detail: process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid" ? "paid API data terms configured" : "unpaid tier: confidential SOWs remain blocked",
+      ok: geminiConfiguration.paidService && Boolean(process.env.GEMINI_API_KEY),
+      detail: !process.env.GEMINI_API_KEY ? "Gemini API key is not configured" : geminiConfiguration.healthDetail,
     },
   };
   const readyForBeta = ok && Object.values(launchChecks).every((check) => check.ok);

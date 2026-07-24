@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MilestoneStudio } from "@/components/milestone-studio";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
 export const metadata: Metadata = {
   title: "Milestone workspace",
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function WorkspacePage() {
-  return <MilestoneStudio />;
+  return <MilestoneStudio geminiPaidService={geminiServiceConfiguration().paidService} />;
 }

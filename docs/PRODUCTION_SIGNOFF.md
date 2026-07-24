@@ -19,8 +19,8 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 ## Secrets and deployments
 
 - [ ] `RECORD_HASH_SECRET` is separate from `RUNNER_HMAC_SECRET`; web and runner HMAC values match.
-- [ ] Gemini is on the intended paid API tier and `NEXT_PUBLIC_GEMINI_SERVICE_TIER=paid`; until then the product must continue blocking confidential SOW use.
-- [ ] `/api/health` is green, `readyForBeta` is true, and it reports the expected web, runner `0.7.1`, and database `202607220005` versions.
+- [ ] Gemini billing is active for the same API project/key, the provider console marks it Paid with usable balance, and both `NEXT_PUBLIC_GEMINI_SERVICE_TIER=paid` and server-only `GEMINI_PAID_TIER_CONFIRMED=true` are set; until all of those are true the product must continue blocking confidential SOW use.
+- [ ] `/api/health` is green, `readyForBeta` is true, and it reports the expected web, runner `0.7.2`, and database `202607220005` versions.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.
 - [x] Production migration history contains every file in `supabase/migrations` exactly once.
 
@@ -36,6 +36,6 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 
 ## Acceptance transaction
 
-- [ ] Adult-authorized production flow passed: invited external login → redacted SOW → Gemini → owned staging origin → real run/evidence → separate client browser → decision → dashboard → receipt/JSON → privacy export.
+- [ ] Adult-authorized production flow passed: invited external login → authorized SOW → Gemini → owned staging origin → real run/evidence → separate client browser → decision → dashboard → receipt/JSON → privacy export.
 - [ ] Evidence screenshots and audit/receipt hashes were inspected; exact currency cents remained correct.
 - [ ] Privacy access, correction, hold, deletion scheduling, notification retry, stranded-job expiry, and failed-deletion retry were tested without manual database edits.

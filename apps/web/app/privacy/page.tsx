@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
+import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
 export const metadata: Metadata = { title: "Privacy notice", robots: { index: true, follow: true } };
 
 export default function PrivacyPage() {
   const operator = process.env.NEXT_PUBLIC_OPERATOR_NAME;
   const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
-  const paidGemini = process.env.NEXT_PUBLIC_GEMINI_SERVICE_TIER === "paid";
+  const paidGemini = geminiServiceConfiguration().paidService;
   const notificationProvider = process.env.NEXT_PUBLIC_NOTIFICATION_PROVIDER;
   const operatorAddress = process.env.NEXT_PUBLIC_OPERATOR_ADDRESS;
   return (
@@ -20,7 +21,7 @@ export default function PrivacyPage() {
 
         <h2>Data you provide</h2>
         <ul>
-          <li><strong>SOW input:</strong> synthetic or expressly non-confidential text selected for analysis. Greenlit does not upload the original document to its database or evidence store. To prevent loss during sign-in or reload, the extracted text and unfinished draft are saved in this browser’s local storage until you choose New import or clear site data.</li>
+          <li><strong>SOW input:</strong> {paidGemini ? "text the user is authorized to submit for analysis" : "synthetic or expressly non-confidential text selected for analysis"}. Greenlit does not upload the original document to its database or evidence store. To prevent loss during sign-in or reload, the extracted text and unfinished draft are saved in this browser’s local storage until you choose New import or clear site data.</li>
           <li><strong>Business record:</strong> agency, client, project, milestone value, confirmed criteria, target build, verification results, and evidence metadata.</li>
           <li><strong>Reviewer record:</strong> reviewer name, business email, optional note, approval or change request, consent statements, and decision time.</li>
           <li><strong>Agency account:</strong> business email, account identifier, owned milestone records, in-app notifications, and review-link controls.</li>
