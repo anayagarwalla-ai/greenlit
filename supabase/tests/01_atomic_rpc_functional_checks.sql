@@ -116,18 +116,37 @@ begin
   raise notice 'CHECK 4 PASSED: re-completing a COMPLETED job is a safe idempotent no-op';
 
   -- 5) Create a review packet bound to the current last_run_id + criteria revision.
-  v_packet_id := create_review_packet_atomic(
+  v_packet_id := create_review_packet_secure_atomic(
     v_record_id, v_job_id, 'REVIEW-TEST01',
-    jsonb_build_object('recordId', v_record_id, 'run', jsonb_build_object('runId', v_job_id), 'revision', 1),
-    'snapHash1', 'bearerHash1', now() + interval '72 hours', 'actorHash1', 1
+    jsonb_build_object(
+      'recordId', v_record_id,
+      'run', jsonb_build_object('runId', v_job_id),
+      'revision', 1,
+      'intendedReviewerEmail', 'reviewer@example.test'
+    ),
+    'snapHash1', 'bearerHash1', 'accessCodeHash1', 'reviewer@example.test',
+    now() + interval '72 hours', 'actorHash1', 1
   );
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'IN_REVIEW', 'record should be IN_REVIEW after review packet creation';
-  raise notice 'CHECK 5 PASSED: create_review_packet_atomic binds to current run + revision and flips record to IN_REVIEW';
+  raise notice 'CHECK 5 PASSED: create_review_packet_secure_atomic binds recipient, current run, and revision and flips record to IN_REVIEW';
 
   -- 6) Revoking an older packet cannot reopen a record while another active packet exists.
-  insert into review_packets_v2(record_id, run_id, public_id, snapshot, snapshot_sha256, bearer_token_hash, expires_at, criteria_revision)
-  values (v_record_id, v_job_id, 'REVIEW-TEST01-OVERLAP', jsonb_build_object('recordId', v_record_id, 'run', jsonb_build_object('runId', v_job_id), 'revision', 1), 'snapHashOverlap', 'bearerHashOverlap', now() + interval '48 hours', 1)
+  insert into review_packets_v2(
+    record_id, run_id, public_id, snapshot, snapshot_sha256, bearer_token_hash,
+    access_code_hash, intended_reviewer_email, expires_at, criteria_revision
+  )
+  values (
+    v_record_id, v_job_id, 'REVIEW-TEST01-OVERLAP',
+    jsonb_build_object(
+      'recordId', v_record_id,
+      'run', jsonb_build_object('runId', v_job_id),
+      'revision', 1,
+      'intendedReviewerEmail', 'reviewer@example.test'
+    ),
+    'snapHashOverlap', 'bearerHashOverlap', 'accessCodeHashOverlap',
+    'reviewer@example.test', now() + interval '48 hours', 1
+  )
   returning id into v_overlapping_packet_id;
   perform manage_review_packet_atomic(v_packet_id, v_owner, 'revoke', 'actorHash1', now());
   select * into v_record from transaction_records where id = v_record_id;
@@ -137,19 +156,36 @@ begin
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'READY_FOR_REVIEW', 'revoking the final active packet should restore READY_FOR_REVIEW';
 
-  v_packet_id := create_review_packet_atomic(
+  v_packet_id := create_review_packet_secure_atomic(
     v_record_id, v_job_id, 'REVIEW-TEST01-REPLACEMENT',
-    jsonb_build_object('recordId', v_record_id, 'run', jsonb_build_object('runId', v_job_id), 'revision', 1),
-    'snapHash1b', 'bearerHash1b', now() + interval '72 hours', 'actorHash1', 1
+    jsonb_build_object(
+      'recordId', v_record_id,
+      'run', jsonb_build_object('runId', v_job_id),
+      'revision', 1,
+      'intendedReviewerEmail', 'reviewer@example.test'
+    ),
+    'snapHash1b', 'bearerHash1b', 'accessCodeHash1b', 'reviewer@example.test',
+    now() + interval '72 hours', 'actorHash1', 1
   );
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'IN_REVIEW', 'replacement packet should put the record back IN_REVIEW';
-  perform redeem_review_packet_atomic(v_packet_id,'reviewSessionHash',now()+interval '24 hours','reviewerActor','snapHash1b',now());
+  perform redeem_review_packet_secure_atomic(
+    v_packet_id, 'bearerHash1b', 'accessCodeHash1b', 'reviewer@example.test',
+    'reviewSessionHash', now() + interval '1 hour', 'reviewerActor', 'snapHash1b', now()
+  );
   assert exists(select 1 from review_sessions_v2 where packet_id=v_packet_id and session_hash='reviewSessionHash'), 'review redemption should create the session';
   assert exists(select 1 from transaction_audit_events where record_id=v_record_id and event_type='REVIEW_LINK_REDEEMED'), 'review redemption should append its audit event in the same transaction';
   raise notice 'CHECK 6 PASSED: review replacement and redemption preserve state and append their audit record atomically';
 
-  -- 7) Decision, record state, audit event, and durable owner notification commit atomically.
+  -- 7) Recipient identity, decision, record state, audit event, and durable
+  -- owner notification commit atomically.
+  begin
+    perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Wrong Reviewer', 'attacker@example.test', 'looks good', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHashWrong', 'IN_APP', 'receiptSessionHashWrong', now() + interval '30 days');
+    raise exception 'CHECK 7 FAILED: a non-recipient reviewer email must be rejected';
+  exception when others then
+    if sqlerrm like 'CHECK 7 FAILED%' then raise; end if;
+    assert (select decision is null from review_packets_v2 where id = v_packet_id), 'rejected non-recipient decision must not mutate the packet';
+  end;
   perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'looks good', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash1', 'IN_APP', 'receiptSessionHash1', now() + interval '30 days');
   select * into v_record from transaction_records where id = v_record_id;
   assert v_record.status = 'APPROVED', 'record should be APPROVED after decision';
@@ -194,10 +230,16 @@ begin
 
   -- 8) A stale run cannot be turned into a NEW review after the record has moved past READY_FOR_REVIEW.
   begin
-    perform create_review_packet_atomic(
+    perform create_review_packet_secure_atomic(
       v_record_id, v_job_id, 'REVIEW-TEST02',
-      jsonb_build_object('recordId', v_record_id, 'run', jsonb_build_object('runId', v_job_id), 'revision', 1),
-      'snapHash2', 'bearerHash2', now() + interval '72 hours', 'actorHash1', 1
+      jsonb_build_object(
+        'recordId', v_record_id,
+        'run', jsonb_build_object('runId', v_job_id),
+        'revision', 1,
+        'intendedReviewerEmail', 'reviewer@example.test'
+      ),
+      'snapHash2', 'bearerHash2', 'accessCodeHash2', 'reviewer@example.test',
+      now() + interval '72 hours', 'actorHash1', 1
     );
     raise exception 'CHECK 8 FAILED: expected stale-run guard to reject reviewing an APPROVED record''s old run';
   exception when others then

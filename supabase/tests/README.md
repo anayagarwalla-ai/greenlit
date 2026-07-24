@@ -60,11 +60,13 @@ mocks):
   transitioning a record to `READY_FOR_REVIEW` and clearing `active_job_id`,
   rejecting replayed leases, binding completion to private stored evidence,
   and allowing same-lease idempotent (`DUPLICATE`) re-completion.
-- `create_review_packet_atomic` binding to the record's current `last_run_id`
-  and `criteria_revision`, and refusing to create a new packet once the
-  record has moved past `READY_FOR_REVIEW` (stale-run protection).
-- review-link redemption and review decisions committing their audit events in
-  the same transaction and refusing a second decision.
+- `create_review_packet_secure_atomic` binding a recipient to the record's
+  current `last_run_id` and `criteria_revision`, and refusing to create a new
+  packet once the record has moved past `READY_FOR_REVIEW` (stale-run
+  protection).
+- one-time, recipient-bound review-link redemption and review decisions
+  committing their audit events in the same transaction, rejecting a
+  mismatched reviewer email, and refusing a second decision.
 - invoice-plan writes, Stripe connection history, test-mode draft creation,
   and out-of-order webhook protection.
 - `retry_verification_job_atomic` succeeding when nothing has changed, and
