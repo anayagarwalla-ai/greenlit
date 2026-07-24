@@ -19,7 +19,7 @@ test("real imports start blank and criteria navigation stays locked", async ({ p
 test("the import flow explains the next action and the sample completes non-legal fields", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.getByText(/Add the SOW and milestone details. Sign in only when you are ready/i)).toBeVisible();
-  await expect(page.getByText("Import details")).toBeVisible();
+  await expect(page.locator(".side-details")).toHaveCount(1);
   await expect(page.getByText("Paid services")).toBeHidden();
   await page.getByRole("button", { name: "Use the synthetic sample" }).click();
   await expect(page.getByLabel("Paste SOW text")).toHaveValue(/STATEMENT OF WORK/);

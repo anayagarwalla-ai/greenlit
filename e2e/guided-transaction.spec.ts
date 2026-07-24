@@ -7,7 +7,7 @@ test("guided transaction reaches a client decision and printable receipt", async
     if (message.type() === "error") runtimeErrors.push(message.text());
   });
   await page.goto("/workspace");
-  await page.getByRole("button", { name: /Launch the reliable guided demo/ }).click();
+  await page.getByRole("button", { name: /Open the guided demo/ }).click();
   await page.getByRole("button", { name: /verify sample/i }).click();
   await expect(page.getByText(/automated check needs work/i)).toBeVisible();
   await page.getByRole("button", { name: "Verify fixed build" }).click();
