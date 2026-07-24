@@ -52,6 +52,11 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const owner = await getOwnerIdentity();
+  if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
+  if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+  const intakeQuota = await consumeRateLimit(request, "verification-run-request-hour", 20, 3_600, owner.userId, { failClosed: true });
+  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota.retryAfterSeconds);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "The verified run request is incomplete.", issues: parsed.error.issues }, { status: 422, headers: noStoreJsonHeaders() });
 
@@ -63,9 +68,6 @@ export async function POST(request: Request) {
     const database = requireSupabaseAdmin();
     const actorHash = requestActorHash(request);
     const body = parsed.data;
-    const owner = await getOwnerIdentity();
-    if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
-    if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const redispatchQueuedJob = async (jobId: string, retainedRecordId: string) => {
       try {
         await dispatchRunnerJob(runnerUrl, secret, jobId);
@@ -196,7 +198,8 @@ export async function POST(request: Request) {
     await logProductEvent({ eventType: "VERIFICATION_QUEUED", ownerUserId: owner.userId, recordId: durableRecordId, properties: { mode: customTarget ? "custom" : "fixture", checkCount: checks.length, criteriaCount: body.criteria.length, status: "QUEUED" } });
     return NextResponse.json({ runId: jobId, recordId: durableRecordId, recordPublicId, status: "QUEUED" }, { status: 202, headers: { ...noStoreJsonHeaders(), Location: `/api/runs/${jobId}` } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The verification run could not be created." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Verification run creation failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "The verification run could not be created. Your retained project is unchanged; retry shortly." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }
 

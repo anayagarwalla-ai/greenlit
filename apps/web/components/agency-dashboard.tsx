@@ -18,6 +18,7 @@ type Correction = { record_id: string; field_name: string; corrected_value: stri
 type RecordItem = { id: string; public_id: string; agency_name: string; client_name: string; project_name: string; milestone_title: string; amount_minor: number; currency: string; target_origin: string; revision: number; status: string; updated_at: string; latestRun?: Run | null; latestReview?: Review | null; latestInvoice?: Invoice | null; latestInvoiceJob?: InvoiceJob | null; invoicePlan?: { auto_send: boolean; billing_email: string; days_until_due: number } | null; corrections?: Correction[] | null };
 type Notice = { id: string; record_id?: string | null; event_type: string; title: string; body: string; read_at?: string | null; created_at: string };
 type DashboardPayload = { user: { id: string; email?: string }; stripe: { configured: boolean; connection: null | { accountId: string; livemode: boolean; status: string; lastError?: string | null } }; records: RecordItem[]; notifications: Notice[]; error?: string };
+type ShareGrant = { url: string; accessCode: string; recipientEmail: string };
 
 const money = (amount: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
 
@@ -38,8 +39,8 @@ export function AgencyDashboard() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState("");
-  const [reviewLinks, setReviewLinks] = useState<Record<string, string>>({});
-  const [receiptLinks, setReceiptLinks] = useState<Record<string, string>>({});
+  const [reviewLinks, setReviewLinks] = useState<Record<string, ShareGrant>>({});
+  const [receiptLinks, setReceiptLinks] = useState<Record<string, ShareGrant>>({});
   const [invoiceRecord, setInvoiceRecord] = useState<RecordItem | null>(null);
   const [renderedAt] = useState(() => Date.now());
   const invoiceDialogRef = useRef<HTMLElement>(null);
@@ -91,13 +92,15 @@ export function AgencyDashboard() {
 
   const createReview = async (record: RecordItem) => {
     if (!record.latestRun) return;
+    const reviewerEmail = window.prompt("Client business email for this one-time review", record.invoicePlan?.billing_email ?? record.latestReview?.reviewer_email ?? "")?.trim();
+    if (!reviewerEmail) return;
     setBusy(`review:${record.id}`);
     setError("");
     try {
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id }) });
+      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id, reviewerEmail }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "A new review link could not be created.");
-      setReviewLinks((current) => ({ ...current, [record.id]: payload.reviewUrl }));
+      setReviewLinks((current) => ({ ...current, [record.id]: { url: payload.reviewUrl, accessCode: payload.accessCode, recipientEmail: payload.reviewerEmail } }));
       try { await navigator.clipboard.writeText(payload.reviewUrl); setCopied(record.id); } catch { setCopied(""); setError("Review created, but clipboard access is unavailable. Copy the visible link manually."); }
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "A new review link could not be created."); }
@@ -118,12 +121,14 @@ export function AgencyDashboard() {
 
   const createReceiptLink = async (record: RecordItem) => {
     if (!record.latestReview?.decision) return;
+    const recipientEmail = window.prompt("Business email authorized to open this one-time receipt", record.latestReview.reviewer_email ?? record.invoicePlan?.billing_email ?? "")?.trim();
+    if (!recipientEmail) return;
     setBusy(`receipt:${record.id}`); setError("");
     try {
-      const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST" });
+      const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmail }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The authorized receipt link could not be created.");
-      setReceiptLinks((current) => ({ ...current, [record.id]: payload.receiptUrl }));
+      setReceiptLinks((current) => ({ ...current, [record.id]: { url: payload.receiptUrl, accessCode: payload.accessCode, recipientEmail: payload.recipientEmail } }));
       try { await navigator.clipboard.writeText(payload.receiptUrl); setCopied(`receipt:${record.id}`); }
       catch { setCopied(""); setError("Receipt link created, but clipboard access is unavailable. Select and copy the visible link manually."); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The authorized receipt link could not be created."); }
@@ -211,8 +216,16 @@ export function AgencyDashboard() {
               {review?.decision === "APPROVED" && <button className="text-action" disabled={busy === `receipt:${record.id}`} onClick={() => void createReceiptLink(record)}><Clipboard size={12} /> {busy === `receipt:${record.id}` ? "Creating…" : "Create client receipt link"}</button>}
               {record.status === "APPROVED" && !noCharge && !record.latestInvoice && record.latestInvoiceJob?.status !== "PROCESSING" && record.latestInvoiceJob?.status !== "PENDING" && <button className="button button--ink button--small" onClick={(event) => { invoiceTriggerRef.current = event.currentTarget; setInvoiceRecord(record); }}><ReceiptText size={13} /> {record.latestInvoiceJob?.status === "FAILED" ? "Review & retry invoice" : data.stripe.connection?.livemode ? "Send invoice" : "Create test invoice"}</button>}
             </div>
-              {reviewLinks[record.id] && <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={reviewLinks[record.id]} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(reviewLinks[record.id]!); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy"}</button><a href={reviewLinks[record.id]} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a></div>}
-              {receiptLinks[record.id] && <div className="dashboard-review-link"><input aria-label={`Client receipt link for ${record.milestone_title}`} readOnly value={receiptLinks[record.id]} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(receiptLinks[record.id]!); setCopied(`receipt:${record.id}`); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === `receipt:${record.id}` ? <Check size={12} /> : <Clipboard size={12} />} {copied === `receipt:${record.id}` ? "Copied" : "Copy"}</button><a href={receiptLinks[record.id]} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a></div>}
+              {(() => {
+                const sharedReview = reviewLinks[record.id];
+                if (!sharedReview) return null;
+                return <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={sharedReview.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReview.url); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy link"}</button><a href={sharedReview.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReview.accessCode}</strong><small>For {sharedReview.recipientEmail}. Share the code separately from the link.</small></div>;
+              })()}
+              {(() => {
+                const sharedReceipt = receiptLinks[record.id];
+                if (!sharedReceipt) return null;
+                return <div className="dashboard-review-link"><input aria-label={`Client receipt link for ${record.milestone_title}`} readOnly value={sharedReceipt.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReceipt.url); setCopied(`receipt:${record.id}`); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === `receipt:${record.id}` ? <Check size={12} /> : <Clipboard size={12} />} {copied === `receipt:${record.id}` ? "Copied" : "Copy link"}</button><a href={sharedReceipt.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReceipt.accessCode}</strong><small>For {sharedReceipt.recipientEmail}. Share the code separately from the link.</small></div>;
+              })()}
           </article>;
         })}</section>}
       </div>

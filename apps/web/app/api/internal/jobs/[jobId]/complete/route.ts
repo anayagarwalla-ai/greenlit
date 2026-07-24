@@ -4,6 +4,7 @@ import { criterionResultSchema } from "@greenlit/contracts";
 import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
+import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 const artifactSchema = z.object({
   criterionId: z.string().min(1).max(80),
@@ -28,10 +29,12 @@ const completionSchema = z.object({
 });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
-  const body = await request.text();
+  let body: string;
+  try { body = await readLimitedBody(request, 160_000); }
+  catch (error) { if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes); throw error; }
   const secret = process.env.RUNNER_HMAC_SECRET;
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
-  const parsed = completionSchema.safeParse(JSON.parse(body));
+  const parsed = completionSchema.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
   if (!parsed.success) return NextResponse.json({ error: "Invalid completion payload", issues: parsed.error.issues }, { status: 422, headers: noStoreJsonHeaders() });
 
   const { jobId } = await context.params;
@@ -63,6 +66,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     if (completionError) throw new Error(completionError.message);
     return NextResponse.json({ jobId, accepted: true, status: outcome === "DUPLICATE" ? "COMPLETED" : outcome, manifestSha256, duplicate: outcome === "DUPLICATE" }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Completion failed." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Runner completion callback failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "Completion failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

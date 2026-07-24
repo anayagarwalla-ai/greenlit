@@ -45,7 +45,8 @@ export async function GET() {
       notifications: notifications ?? [],
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The agency dashboard is unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Agency dashboard load failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "The agency dashboard is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }
 
@@ -55,6 +56,6 @@ export async function PATCH() {
   if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
   const database = requireSupabaseAdmin();
   const { error } = await database.from("operator_notifications").update({ read_at: new Date().toISOString() }).eq("owner_user_id", user.id).is("read_at", null);
-  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (error) return NextResponse.json({ error: "Notifications could not be updated." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ updated: true }, { headers: noStoreJsonHeaders() });
 }

@@ -23,6 +23,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ packe
     return NextResponse.json(data, { headers: noStoreJsonHeaders() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The review could not be updated.";
-    return NextResponse.json({ error: message }, { status: /owner mismatch/i.test(message) ? 403 : /final|revoked|hard limit|unknown review|not found/i.test(message) ? 409 : 503, headers: noStoreJsonHeaders() });
+    console.error("Review management failed", message);
+    return NextResponse.json({ error: /owner mismatch/i.test(message) ? "This account cannot manage that review." : /final|revoked|hard limit|unknown review|not found/i.test(message) ? "This review can no longer be changed." : "The review could not be updated right now." }, { status: /owner mismatch/i.test(message) ? 403 : /final|revoked|hard limit|unknown review|not found/i.test(message) ? 409 : 503, headers: noStoreJsonHeaders() });
   }
 }

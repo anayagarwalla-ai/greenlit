@@ -20,7 +20,7 @@ export async function GET(_request: Request, context: { params: Promise<{ record
   const found = await contextFor(recordId);
   if ("error" in found) return NextResponse.json({ error: found.error }, { status: found.status ?? 401, headers: noStoreJsonHeaders() });
   const { data, error } = await found.database.from("record_invoice_plans").select("billing_name,billing_email,days_until_due,memo,auto_send,stripe_customer_id,amount_minor,currency,criteria_revision,plan_sha256,updated_at").eq("record_id", recordId).maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (error) return NextResponse.json({ error: "Invoice details are temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ plan: data ? { billingName: data.billing_name, billingEmail: data.billing_email, daysUntilDue: data.days_until_due, memo: data.memo, autoSend: data.auto_send, stripeCustomerId: data.stripe_customer_id, amountMinor: data.amount_minor, currency: data.currency, criteriaRevision: data.criteria_revision, planSha256: data.plan_sha256, updatedAt: data.updated_at } : null }, { headers: noStoreJsonHeaders() });
 }
 
@@ -40,8 +40,8 @@ export async function POST(request: Request, context: { params: Promise<{ record
       const access = await getStripeAccessForOwner(found.user.id);
       const customer = await retrieveStripeCustomer(access.accessToken, parsed.data.stripeCustomerId);
       if (customer.email?.toLowerCase() !== parsed.data.billingEmail.toLowerCase()) return NextResponse.json({ error: "The selected Stripe customer does not match this billing email. Check the customer again." }, { status: 409, headers: noStoreJsonHeaders() });
-    } catch (error) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : "The Stripe customer could not be confirmed." }, { status: 503, headers: noStoreJsonHeaders() });
+    } catch {
+      return NextResponse.json({ error: "The Stripe customer could not be confirmed right now." }, { status: 503, headers: noStoreJsonHeaders() });
     }
   }
   const plan = freezeInvoicePlan(parsed.data, found.record);
@@ -51,7 +51,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
     p_memo: plan.memo, p_auto_send: plan.autoSend, p_amount_minor: plan.amountMinor, p_currency: plan.currency,
     p_criteria_revision: plan.criteriaRevision, p_plan_sha256: plan.planSha256, p_actor_hash: requestActorHash(request),
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (error) return NextResponse.json({ error: "Invoice details could not be saved." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ plan }, { headers: noStoreJsonHeaders() });
 }
 
@@ -61,6 +61,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ reco
   if ("error" in found) return NextResponse.json({ error: found.error }, { status: found.status ?? 401, headers: noStoreJsonHeaders() });
   if (found.record.status === "IN_REVIEW") return NextResponse.json({ error: "Invoice details are frozen while the client review is active." }, { status: 409, headers: noStoreJsonHeaders() });
   const { error } = await found.database.rpc("remove_invoice_plan_atomic", { p_record_id: recordId, p_owner_user_id: found.user.id, p_actor_hash: requestActorHash(request) });
-  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (error) return NextResponse.json({ error: "Invoice details could not be removed." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ removed: true }, { headers: noStoreJsonHeaders() });
 }

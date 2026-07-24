@@ -42,7 +42,7 @@ export default function PrivacyPage() {
         <h2>Retention</h2>
         <div className="legal-table">
           <div><strong>Original SOW content</strong><span>Not retained server-side; unfinished extracted text remains in local browser storage until New import or site-data deletion</span></div>
-          <div><strong>Review bearer token</strong><span>72 hours by default; an agency may extend it, up to 14 days from creation</span></div>
+          <div><strong>Recipient-bound review invitation</strong><span>One-time link plus a separately shared code; 72 hours by default, with a 14-day hard limit</span></div>
           <div><strong>Reviewer receipt session</strong><span>30 days after a final decision; the original review bearer link still expires</span></div>
           <div><strong>Screenshot evidence</strong><span>90 days unless a legal hold applies</span></div>
           <div><strong>Approval and audit record</strong><span>Four years by default, configurable when a different legal or contractual period applies</span></div>

@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
   if (!session && !receiptSession && !user) return NextResponse.json({ error: "Open the secure review link or sign in as the milestone owner." }, { status: 401, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();
-    const { data: packet, error } = await database.from("review_packets_v2").select("id, record_id, snapshot, snapshot_sha256, expires_at, revoked_at, decision, reviewer_name, reviewer_email, reviewer_note, decided_at, receipt_sha256, decision_event_hash").eq("public_id", packetId).single();
+    const { data: packet, error } = await database.from("review_packets_v2").select("id, record_id, snapshot, snapshot_sha256, intended_reviewer_email, expires_at, revoked_at, decision, reviewer_name, reviewer_email, reviewer_note, decided_at, receipt_sha256, decision_event_hash").eq("public_id", packetId).single();
     if (error || !packet) return NextResponse.json({ error: "The review record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
     assertReviewSnapshotIntegrity(packet.snapshot, packet.snapshot_sha256);
     const reviewerAuthorized = await reviewSessionAuthorized(database, packet.id, session);
@@ -36,8 +36,9 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
     const auditHead = auditResult.data;
     const invoice = invoiceResult.data;
     const invoiceJob = invoiceJobResult.data;
-    return NextResponse.json({ packetId, viewerRole: ownerRecord ? "OWNER" : "REVIEWER", snapshot: await hydrateReviewEvidence(database, packet.snapshot), snapshotSha256: packet.snapshot_sha256, expiresAt: packet.expires_at, decision: packet.decision, reviewerName: packet.reviewer_name, reviewerEmail: packet.reviewer_email, reviewerNote: packet.reviewer_note, decidedAt: packet.decided_at, receiptSha256: packet.receipt_sha256, invoice, invoiceJob: invoiceJob ? { status: invoiceJob.status, lastError: ownerRecord ? invoiceJob.last_error : null, updatedAt: invoiceJob.updated_at } : null, corrections: correctionResult.data ?? [], decisionEvent, auditHead: auditHead ? { sequence: auditHead.sequence, eventHash: auditHead.event_hash, occurredAt: auditHead.occurred_at } : null }, { headers: noStoreJsonHeaders() });
+    return NextResponse.json({ packetId, viewerRole: ownerRecord ? "OWNER" : "REVIEWER", snapshot: await hydrateReviewEvidence(database, packet.snapshot), snapshotSha256: packet.snapshot_sha256, intendedReviewerEmail: packet.intended_reviewer_email, expiresAt: packet.expires_at, decision: packet.decision, reviewerName: packet.reviewer_name, reviewerEmail: packet.reviewer_email, reviewerNote: packet.reviewer_note, decidedAt: packet.decided_at, receiptSha256: packet.receipt_sha256, invoice, invoiceJob: invoiceJob ? { status: invoiceJob.status, lastError: ownerRecord ? invoiceJob.last_error : null, updatedAt: invoiceJob.updated_at } : null, corrections: correctionResult.data ?? [], decisionEvent, auditHead: auditHead ? { sequence: auditHead.sequence, eventHash: auditHead.event_hash, occurredAt: auditHead.occurred_at } : null }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The review record is unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Review record lookup failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "The review record is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

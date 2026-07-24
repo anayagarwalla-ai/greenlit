@@ -9,7 +9,7 @@ describe("isUnsafeAddress", () => {
   });
 
   it("blocks loopback, unique-local, and link-local IPv6 ranges", () => {
-    for (const address of ["::1", "::", "fc00::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:7f00:1", "0:0:0:0:0:ffff:0a00:1"]) {
+    for (const address of ["::1", "::", "fc00::1", "fd00::1", "fe80::1", "ff02::1", "2001:db8::1", "2001::1", "2002:7f00:1::", "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:7f00:1", "0:0:0:0:0:ffff:0a00:1"]) {
       expect(isUnsafeAddress(address), address).toBe(true);
     }
   });

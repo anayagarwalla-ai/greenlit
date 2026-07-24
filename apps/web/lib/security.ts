@@ -1,36 +1,17 @@
 import { isIP } from "node:net";
+import ipaddr from "ipaddr.js";
 
 const blockedHostnames = new Set(["localhost", "localhost.localdomain", "metadata.google.internal"]);
 const blockedSuffixes = [".local", ".internal", ".localhost", ".home", ".lan"];
 
-function ipv4ToNumber(ip: string): number {
-  return ip.split(".").reduce((value, part) => (value << 8) + Number(part), 0) >>> 0;
-}
-
-function inCidr(ip: string, network: string, bits: number): boolean {
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-  return (ipv4ToNumber(ip) & mask) === (ipv4ToNumber(network) & mask);
-}
-
 export function isPrivateAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    return [
-      ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
-      ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
-      ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
-      ["224.0.0.0", 4], ["240.0.0.0", 4],
-    ].some(([network, bits]) => inCidr(address, String(network), Number(bits)));
-  }
-  if (isIP(address) === 6) {
-    const normalized = address.toLowerCase();
-    // Reject the entire IPv4-mapped IPv6 space. Checking only the embedded
-    // IPv4 value is easy to bypass with alternate IPv6 spellings, while a
-    // staging hostname never needs a mapped address for browser verification.
-    const ipv4Mapped = normalized.startsWith("::ffff:")
-      || /^0*:0*:0*:0*:0*:ffff:/i.test(normalized);
-    return ipv4Mapped || normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("2001:db8");
-  }
-  return true;
+  try {
+    const parsed = ipaddr.parse(address.trim().replace(/^\[|\]$/g, ""));
+    // `unicast` is the only range suitable for a public staging target.
+    // This rejects private, loopback, link-local, multicast, unspecified,
+    // documentation, benchmark, reserved, IPv4-mapped, 6to4, and Teredo space.
+    return parsed.range() !== "unicast";
+  } catch { return true; }
 }
 
 export function validateStagingUrl(input: string): { ok: true; url: URL } | { ok: false; reason: string } {

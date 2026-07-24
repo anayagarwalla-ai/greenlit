@@ -10,7 +10,11 @@ import { logProductEvent } from "@/lib/operations";
 import { assertFrozenInvoicePlan } from "@/lib/invoice-plan";
 import { validateVerificationManifest } from "@/lib/verification-manifest";
 
-const schema = z.object({ recordId: z.string().uuid(), runId: z.string().uuid() });
+const schema = z.object({
+  recordId: z.string().uuid(),
+  runId: z.string().uuid(),
+  reviewerEmail: z.string().trim().email().max(320),
+});
 
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
@@ -60,6 +64,8 @@ export async function POST(request: Request) {
 
     const packetPublicId = publicRecordId("REVIEW");
     const token = randomToken();
+    const accessCode = sha256(randomToken()).slice(0, 12).toUpperCase();
+    const intendedReviewerEmail = parsed.data.reviewerEmail.trim().toLowerCase();
     const expiresAt = new Date(Date.now() + REVIEW_EXPIRY_HOURS * 3_600_000).toISOString();
     const snapshot = {
       packetPublicId,
@@ -78,17 +84,41 @@ export async function POST(request: Request) {
       run: { runId: run.id, buildLabel: run.build_label, buildUrl: run.build_url, results, artifacts: run.artifacts, browserVersion: run.browser_version, runnerVersion: run.runner_version, manifestSha256: run.manifest_sha256, startedAt: run.started_at, completedAt: run.completed_at },
       ...(invoicePlan ? { invoicePlan } : {}),
       ...(invoiceDeliveryMode ? { invoiceDeliveryMode } : {}),
+      intendedReviewerEmail,
       expiresAt,
     };
     const snapshotSha256 = sha256(canonicalJson(snapshot));
     assertReviewSnapshotIntegrity(snapshot, snapshotSha256);
-    const { error } = await database.rpc("create_review_packet_atomic", { p_record_id: record.id, p_run_id: run.id, p_public_id: packetPublicId, p_snapshot: snapshot, p_snapshot_sha256: snapshotSha256, p_bearer_token_hash: sha256(token), p_expires_at: expiresAt, p_actor_hash: requestActorHash(request), p_criteria_revision: record.criteria_revision });
+    const { error } = await database.rpc("create_review_packet_secure_atomic", {
+      p_record_id: record.id,
+      p_run_id: run.id,
+      p_public_id: packetPublicId,
+      p_snapshot: snapshot,
+      p_snapshot_sha256: snapshotSha256,
+      p_bearer_token_hash: sha256(token),
+      p_access_code_hash: sha256(accessCode),
+      p_intended_reviewer_email: intendedReviewerEmail,
+      p_expires_at: expiresAt,
+      p_actor_hash: requestActorHash(request),
+      p_criteria_revision: record.criteria_revision,
+    });
     if (error) throw new Error(`Review packet could not be recorded: ${error.message}`);
     await logProductEvent({ eventType: "REVIEW_LINK_CREATED", ownerUserId: owner.userId, recordId: record.id, properties: { criteriaCount: record.confirmed_criteria.length, status: "ACTIVE" } });
     const origin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
-    return NextResponse.json({ packetId: packetPublicId, reviewUrl: `${origin}/review/${packetPublicId}#t=${token}`, expiresAt, snapshotSha256 }, { status: 201, headers: noStoreJsonHeaders() });
+    return NextResponse.json({
+      packetId: packetPublicId,
+      reviewUrl: `${origin}/review/${packetPublicId}#t=${token}`,
+      accessCode,
+      reviewerEmail: intendedReviewerEmail,
+      expiresAt,
+      snapshotSha256,
+    }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The client review could not be created.";
-    return NextResponse.json({ error: message }, { status: /active review|current reviewable|stale|snapshot/i.test(message) ? 409 : 503, headers: noStoreJsonHeaders() });
+    const message = error instanceof Error ? error.message : "";
+    if (/active review|current reviewable|stale|snapshot|criteria revision/i.test(message)) {
+      return NextResponse.json({ error: "The current run cannot be shared, or an active review already exists. Refresh the project and try again." }, { status: 409, headers: noStoreJsonHeaders() });
+    }
+    console.error("Review packet creation failed", message || "unknown");
+    return NextResponse.json({ error: "The client review could not be created. Try again shortly." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

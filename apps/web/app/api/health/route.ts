@@ -12,6 +12,18 @@ export const maxDuration = 30;
 
 const WEB_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || process.env.NEXT_PUBLIC_BUILD_ID || "development";
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const deep = url.searchParams.get("deep") === "1";
+  if (!deep) {
+    return NextResponse.json(
+      { ok: true, service: "greenlit-web" },
+      { headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300", "X-Robots-Tag": "noindex, nofollow, noarchive" } },
+    );
+  }
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
+  }
   const checkedAt = new Date().toISOString();
   const database = getSupabaseAdmin();
   const runnerUrl = process.env.RUNNER_URL;
@@ -52,20 +64,15 @@ export async function GET(request: Request) {
   } else {
     try {
       const response = await fetch(`${runnerUrl.replace(/\/$/, "")}/health`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
-      const runner = await response.json() as { ok?: boolean; version?: string; queueConfigured?: boolean; browserConfigured?: boolean; webCallbackConfigured?: boolean };
-      checks.runner = { ok: response.ok && runner.ok === true && runner.version === EXPECTED_RUNNER_VERSION && runner.queueConfigured === true && runner.browserConfigured === true && runner.webCallbackConfigured === true, detail: runner.version || "unavailable" };
+      const runner = await response.json() as { ok?: boolean };
+      checks.runner = { ok: response.ok && runner.ok === true, detail: response.ok && runner.ok === true ? "reachable" : "unavailable" };
     } catch {
       checks.runner = { ok: false, detail: "unreachable" };
     }
   }
 
-  const url = new URL(request.url);
-  if (url.searchParams.get("deep") === "1") {
-    const cronSecret = process.env.CRON_SECRET;
+  {
     const runnerSecret = process.env.RUNNER_HMAC_SECRET;
-    if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
-    }
     if (!runnerUrl || !runnerSecret) {
       checks.runnerBrowserLaunch = { ok: false, detail: "not configured" };
     } else {

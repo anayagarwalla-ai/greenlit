@@ -3,12 +3,15 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { logOperationalEvent } from "@/lib/operations";
 import { noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
 import { getStripeAccessForOwner, retrieveStripeInvoice, verifyStripeWebhook } from "@/lib/stripe-api";
+import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 type StripeEvent = { id: string; type: string; account?: string; livemode: boolean; created: number; data?: { object?: Record<string, unknown> } };
 const invoiceEvents = new Set(["invoice.created", "invoice.finalized", "invoice.sent", "invoice.updated", "invoice.paid", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible"]);
 
 export async function POST(request: Request) {
-  const rawBody = await request.text();
+  let rawBody: string;
+  try { rawBody = await readLimitedBody(request, 512_000); }
+  catch (error) { if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes); throw error; }
   if (!verifyStripeWebhook(rawBody, request.headers.get("stripe-signature"))) return NextResponse.json({ error: "Invalid Stripe signature." }, { status: 400, headers: noStoreJsonHeaders() });
   let event: StripeEvent;
   try { event = JSON.parse(rawBody) as StripeEvent; }

@@ -149,6 +149,8 @@ export async function POST(request: Request) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
   if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
+  const intakeQuota = await consumeRateLimit(request, "sow-analysis-intake-hour", 20, 3_600, user.id, { failClosed: true });
+  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota.retryAfterSeconds);
   let input: AnalysisInput;
   try {
     input = await readInput(request, geminiConfiguration.paidService);
@@ -175,9 +177,6 @@ export async function POST(request: Request) {
     await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { ownerUserId: user.id, error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
     return NextResponse.json({ error: "Your consent record could not be retained, so the SOW was not sent to Gemini. Try again later.", code: "CONSENT_RECORD_FAILED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
-  // Quota is only consumed once the request body is fully read and validated
-  // above, so a malformed or oversized request never costs the account or
-  // the shared daily capacity pool.
   const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);

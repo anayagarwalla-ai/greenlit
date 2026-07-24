@@ -35,10 +35,11 @@ export function publicRecordId(prefix: string): string {
 export function requestActorHash(request: Request): string {
   const secret = process.env.RECORD_HASH_SECRET ?? process.env.RUNNER_HMAC_SECRET;
   if (!secret) throw new Error("Record attribution secret is not configured.");
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const country = request.headers.get("x-vercel-ip-country") ?? "unknown";
-  const agent = request.headers.get("user-agent") ?? "unknown";
-  return createHmac("sha256", secret).update(`${forwarded}|${country}|${agent}`).digest("hex");
+  // Rate-limit and audit attribution must not change when an attacker merely
+  // changes User-Agent or country headers. Vercel replaces x-forwarded-for at
+  // the edge; only the first address represents the connecting client.
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return createHmac("sha256", secret).update(`ip:${forwarded}`).digest("hex");
 }
 
 export async function appendAuditEvent(input: {

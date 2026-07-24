@@ -158,7 +158,7 @@ test("an expired retained run returns to a retryable setup instead of an endless
   await expect(page.getByText("Verification in progress")).toHaveCount(0);
 });
 
-test("drafts are isolated per signed-in account and never leak across accounts on the same browser", async ({ page }) => {
+test("draft metadata is account-isolated and signed-in SOW text is not durably stored", async ({ page }) => {
   await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-a", email: "agency-a@example.test" } }) }));
   await page.goto("/workspace");
   await page.getByLabel("Paste SOW text").fill(source);
@@ -174,7 +174,7 @@ test("drafts are isolated per signed-in account and never leak across accounts o
   await page.unroute("**/api/account/session");
   await page.route("**/api/account/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "user-a", email: "agency-a@example.test" } }) }));
   await page.goto("/workspace");
-  await expect(page.getByLabel("Paste SOW text")).toHaveValue(source);
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue("");
   await expect(page.getByLabel("Agency or vendor")).toHaveValue("Agency A Confidential Co");
 });
 

@@ -28,17 +28,19 @@ export async function GET(_request: Request, context: { params: Promise<{ record
     database.from("verification_jobs_v2").select("id, status, attempt, target_origin, build_url, build_label, checks, results, artifacts, browser_version, runner_version, manifest_sha256, last_error, started_at, completed_at, created_at").eq("record_id", recordId).order("created_at", { ascending: false }).limit(20),
     database.from("review_packets_v2").select("public_id, decision, reviewer_name, reviewer_email, reviewer_note, expires_at, revoked_at, decided_at, created_at").eq("record_id", recordId).order("created_at", { ascending: false }).limit(20),
   ]);
-  if (runError || reviewError) return NextResponse.json({ error: runError?.message ?? reviewError?.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (runError || reviewError) return NextResponse.json({ error: "This milestone’s retained history is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   const hydratedRuns = await Promise.all((runs ?? []).map(async (run) => ({
     ...run,
     artifacts: await Promise.all(((run.artifacts ?? []) as Array<Record<string, unknown>>).map(async (artifact) => {
       const storagePath = typeof artifact.storagePath === "string" ? artifact.storagePath : null;
       if (!storagePath) return artifact;
-      const { data } = await database.storage.from("evidence").createSignedUrl(storagePath, 300);
+      const { data } = await database.storage.from("evidence").createSignedUrl(storagePath, 60);
       return { ...artifact, url: data?.signedUrl ?? null };
     })),
   })));
-  return NextResponse.json({ record: owned.record, runs: hydratedRuns, reviews: reviews ?? [] }, { headers: noStoreJsonHeaders() });
+  const { owner_token_hash: _ownerTokenHash, ...safeRecord } = owned.record as typeof owned.record & { owner_token_hash?: string | null };
+  void _ownerTokenHash;
+  return NextResponse.json({ record: safeRecord, runs: hydratedRuns, reviews: reviews ?? [] }, { headers: noStoreJsonHeaders() });
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ recordId: string }> }) {
@@ -49,6 +51,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ recor
   if (!owned.user) return NextResponse.json({ error: "Sign in with an invited account." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!owned.record || !owned.database) return NextResponse.json({ error: "This milestone was not found in your account." }, { status: 404, headers: noStoreJsonHeaders() });
   const { error } = await owned.database.from("transaction_records").update({ workspace_state: sanitizeWorkspaceState(parsed.data.workspaceState) }).eq("id", recordId).eq("owner_user_id", owned.user.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 503, headers: noStoreJsonHeaders() });
+  if (error) return NextResponse.json({ error: "The workspace could not be saved. Retry shortly." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ saved: true }, { headers: noStoreJsonHeaders() });
 }

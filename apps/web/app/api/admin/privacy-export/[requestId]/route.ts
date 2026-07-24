@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { adminAccessAllowed } from "@/lib/beta-access";
-import { getOptionalUser } from "@/lib/supabase-server";
+import { getAdminAuthorization } from "@/lib/admin-auth";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 
 export async function GET(_request: Request, context: { params: Promise<{ requestId: string }> }) {
-  const operator = await getOptionalUser();
-  if (!operator || !adminAccessAllowed(operator)) return NextResponse.json({ error: "Operator access required." }, { status: 403, headers: noStoreJsonHeaders() });
+  const authorization = await getAdminAuthorization();
+  const operator = authorization.aal2 ? authorization.user : null;
+  if (!operator) return NextResponse.json({ error: "Operator access with multi-factor verification is required." }, { status: 403, headers: noStoreJsonHeaders() });
   const { requestId } = await context.params;
   try {
     const database = requireSupabaseAdmin();

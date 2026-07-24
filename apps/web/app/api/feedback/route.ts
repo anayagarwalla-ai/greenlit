@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     if (error) throw new Error(error.message);
     return NextResponse.json({ feedbackId, received: true }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Feedback could not be recorded." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Feedback persistence failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "Feedback could not be recorded right now." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

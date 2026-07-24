@@ -5,15 +5,18 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { z } from "zod";
+import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 const schema = z.object({ leaseId: z.string().uuid() });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
-  const body = await request.text();
+  let body: string;
+  try { body = await readLimitedBody(request, 8_000); }
+  catch (error) { if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes); throw error; }
   const secret = process.env.RUNNER_HMAC_SECRET;
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
-  const parsed = schema.safeParse(JSON.parse(body));
+  const parsed = schema.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
   if (!parsed.success) return NextResponse.json({ error: "Invalid origin-validation request." }, { status: 422, headers: noStoreJsonHeaders() });
   const { jobId } = await context.params;
   try {

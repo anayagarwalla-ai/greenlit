@@ -1,5 +1,7 @@
 import type { BrowserContext, Route, WebSocketRoute } from "@cloudflare/playwright";
 
+type ValidateTarget = () => Promise<boolean>;
+
 export function requestUrlAllowed(rawUrl: string, targetOrigin: string): boolean {
   try {
     const url = new URL(rawUrl);
@@ -11,8 +13,13 @@ export function requestUrlAllowed(rawUrl: string, targetOrigin: string): boolean
   }
 }
 
-async function handleHttpRoute(route: Route, targetOrigin: string): Promise<void> {
+async function handleHttpRoute(route: Route, targetOrigin: string, validateTarget?: ValidateTarget): Promise<void> {
   if (!requestUrlAllowed(route.request().url(), targetOrigin)) {
+    await route.abort("blockedbyclient");
+    return;
+  }
+  const resourceType = route.request().resourceType();
+  if (validateTarget && ["document", "xhr", "fetch"].includes(resourceType) && !await validateTarget()) {
     await route.abort("blockedbyclient");
     return;
   }
@@ -27,10 +34,19 @@ async function handleWebSocketRoute(webSocket: WebSocketRoute): Promise<void> {
   await webSocket.close({ code: 1008, reason: "WebSockets are disabled during Greenlit verification." });
 }
 
-export async function installNetworkIsolation(context: BrowserContext, targetOrigin: string): Promise<void> {
+export async function installNetworkIsolation(context: BrowserContext, targetOrigin: string, validateTarget?: ValidateTarget): Promise<void> {
   // Context routes must be installed before the first page exists. Unlike a
   // page route, this covers a popup's initial navigation as well as redirects,
   // frames, fetch/XHR, scripts, styles, images, and dedicated workers.
-  await context.route("**/*", (route) => handleHttpRoute(route, targetOrigin));
+  await context.addInitScript(() => {
+    const blocked = () => { throw new DOMException("WebRTC is disabled during verification.", "SecurityError"); };
+    Object.defineProperty(globalThis, "RTCPeerConnection", { configurable: false, writable: false, value: undefined });
+    Object.defineProperty(globalThis, "webkitRTCPeerConnection", { configurable: false, writable: false, value: undefined });
+    if (navigator.mediaDevices) {
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", { configurable: false, writable: false, value: blocked });
+      Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", { configurable: false, writable: false, value: blocked });
+    }
+  });
+  await context.route("**/*", (route) => handleHttpRoute(route, targetOrigin, validateTarget));
   await context.routeWebSocket("**/*", handleWebSocketRoute);
 }

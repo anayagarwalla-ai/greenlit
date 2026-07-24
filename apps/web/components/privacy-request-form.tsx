@@ -25,7 +25,9 @@ export function PrivacyRequestForm() {
       if (!response.ok) throw new Error(payload.error ?? "The request could not be submitted.");
       form.reset();
       setEmail("");
-      setStatus({ state: "done", message: `Request ${payload.requestId} was received. Keep this number for your records.` });
+      setStatus({ state: "done", message: payload.identityVerified
+        ? `Request ${payload.requestId} was received and verified through your signed-in session. Keep this number for your records.`
+        : `Request ${payload.requestId} was received. Open the verification link sent to ${data.get("email")} before Greenlit can export, correct, or delete data.` });
     } catch (error) {
       setStatus({ state: "error", message: error instanceof Error ? error.message : "The request could not be submitted." });
     }

@@ -6,6 +6,7 @@ import { noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
 import { normalizeSourceText } from "@/lib/analysis";
 import { extractSourceFileText, SourceInputError } from "@/lib/source-extraction";
 import { getOptionalUser } from "@/lib/supabase-server";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ const pastedSourceSchema = z.object({
 export async function POST(request: Request, context: { params: Promise<{ recordId: string }> }) {
   const user = await getOptionalUser();
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with the invited account that owns this milestone." }, { status: 401, headers: noStoreJsonHeaders() });
+  const quota = await consumeRateLimit(request, "source-reattach-hour", 12, 3_600, user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const { recordId } = await context.params;
   try {
     const database = requireSupabaseAdmin();
@@ -43,6 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
     return NextResponse.json({ sourceText, sourceName, sourceSha256: actualHash }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     if (error instanceof SourceInputError) return NextResponse.json({ error: error.message }, { status: error.status, headers: noStoreJsonHeaders() });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The source could not be reattached." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Source reattachment failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "The source could not be reattached right now." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

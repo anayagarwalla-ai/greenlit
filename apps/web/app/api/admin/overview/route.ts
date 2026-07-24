@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { adminAccessAllowed } from "@/lib/beta-access";
-import { getOptionalUser } from "@/lib/supabase-server";
+import { getAdminAuthorization } from "@/lib/admin-auth";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { signRunnerRequest } from "@/lib/hmac";
 import { deliverNotification, type NotificationPayload } from "@/lib/notifications";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
 
 async function authorize() {
-  const user = await getOptionalUser();
-  return user && adminAccessAllowed(user) ? user : null;
+  const auth = await getAdminAuthorization();
+  return auth.aal2 ? auth.user : null;
 }
 
 export async function GET() {
@@ -70,7 +69,7 @@ export async function GET() {
 
 const patchSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("feedback"), id: z.string().uuid(), status: z.enum(["NEW", "REVIEWING", "RESOLVED", "CLOSED"]) }),
-  z.object({ kind: z.literal("privacy"), id: z.string().uuid(), status: z.enum(["RECEIVED", "VERIFYING", "PROCESSING", "COMPLETED", "DENIED"]), assignedTo: z.string().trim().max(160), internalNotes: z.string().trim().max(4_000), identityVerified: z.boolean(), responseSummary: z.string().trim().max(4_000), responseSent: z.boolean() }),
+  z.object({ kind: z.literal("privacy"), id: z.string().uuid(), status: z.enum(["RECEIVED", "VERIFYING", "PROCESSING", "COMPLETED", "DENIED"]), assignedTo: z.string().trim().max(160), internalNotes: z.string().trim().max(4_000), responseSummary: z.string().trim().max(4_000), responseSent: z.boolean() }),
   z.object({ kind: z.literal("privacy_hold"), id: z.string().uuid(), enabled: z.boolean() }),
   z.object({ kind: z.literal("privacy_deletion"), id: z.string().uuid() }),
   z.object({ kind: z.literal("privacy_correction"), id: z.string().uuid(), recordId: z.string().uuid(), fieldName: z.enum(["agency_name", "client_name", "project_name", "milestone_title"]), correctedValue: z.string().trim().min(1).max(240), reason: z.string().trim().min(3).max(1_000) }),
@@ -92,7 +91,9 @@ export async function PATCH(request: Request) {
       const { error } = await database.rpc("update_feedback_status_atomic", { p_id: parsed.data.id, p_status: parsed.data.status, p_operator_email: operator.email });
       if (error) throw new Error(error.message);
     } else if (parsed.data.kind === "privacy") {
-      const { error } = await database.rpc("update_privacy_request_atomic", { p_id: parsed.data.id, p_status: parsed.data.status, p_assigned_to: parsed.data.assignedTo, p_internal_notes: parsed.data.internalNotes, p_identity_verified: parsed.data.identityVerified, p_response_summary: parsed.data.responseSummary, p_response_sent: parsed.data.responseSent, p_operator_email: operator.email, p_now: new Date().toISOString() });
+      const { data: requestState, error: stateError } = await database.from("privacy_requests_v2").select("identity_verified_at").eq("id", parsed.data.id).single();
+      if (stateError || !requestState) throw new Error("Privacy request not found.");
+      const { error } = await database.rpc("update_privacy_request_atomic", { p_id: parsed.data.id, p_status: parsed.data.status, p_assigned_to: parsed.data.assignedTo, p_internal_notes: parsed.data.internalNotes, p_identity_verified: Boolean(requestState.identity_verified_at), p_response_summary: parsed.data.responseSummary, p_response_sent: parsed.data.responseSent, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
     } else if (parsed.data.kind === "privacy_hold") {
       const { data: affected, error } = await database.rpc("set_privacy_legal_hold_atomic", { p_request_id: parsed.data.id, p_enabled: parsed.data.enabled, p_operator_email: operator.email, p_now: new Date().toISOString() });

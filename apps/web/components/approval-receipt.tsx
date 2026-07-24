@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowLeft, Check, CreditCard, Download, ExternalLink, FileJson2, FileWarning } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, CreditCard, Download, ExternalLink, FileJson2, FileWarning, LockKeyhole } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { demoCriteria, demoMilestone, seededDemoResults } from "@/lib/demo";
 import { formatTimestamp } from "@/lib/format";
@@ -70,6 +70,10 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const [packet, setPacket] = useState<ReceiptPacket | null>(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [pendingToken, setPendingToken] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
   useEffect(() => {
     if (demo) {
       const timer = window.setTimeout(() => {
@@ -83,11 +87,10 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
     let cancelled = false;
     void (async () => {
       const token = new URLSearchParams(window.location.hash.slice(1)).get("t");
-      if (token) {
-        const redeemResponse = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/receipt-redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
-        const redeemed = await redeemResponse.json();
-        if (!redeemResponse.ok) throw new Error(redeemed.error ?? "This receipt link is invalid or expired.");
+      if (token && !cancelled) {
+        setPendingToken(token);
         window.history.replaceState({}, "", window.location.pathname);
+        return;
       }
       const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
       const payload = await response.json();
@@ -98,7 +101,28 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
     return () => { cancelled = true; };
   }, [demo, packetId]);
 
+  const unlockReceipt = async (event: FormEvent) => {
+    event.preventDefault();
+    setUnlocking(true);
+    setError("");
+    try {
+      const redeemResponse = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/receipt-redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: pendingToken, accessCode, recipientEmail }) });
+      const redeemed = await redeemResponse.json();
+      if (!redeemResponse.ok) throw new Error(redeemed.error ?? "This receipt link is invalid or expired.");
+      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
+      const payload = await response.json();
+      if (!response.ok || payload.decision !== "APPROVED") throw new Error(payload.error ?? "The approval record is unavailable.");
+      setPacket(payload);
+      setPendingToken("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The approval record could not be unlocked.");
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   const savePdf = () => { setToast("Print dialog opened — choose Save as PDF"); window.print(); window.setTimeout(() => setToast(""), 2800); };
+  if (!packet && pendingToken) return <main className="receipt-shell"><section className="review-state review-unlock"><LockKeyhole size={36} /><h1>Unlock this approval record</h1><p>Enter the authorized recipient email and the separate code the agency shared with you. This receipt link works only once.</p><form className="review-unlock__form" onSubmit={unlockReceipt}><label htmlFor="receipt-access-email">Business email</label><input id="receipt-access-email" type="email" autoComplete="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} required /><label htmlFor="receipt-access-code">Access code</label><input id="receipt-access-code" autoComplete="one-time-code" value={accessCode} onChange={(event) => setAccessCode(event.target.value.toUpperCase())} minLength={8} maxLength={32} required />{error && <div className="analysis-error" role="alert">{error}</div>}<button className="button button--lime" disabled={unlocking || !recipientEmail.trim() || accessCode.trim().length < 8}>{unlocking ? "Unlocking…" : "Open approval record"} <ArrowRight size={15} /></button></form></section></main>;
   if (error) return <main className="receipt-shell"><section className="review-state"><FileWarning size={36} /><h1>Approval record unavailable</h1><p>{error}</p><Link className="button button--outline" href="/">Back to Greenlit</Link></section></main>;
   if (!packet) return <main className="receipt-shell"><section className="review-state"><div className="loader-orbit" /><h1>Opening approval record</h1><p>Verifying the decision and audit-chain head.</p></section></main>;
 
@@ -106,7 +130,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const results = Object.fromEntries(snapshot.run.results.map((result) => [result.criterionId, result]));
   return (
     <main className="receipt-shell">
-      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button></div></div>
+      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button>{!demo && packet.viewerRole !== "OWNER" && <button className="text-action" onClick={async () => { await fetch(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }).catch(() => undefined); window.location.assign("/"); }}>End secure session</button>}</div></div>
       <article className="receipt-page" aria-label="Milestone approval record">
         {demo && <div className="analysis-notice"><FileWarning size={15} /><div><strong>Synthetic sample — not a retained approval record</strong><span>This printable page illustrates the final format. It has no evidence hashes, audit chain, server-side decision, or legal-record status.</span></div></div>}
         <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{dateStamp(packet.decidedAt)}</span></div></header>

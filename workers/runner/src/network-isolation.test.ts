@@ -32,19 +32,21 @@ describe("installNetworkIsolation", () => {
     let httpHandler: ((route: Route) => Promise<void>) | undefined;
     let socketHandler: ((webSocket: WebSocketRoute) => Promise<void>) | undefined;
     const context = {
+      addInitScript: vi.fn(async () => undefined),
       route: vi.fn(async (_pattern: string, handler: (route: Route) => Promise<void>) => { httpHandler = handler; }),
       routeWebSocket: vi.fn(async (_pattern: string, handler: (webSocket: WebSocketRoute) => Promise<void>) => { socketHandler = handler; }),
     } as unknown as BrowserContext;
 
     await installNetworkIsolation(context, "https://staging.example.com");
 
+    expect(context.addInitScript).toHaveBeenCalledOnce();
     expect(context.route).toHaveBeenCalledOnce();
     expect(context.routeWebSocket).toHaveBeenCalledOnce();
     expect(httpHandler).toBeTypeOf("function");
     expect(socketHandler).toBeTypeOf("function");
 
     const sameOrigin = {
-      request: () => ({ url: () => "https://staging.example.com/redirect-destination" }),
+      request: () => ({ url: () => "https://staging.example.com/redirect-destination", resourceType: () => "document" }),
       continue: vi.fn(async () => undefined),
       abort: vi.fn(async () => undefined),
     } as unknown as Route;
@@ -53,7 +55,7 @@ describe("installNetworkIsolation", () => {
     expect(sameOrigin.abort).not.toHaveBeenCalled();
 
     const popupOrRedirect = {
-      request: () => ({ url: () => "https://attacker.example/private-probe" }),
+      request: () => ({ url: () => "https://attacker.example/private-probe", resourceType: () => "document" }),
       continue: vi.fn(async () => undefined),
       abort: vi.fn(async () => undefined),
     } as unknown as Route;
@@ -71,5 +73,25 @@ describe("installNetworkIsolation", () => {
       reason: "WebSockets are disabled during Greenlit verification.",
     });
     expect(socket.connectToServer).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a same-origin navigation no longer passes DNS validation", async () => {
+    let httpHandler: ((route: Route) => Promise<void>) | undefined;
+    const context = {
+      addInitScript: vi.fn(async () => undefined),
+      route: vi.fn(async (_pattern: string, handler: (route: Route) => Promise<void>) => { httpHandler = handler; }),
+      routeWebSocket: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const validate = vi.fn(async () => false);
+    await installNetworkIsolation(context, "https://staging.example.com", validate);
+    const navigation = {
+      request: () => ({ url: () => "https://staging.example.com/account", resourceType: () => "document" }),
+      continue: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    } as unknown as Route;
+    await httpHandler!(navigation);
+    expect(validate).toHaveBeenCalledOnce();
+    expect(navigation.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(navigation.continue).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,8 @@ describe("recordkeeping primitives", () => {
     expect(first).toBe(requestActorHash(request));
     expect(first).toMatch(/^[a-f0-9]{64}$/);
     expect(first).not.toContain("203.0.113.4");
+    const changedClientHeaders = new Request("https://example.test", { headers: { "x-forwarded-for": "203.0.113.4", "x-vercel-ip-country": "CA", "user-agent": "A completely different browser" } });
+    expect(requestActorHash(changedClientHeaders)).toBe(first);
   });
 
   it("creates opaque, human-readable public record identifiers", () => {

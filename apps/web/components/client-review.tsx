@@ -32,7 +32,7 @@ type ReviewSnapshot = {
   invoiceDeliveryMode?: "TEST_DRAFT" | "LIVE_EMAIL" | "MANUAL_AFTER_APPROVAL";
   expiresAt: string;
 };
-type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null; invoice?: { status: string; invoice_number?: string | null; hosted_invoice_url?: string | null } | null; invoiceJob?: { status: string } | null };
+type PacketResponse = { packetId: string; snapshot: ReviewSnapshot; snapshotSha256: string; expiresAt: string; intendedReviewerEmail?: string | null; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewerName?: string | null; reviewerEmail?: string | null; reviewerNote?: string | null; decidedAt?: string | null; receiptSha256?: string | null; invoice?: { status: string; invoice_number?: string | null; hosted_invoice_url?: string | null } | null; invoiceJob?: { status: string } | null };
 
 const money = (amountMinor: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / 100);
 
@@ -80,6 +80,9 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const [recordsConsent, setRecordsConsent] = useState(false);
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingToken, setPendingToken] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [accessEmail, setAccessEmail] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const decisionHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -91,7 +94,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   }, [packet, packet?.decision]);
 
   useEffect(() => {
-    // Evidence screenshot URLs are short-lived signed URLs (5 minutes) so the
+    // Evidence screenshot URLs are short-lived signed URLs (2 minutes) so the
     // private storage bucket is never exposed directly. Refresh them in the
     // background — without disturbing the rest of the page — so a client who
     // lingers on this page doesn't see broken images before making a decision.
@@ -103,7 +106,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         const payload = await response.json() as PacketResponse;
         setPacket((current) => current && !current.decision ? { ...current, snapshot: { ...current.snapshot, run: { ...current.snapshot.run, artifacts: payload.snapshot.run.artifacts ?? current.snapshot.run.artifacts ?? [] } } } : current);
       }).catch(() => undefined);
-    }, 3.5 * 60_000);
+    }, 90_000);
     return () => window.clearInterval(interval);
   }, [demo, packetId]);
 
@@ -120,10 +123,17 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
       try {
         const hash = new URLSearchParams(window.location.hash.slice(1));
         const token = hash.get("t");
-        const response = await fetch(token ? `/api/reviews/${encodeURIComponent(packetId)}/redeem` : `/api/reviews/${encodeURIComponent(packetId)}`, token ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) } : undefined);
+        if (token) {
+          window.history.replaceState({}, "", window.location.pathname);
+          if (!cancelled) {
+            setPendingToken(token);
+            setLoading(false);
+          }
+          return;
+        }
+        const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "This review is unavailable.");
-        if (token) window.history.replaceState({}, "", window.location.pathname);
         if (!cancelled) setPacket(payload);
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "This review is unavailable.");
@@ -155,7 +165,35 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
 
   const openDialog = (kind: "approve" | "changes", trigger: HTMLButtonElement) => {
     triggerRef.current = trigger;
-    setName(""); setEmail(""); setNote(""); setIntent(false); setRecordsConsent(false); setLegalAccepted(false); setError(""); setDialog(kind);
+    setName(""); setEmail(demo ? "" : packet?.intendedReviewerEmail ?? ""); setNote(""); setIntent(false); setRecordsConsent(false); setLegalAccepted(false); setError(""); setDialog(kind);
+  };
+
+  const redeemReview = async (event: FormEvent) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/redeem`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: pendingToken, accessCode, reviewerEmail: accessEmail }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The review credentials did not match.");
+      setPacket(payload);
+      setPendingToken("");
+      setAccessCode("");
+      setAccessEmail("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The review could not be unlocked.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const endSecureSession = async () => {
+    await fetch(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }).catch(() => undefined);
+    window.location.assign("/");
   };
 
   const submitDecision = async (event: FormEvent) => {
@@ -175,7 +213,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         }
         return;
       }
-      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", reviewerName: name, reviewerEmail: email, reviewerNote: note, intentConfirmed: intent, electronicRecordsConsent: recordsConsent, legalTermsAccepted: legalAccepted, noticeVersion: RECORD_NOTICE_VERSION }) });
+      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", reviewerName: name, reviewerNote: note, intentConfirmed: intent, electronicRecordsConsent: recordsConsent, legalTermsAccepted: legalAccepted, noticeVersion: RECORD_NOTICE_VERSION }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The decision could not be recorded.");
       setPacket((current) => current ? { ...current, decision: payload.decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt: payload.decidedAt, receiptSha256: payload.receiptSha256 } : current);
@@ -213,6 +251,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   };
 
   if (loading) return <main className="review-shell"><header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> Opening secure review…</span></header><section className="review-state"><div className="loader-orbit" /><h1>Verifying the review link</h1><p>Loading the exact evidence snapshot tied to this packet.</p></section></main>;
+  if (!packet && pendingToken) return <main className="review-shell"><header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> Recipient verification required</span></header><section className="review-state review-unlock"><ShieldCheck size={34} /><h1>Unlock this review</h1><p>Enter the intended recipient email and the separate access code the agency shared with you. The link can be redeemed only once.</p><form className="review-unlock__form" onSubmit={redeemReview}><label htmlFor="review-access-email">Business email</label><input id="review-access-email" type="email" autoComplete="email" value={accessEmail} onChange={(event) => setAccessEmail(event.target.value)} required /><label htmlFor="review-access-code">Access code</label><input id="review-access-code" autoComplete="one-time-code" inputMode="text" value={accessCode} onChange={(event) => setAccessCode(event.target.value.toUpperCase())} minLength={8} maxLength={32} required />{error && <div className="analysis-error" role="alert">{error}</div>}<button className="button button--lime" disabled={submitting || !accessEmail.trim() || accessCode.trim().length < 8}>{submitting ? "Unlocking…" : "Open secure review"} <ArrowRight size={16} /></button></form></section></main>;
   if (!packet) return <main className="review-shell"><header className="review-header"><Brand /></header><section className="review-state"><X size={34} /><h1>Review unavailable</h1><p>{error}</p><Link className="button button--outline" href="/">Back to Greenlit</Link></section></main>;
 
   const snapshot = packet.snapshot;
@@ -252,7 +291,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
 
   return (
     <main className="review-shell">
-      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> {demo ? "Synthetic walkthrough · not retained" : `Secure client review · expires ${dateTime(packet.expiresAt)}`}</span></header>
+      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> {demo ? "Synthetic walkthrough · not retained" : `Secure client review · expires ${dateTime(packet.expiresAt)}`}</span>{!demo && <button className="text-action" type="button" onClick={() => void endSecureSession()}>End secure session</button>}</header>
       <div className="review-main">
         {!packet.decision ? <>
           {demo && <div className="analysis-notice"><ShieldCheck size={15} /><div><strong>Interactive sample — no legal record is created</strong><span>This page uses seeded outcomes to demonstrate the decision experience when free browser capacity is unavailable.</span></div></div>}
@@ -283,7 +322,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
 
       {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.${snapshot.invoicePlan ? deliveryMode === "LIVE_EMAIL" ? ` It will also email the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : deliveryMode === "TEST_DRAFT" ? ` It will also create the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} invoice as a Stripe test draft — no email is sent.` : deliveryMode === "MANUAL_AFTER_APPROVAL" ? ` ${snapshot.agencyName} may invoice the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} later; nothing is sent automatically.` : ` It will also queue the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : ""}` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
         <div className="form-field"><label htmlFor="reviewer-name">Your full name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required /></div>
-        <div className="form-field"><label htmlFor="reviewer-email">Business email</label><input id="reviewer-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div>
+        <div className="form-field"><label htmlFor="reviewer-email">{demo ? "Reviewer email" : "Verified recipient email"}</label><input id="reviewer-email" type="email" value={email} readOnly={!demo} aria-readonly={!demo} onChange={demo ? (event) => setEmail(event.target.value) : undefined} /></div>
         <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" placeholder={dialog === "approve" ? "Looks ready to launch." : "Describe the requested change…"} value={note} onChange={(event) => setNote(event.target.value)} required={dialog === "changes"} /></div>
         <label className="decision-consent"><input type="checkbox" checked={intent} onChange={(event) => setIntent(event.target.checked)} /><span>I intend to {dialog === "approve" ? "approve this milestone" : "request these changes"} for {snapshot.clientName}, and I am authorized to make this decision.</span></label>
         <label className="decision-consent"><input type="checkbox" checked={legalAccepted} onChange={(event) => setLegalAccepted(event.target.checked)} /><span>I accept the <Link href="/terms" target="_blank">Terms</Link> and acknowledge the <Link href="/privacy" target="_blank">Privacy notice</Link>, version {RECORD_NOTICE_VERSION}.</span></label>

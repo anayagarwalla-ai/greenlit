@@ -13,7 +13,7 @@ const PENDING_CLAIM_KEY = `greenlit-pending-draft-claim-${DRAFT_VERSION}`;
 // An unsigned draft on a shared browser can be read by the next person at the
 // keyboard, so it is purged after this window — the same window the sign-in
 // handoff marker already used.
-export const ANONYMOUS_DRAFT_TTL_MS = 24 * 60 * 60_000;
+export const ANONYMOUS_DRAFT_TTL_MS = 30 * 60_000;
 
 function ownerKey(email: string | null | undefined): string {
   return (email || "anon").trim().toLowerCase() || "anon";
@@ -21,6 +21,12 @@ function ownerKey(email: string | null | undefined): string {
 
 function isAnonymousOwner(email: string | null | undefined): boolean {
   return ownerKey(email) === "anon";
+}
+
+function storageFor(email: string | null | undefined): Storage {
+  // Unsigned SOWs survive the same-tab magic-link navigation, but are never
+  // written into durable, shared-browser localStorage.
+  return isAnonymousOwner(email) ? window.sessionStorage : window.localStorage;
 }
 
 function draftIndexKey(email: string | null | undefined): string {
@@ -45,24 +51,24 @@ function draftSavedAtKey(email: string | null | undefined, draftId: string): str
 
 export function readProjectDraftSavedAt(email: string | null | undefined, draftId: string): number | null {
   try {
-    const value = Number(window.localStorage.getItem(draftSavedAtKey(email, draftId)));
+    const value = Number(storageFor(email).getItem(draftSavedAtKey(email, draftId)));
     return Number.isFinite(value) && value > 0 ? value : null;
   } catch { return null; }
 }
 
 function readIndex(email: string | null | undefined): string[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(draftIndexKey(email)) ?? "[]");
+    const parsed = JSON.parse(storageFor(email).getItem(draftIndexKey(email)) ?? "[]");
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch { return []; }
 }
 
 function writeIndex(email: string | null | undefined, ids: string[]): void {
-  window.localStorage.setItem(draftIndexKey(email), JSON.stringify([...new Set(ids)]));
+  storageFor(email).setItem(draftIndexKey(email), JSON.stringify([...new Set(ids)]));
 }
 
 export function activeDraftId(email: string | null | undefined): string | null {
-  try { return window.localStorage.getItem(activeDraftStorageKey(email)); }
+  try { return storageFor(email).getItem(activeDraftStorageKey(email)); }
   catch { return null; }
 }
 
@@ -76,7 +82,7 @@ export function isDraftStorageAvailable(): boolean {
 }
 
 function anonymousDraftExpired(draftId: string): boolean {
-  const savedAtRaw = window.localStorage.getItem(draftSavedAtKey(null, draftId));
+    const savedAtRaw = storageFor(null).getItem(draftSavedAtKey(null, draftId));
   const savedAt = Number(savedAtRaw);
   // An anonymous draft with no readable timestamp has an unknown age on a
   // possibly shared browser; treat it as expired rather than keep it forever.
@@ -91,15 +97,16 @@ function anonymousDraftExpired(draftId: string): boolean {
  */
 export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): boolean {
   try {
-    window.localStorage.setItem(draftStorageKey(email, draftId), raw);
+    const storage = storageFor(email);
+    storage.setItem(draftStorageKey(email, draftId), raw);
     // Retained-workspace restore compares this timestamp with the server
     // record's updated_at value. Account-scoped drafts need the timestamp just
     // as much as anonymous drafts; otherwise a newer local copy can never win
     // after a failed/aborted server save.
-    window.localStorage.setItem(draftSavedAtKey(email, draftId), String(Date.now()));
-    window.localStorage.setItem(activeDraftStorageKey(email), draftId);
+    storage.setItem(draftSavedAtKey(email, draftId), String(Date.now()));
+    storage.setItem(activeDraftStorageKey(email), draftId);
     writeIndex(email, [...readIndex(email), draftId]);
-    if (isAnonymousOwner(email) && markForSignIn) window.localStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now() }));
+    if (isAnonymousOwner(email) && markForSignIn) window.sessionStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ draftId, markedAt: Date.now(), boundEmail: null }));
     return true;
   } catch { return false; /* Browser storage is a convenience layer, never the legal record. */ }
 }
@@ -111,7 +118,7 @@ export function saveProjectDraft(email: string | null | undefined, draftId: stri
  */
 export function flushProjectDraftOnPageHide(email: string | null | undefined, draftId: string, raw: string): boolean {
   try {
-    const existing = window.localStorage.getItem(draftStorageKey(email, draftId));
+    const existing = storageFor(email).getItem(draftStorageKey(email, draftId));
     if (isAnonymousOwner(email) && existing !== null && anonymousDraftExpired(draftId)) {
       removeProjectDraft(email, draftId);
       return false;
@@ -126,27 +133,28 @@ export function readProjectDraft(email: string | null | undefined, draftId: stri
       removeProjectDraft(null, draftId);
       return null;
     }
-    return window.localStorage.getItem(draftStorageKey(email, draftId));
+    return storageFor(email).getItem(draftStorageKey(email, draftId));
   }
   catch { return null; }
 }
 
 export function removeProjectDraft(email: string | null | undefined, draftId: string): void {
   try {
-    window.localStorage.removeItem(draftStorageKey(email, draftId));
-    window.localStorage.removeItem(draftSavedAtKey(email, draftId));
+    const storage = storageFor(email);
+    storage.removeItem(draftStorageKey(email, draftId));
+    storage.removeItem(draftSavedAtKey(email, draftId));
     const remaining = readIndex(email).filter((id) => id !== draftId);
     writeIndex(email, remaining);
     if (activeDraftId(email) === draftId) {
       const next = remaining.at(-1);
-      if (next) window.localStorage.setItem(activeDraftStorageKey(email), next);
-      else window.localStorage.removeItem(activeDraftStorageKey(email));
+      if (next) storage.setItem(activeDraftStorageKey(email), next);
+      else storage.removeItem(activeDraftStorageKey(email));
     }
   } catch { /* best-effort browser cleanup */ }
 }
 
 /**
- * Deletes every anonymous draft older than the 24-hour retention window — the
+ * Deletes every anonymous draft older than the 30-minute retention window — the
  * draft content itself, not only the sign-in handoff marker.
  */
 export function purgeExpiredAnonymousDrafts(): void {
@@ -154,37 +162,46 @@ export function purgeExpiredAnonymousDrafts(): void {
     // v3 anonymous drafts predate per-draft timestamps, so their age cannot be
     // established safely on a shared browser. Do not re-date and resurrect
     // them during migration.
+    window.sessionStorage.removeItem(legacyDraftStorageKey(null));
     window.localStorage.removeItem(legacyDraftStorageKey(null));
     for (const draftId of readIndex(null)) {
       if (anonymousDraftExpired(draftId)) removeProjectDraft(null, draftId);
     }
-    const pending = JSON.parse(window.localStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { markedAt?: unknown } | null;
+    const pending = JSON.parse(window.sessionStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { markedAt?: unknown } | null;
     if (pending && (typeof pending.markedAt !== "number" || Date.now() - pending.markedAt > ANONYMOUS_DRAFT_TTL_MS)) {
-      window.localStorage.removeItem(PENDING_CLAIM_KEY);
+      window.sessionStorage.removeItem(PENDING_CLAIM_KEY);
     }
   } catch { /* best-effort browser cleanup */ }
 }
 
+export function bindPendingAnonymousDraftClaim(email: string): void {
+  try {
+    const pending = JSON.parse(window.sessionStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { draftId?: unknown; markedAt?: unknown } | null;
+    if (!pending || typeof pending.draftId !== "string" || typeof pending.markedAt !== "number") return;
+    window.sessionStorage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ ...pending, boundEmail: email.trim().toLowerCase() }));
+  } catch { /* best-effort sign-in handoff binding */ }
+}
+
 export function claimPendingAnonymousDraft(email: string): { draftId: string; raw: string } | null {
   try {
-    const pending = JSON.parse(window.localStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { draftId?: unknown; markedAt?: unknown } | null;
-    if (!pending || typeof pending.draftId !== "string" || typeof pending.markedAt !== "number") return null;
+    const pending = JSON.parse(window.sessionStorage.getItem(PENDING_CLAIM_KEY) ?? "null") as { draftId?: unknown; markedAt?: unknown; boundEmail?: unknown } | null;
+    if (!pending || typeof pending.draftId !== "string" || typeof pending.markedAt !== "number" || typeof pending.boundEmail !== "string") return null;
+    if (pending.boundEmail !== email.trim().toLowerCase()) return null;
     // A stale marker should never move an old shared-browser draft into a later
     // visitor's account.
     if (Date.now() - pending.markedAt > ANONYMOUS_DRAFT_TTL_MS) {
-      window.localStorage.removeItem(PENDING_CLAIM_KEY);
+      window.sessionStorage.removeItem(PENDING_CLAIM_KEY);
       return null;
     }
     const raw = readProjectDraft(null, pending.draftId);
     if (!raw) {
-      window.localStorage.removeItem(PENDING_CLAIM_KEY);
+      window.sessionStorage.removeItem(PENDING_CLAIM_KEY);
       return null;
     }
-    // Do not delete the anonymous source or its handoff marker until the
-    // account-scoped copy is safely stored. A quota/private-mode failure must
-    // never destroy the only copy of the user's draft during sign-in.
-    if (!saveProjectDraft(email, pending.draftId, raw)) return null;
-    window.localStorage.removeItem(PENDING_CLAIM_KEY);
+    // Return the same-tab draft directly to React. Do not copy the SOW into
+    // durable account localStorage; the workspace will persist only its
+    // minimized, secret-free metadata after hydration.
+    window.sessionStorage.removeItem(PENDING_CLAIM_KEY);
     removeProjectDraft(null, pending.draftId);
     return { draftId: pending.draftId, raw };
   } catch { return null; }
@@ -211,13 +228,13 @@ export async function signOutAndClearDraftState(email: string | null | undefined
 export function clearAccountDraftState(email: string | null | undefined): void {
   try {
     for (const draftId of readIndex(email)) {
-      window.localStorage.removeItem(draftStorageKey(email, draftId));
-      window.localStorage.removeItem(draftSavedAtKey(email, draftId));
+      storageFor(email).removeItem(draftStorageKey(email, draftId));
+      storageFor(email).removeItem(draftSavedAtKey(email, draftId));
     }
-    window.localStorage.removeItem(draftIndexKey(email));
-    window.localStorage.removeItem(activeDraftStorageKey(email));
-    window.localStorage.removeItem(legacyDraftStorageKey(email));
-    if (isAnonymousOwner(email)) window.localStorage.removeItem(PENDING_CLAIM_KEY);
+    storageFor(email).removeItem(draftIndexKey(email));
+    storageFor(email).removeItem(activeDraftStorageKey(email));
+    storageFor(email).removeItem(legacyDraftStorageKey(email));
+    if (isAnonymousOwner(email)) window.sessionStorage.removeItem(PENDING_CLAIM_KEY);
   } catch { /* best-effort browser cleanup */ }
   clearLegacyGlobalDraftState();
 }

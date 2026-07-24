@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANONYMOUS_DRAFT_TTL_MS,
   activeDraftId,
+  bindPendingAnonymousDraftClaim,
   claimPendingAnonymousDraft,
   clearAccountDraftState,
   clearLegacyGlobalDraftState,
@@ -24,11 +25,12 @@ class FakeStorage {
   clear() { this.store.clear(); }
   keys() { return [...this.store.keys()]; }
 }
-(globalThis as unknown as { window: { localStorage: FakeStorage } }).window = { localStorage: new FakeStorage() };
+(globalThis as unknown as { window: { localStorage: FakeStorage; sessionStorage: FakeStorage } }).window = { localStorage: new FakeStorage(), sessionStorage: new FakeStorage() };
 const fakeStorage = () => (window.localStorage as unknown as FakeStorage);
+const fakeSessionStorage = () => (window.sessionStorage as unknown as FakeStorage);
 
 describe("project draft storage", () => {
-  beforeEach(() => { window.localStorage.clear(); vi.restoreAllMocks(); });
+  beforeEach(() => { window.localStorage.clear(); window.sessionStorage.clear(); vi.restoreAllMocks(); });
 
   it("isolates drafts by account and project", () => {
     saveProjectDraft("agency@example.com", "project-a", "draft-a");
@@ -46,40 +48,38 @@ describe("project draft storage", () => {
     expect(readProjectDraftSavedAt("agency@example.com", "project-a")).toBe(1_234_567);
   });
 
-  it("moves only an explicitly marked anonymous draft into the signed-in account", () => {
+  it("hands only an explicitly marked and email-bound anonymous draft to the signed-in account", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "pending-project", "pending-draft", true);
     saveProjectDraft(null, "unrelated-project", "unrelated-draft");
+    bindPendingAnonymousDraftClaim("agency@example.com");
     const claimed = claimPendingAnonymousDraft("agency@example.com");
     expect(claimed).toEqual({ draftId: "pending-project", raw: "pending-draft" });
-    expect(readProjectDraft("agency@example.com", "pending-project")).toBe("pending-draft");
+    expect(readProjectDraft("agency@example.com", "pending-project")).toBeNull();
     expect(readProjectDraft(null, "pending-project")).toBeNull();
     expect(readProjectDraft(null, "unrelated-project")).toBe("unrelated-draft");
   });
 
-  it("keeps the only anonymous copy when an account-scoped handoff save fails", () => {
+  it("does not let a different signed-in email claim the pending draft", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "pending-project", "pending-draft", true);
-    const originalSetItem = fakeStorage().setItem.bind(fakeStorage());
-    vi.spyOn(fakeStorage(), "setItem").mockImplementation((key, value) => {
-      if (key.startsWith("greenlit-draft-v4:agency@example.com:")) throw new DOMException("QuotaExceededError");
-      originalSetItem(key, value);
-    });
-    expect(claimPendingAnonymousDraft("agency@example.com")).toBeNull();
+    bindPendingAnonymousDraftClaim("intended@example.com");
+    expect(claimPendingAnonymousDraft("different@example.com")).toBeNull();
     expect(readProjectDraft(null, "pending-project")).toBe("pending-draft");
   });
 
   it("does not claim a stale shared-browser draft and purges the expired draft content", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "old-project", "old-draft", true);
+    bindPendingAnonymousDraftClaim("agency@example.com");
     vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
     expect(claimPendingAnonymousDraft("agency@example.com")).toBeNull();
-    // The 24-hour window expires the draft itself, not only the sign-in marker.
+    // The 30-minute window expires the draft itself, not only the sign-in marker.
     expect(readProjectDraft(null, "old-project")).toBeNull();
-    expect(window.localStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
+    expect(window.sessionStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
   });
 
-  it("keeps an anonymous draft readable inside the 24-hour window", () => {
+  it("keeps an anonymous draft readable inside the 30-minute window", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     saveProjectDraft(null, "fresh-project", "fresh-draft");
     vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS - 1);
@@ -91,7 +91,7 @@ describe("project draft storage", () => {
     saveProjectDraft(null, "old-project", "sensitive-sow");
     vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
     expect(flushProjectDraftOnPageHide(null, "old-project", "sensitive-sow")).toBe(false);
-    expect(window.localStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
+    expect(window.sessionStorage.getItem(draftStorageKey(null, "old-project"))).toBeNull();
   });
 
   it("pagehide flushing still stores a brand-new anonymous draft", () => {
@@ -106,7 +106,7 @@ describe("project draft storage", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000 + ANONYMOUS_DRAFT_TTL_MS + 1);
     saveProjectDraft(null, "recent-project", "recent-draft");
     purgeExpiredAnonymousDrafts();
-    expect(window.localStorage.getItem(draftStorageKey(null, "expired-project"))).toBeNull();
+    expect(window.sessionStorage.getItem(draftStorageKey(null, "expired-project"))).toBeNull();
     expect(readProjectDraft(null, "recent-project")).toBe("recent-draft");
     // Signed-in drafts are account-scoped and retained; only anonymous drafts age out.
     expect(readProjectDraft("agency@example.com", "account-project")).toBe("account-draft");
@@ -114,7 +114,7 @@ describe("project draft storage", () => {
 
   it("treats an anonymous draft with no timestamp as expired instead of keeping it forever", () => {
     saveProjectDraft(null, "untimed-project", "untimed-draft");
-    for (const key of fakeStorage().keys()) if (key.startsWith("greenlit-draft-saved-")) window.localStorage.removeItem(key);
+    for (const key of fakeSessionStorage().keys()) if (key.startsWith("greenlit-draft-saved-")) window.sessionStorage.removeItem(key);
     expect(readProjectDraft(null, "untimed-project")).toBeNull();
   });
 

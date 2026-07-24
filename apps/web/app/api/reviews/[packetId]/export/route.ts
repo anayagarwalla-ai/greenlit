@@ -30,19 +30,20 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
     await assertDecisionReceiptIntegrity(database, packet);
 
     const { data: events, error: auditError } = await database.from("transaction_audit_events")
-      .select("sequence, event_type, actor_type, actor_hash, payload, previous_hash, event_hash, occurred_at, retention_until")
+      .select("sequence, event_type, actor_type, payload, previous_hash, event_hash, occurred_at, retention_until")
       .eq("record_id", packet.record_id)
       .order("sequence", { ascending: true });
     if (auditError) throw new Error(auditError.message);
     const [{ data: invoice, error: invoiceError }, { data: invoiceJob, error: invoiceJobError }, { data: corrections, error: correctionError }] = await Promise.all([
-      database.from("record_invoices").select("status,invoice_number,amount_due_minor,amount_paid_minor,currency,billing_email,due_at,hosted_invoice_url,invoice_pdf_url,sent_at,paid_at,voided_at,last_error,created_at,updated_at").eq("packet_id", packet.id).maybeSingle(),
-      database.from("invoice_jobs").select("status,attempts,plan,last_error,created_at,updated_at,completed_at").eq("packet_id", packet.id).maybeSingle(),
+      database.from("record_invoices").select("status,invoice_number,amount_due_minor,amount_paid_minor,currency,billing_email,due_at,hosted_invoice_url,invoice_pdf_url,sent_at,paid_at,voided_at,created_at,updated_at").eq("packet_id", packet.id).maybeSingle(),
+      database.from("invoice_jobs").select("status,attempts,created_at,updated_at,completed_at").eq("packet_id", packet.id).maybeSingle(),
       database.from("privacy_record_amendments").select("field_name,previous_value,corrected_value,reason,created_at").eq("record_id", packet.record_id).order("created_at"),
     ]);
     const relatedError = invoiceError ?? invoiceJobError ?? correctionError;
     if (relatedError) throw new Error(relatedError.message);
 
     const exportedAt = new Date().toISOString();
+    const ownerView = Boolean(ownerRecord);
     const body = {
       format: "Greenlit transaction export v1",
       exportedAt,
@@ -62,10 +63,44 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
         decidedAt: packet.decided_at,
         receiptSha256: packet.receipt_sha256,
       },
-      invoicing: { provider: invoice || invoiceJob ? "Stripe" : null, invoice: invoice ?? null, job: invoiceJob ?? null },
+      invoicing: {
+        provider: invoice || invoiceJob ? "Stripe" : null,
+        invoice: invoice ? {
+          status: invoice.status,
+          invoiceNumber: invoice.invoice_number,
+          amountDueMinor: invoice.amount_due_minor,
+          amountPaidMinor: invoice.amount_paid_minor,
+          currency: invoice.currency,
+          billingEmail: invoice.billing_email,
+          dueAt: invoice.due_at,
+          hostedInvoiceUrl: invoice.hosted_invoice_url,
+          invoicePdfUrl: invoice.invoice_pdf_url,
+          sentAt: invoice.sent_at,
+          paidAt: invoice.paid_at,
+          voidedAt: invoice.voided_at,
+          createdAt: invoice.created_at,
+          updatedAt: invoice.updated_at,
+        } : null,
+        job: invoiceJob ? {
+          status: invoiceJob.status,
+          ...(ownerView ? { attempts: invoiceJob.attempts } : {}),
+          createdAt: invoiceJob.created_at,
+          updatedAt: invoiceJob.updated_at,
+          completedAt: invoiceJob.completed_at,
+        } : null,
+      },
       corrections: corrections ?? [],
       retention: { packetCreatedAt: packet.created_at, reviewExpiresAt: packet.expires_at, policy: "See /records and /privacy" },
-      auditChain: events ?? [],
+      auditChain: (events ?? []).map((event) => ({
+        sequence: event.sequence,
+        eventType: event.event_type,
+        actorType: event.actor_type,
+        ...(ownerView ? { payload: event.payload } : {}),
+        previousHash: event.previous_hash,
+        eventHash: event.event_hash,
+        occurredAt: event.occurred_at,
+        retentionUntil: event.retention_until,
+      })),
     };
     return new NextResponse(JSON.stringify(body, null, 2), {
       headers: {
@@ -75,6 +110,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "The transaction export is unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Transaction export failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "The transaction export is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

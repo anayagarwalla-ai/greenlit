@@ -252,6 +252,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const [runError, setRunError] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewUrl, setReviewUrl] = useState("");
+  const [reviewAccessCode, setReviewAccessCode] = useState("");
+  const [reviewerEmail, setReviewerEmail] = useState("");
   const [reviewPacketId, setReviewPacketId] = useState("");
   const [changeRequest, setChangeRequest] = useState("");
   const [sessionEmail, setSessionEmail] = useState("");
@@ -302,7 +304,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     reviewPacketId,
     savedAt: new Date().toISOString(),
     runRequestId,
-    verificationDraft,
+    verificationDraft: includeLocalSource ? verificationDraft : verificationDraft ? { ...verificationDraft, token: "", receipt: "" } : null,
   }), [draftId, phase, sourceText, sourceName, selectedFileMeta, business, attested, aiDisclosureAccepted, adultBusinessUseAttested, criteria, confirmed, model, analysisNotice, recordId, latestRun, customRun, retainedFixtureRecord, reviewPacketId, runRequestId, verificationDraft]);
 
   const saveRetainedSnapshot = useCallback(async (snapshot: WorkspaceDraft, signal?: AbortSignal) => {
@@ -535,7 +537,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
-      const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+      const saved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(!sessionEmail)));
       // For a retained signed-in project, "Saved" means the server accepted
       // the snapshot. The local convenience copy alone must not claim that.
       if (!recordId || !sessionEmail) setSaveState(saved ? "saved" : "error");
@@ -548,7 +550,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const retrySave = async () => {
     if (sourceMode === "demo" || !draftId) return;
     setSaveState("saving");
-    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(!sessionEmail)));
     setStorageBlocked(localSaved ? false : !isDraftStorageAvailable());
     if (recordId && sessionEmail) {
       try {
@@ -569,7 +571,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     // leaves immediately; flush the pending draft as the page is hidden.
     const flush = () => {
       if (!draftHydrated.current || sourceMode === "demo" || !draftId) return;
-      flushProjectDraftOnPageHide(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(true)));
+      flushProjectDraftOnPageHide(sessionEmail, draftId, JSON.stringify(workspaceSnapshot(!sessionEmail)));
     };
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
@@ -640,7 +642,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       durableFile = { name: selectedFile.name, type: selectedFile.type, base64 };
       setSelectedFileMeta(durableFile);
     }
-    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...snapshot, selectedFileMeta: durableFile }), markForSignIn && !sessionEmail);
+    const safeSnapshot = sessionEmail ? workspaceSnapshot(false) : { ...snapshot, selectedFileMeta: durableFile };
+    const localSaved = saveProjectDraft(sessionEmail, draftId, JSON.stringify(safeSnapshot), markForSignIn && !sessionEmail);
     if (!localSaved) { setSaveState("error"); setStorageBlocked(!isDraftStorageAvailable()); }
     if (recordId && sessionEmail) {
       setSaveState("saving");
@@ -698,6 +701,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     setPollNetworkFailure(false);
     setSaveState("idle");
     setReviewUrl("");
+    setReviewAccessCode("");
+    setReviewerEmail("");
     setReviewPacketId("");
     setChangeRequest("");
     setCustomRun(null);
@@ -736,6 +741,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     setLatestRun(null);
     setRunError("");
     setReviewUrl("");
+    setReviewAccessCode("");
+    setReviewerEmail("");
     setReviewPacketId("");
     setCustomRun(null);
     setVerificationDraft(null);
@@ -895,7 +902,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       const sourceSha256 = await browserSha256(sourceText);
       const requestId = runRequestId ?? crypto.randomUUID();
       setRunRequestId(requestId);
-      if (draftId) saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...workspaceSnapshot(true), runRequestId: requestId, savedAt: new Date().toISOString() }));
+      if (draftId) saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...workspaceSnapshot(!sessionEmail), runRequestId: requestId, savedAt: new Date().toISOString() }));
       const response = await fetch("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1010,8 +1017,10 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         setToast("Synthetic client walkthrough ready");
         return;
       }
+      const intendedEmail = window.prompt("Client business email for this one-time review", reviewerEmail)?.trim();
+      if (!intendedEmail) throw new Error("Enter the intended client's business email before creating the review.");
       if (!recordId) throw new Error("The retained milestone record is unavailable.");
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
+      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail }) });
       const payload = await response.json();
       if (response.status === 409 && payload.activePacketId) {
         setReviewPacketId(payload.activePacketId);
@@ -1021,10 +1030,12 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         const revoked = await fetch(`/api/account/reviews/${encodeURIComponent(payload.activePacketId)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revoke" }) });
         const revokedPayload = await revoked.json();
         if (!revoked.ok) throw new Error(revokedPayload.error ?? "The existing review link could not be revoked.");
-        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId }) });
+        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail }) });
         const replacementPayload = await replacement.json();
         if (!replacement.ok) throw new Error(replacementPayload.error ?? "The replacement review link could not be created.");
         setReviewUrl(replacementPayload.reviewUrl);
+        setReviewAccessCode(replacementPayload.accessCode);
+        setReviewerEmail(replacementPayload.reviewerEmail);
         setReviewPacketId(replacementPayload.packetId);
         setPhase("shared");
         setToast("Old review revoked; replacement link created");
@@ -1032,6 +1043,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       }
       if (!response.ok) throw new Error(payload.error ?? "The client review could not be created.");
       setReviewUrl(payload.reviewUrl);
+      setReviewAccessCode(payload.accessCode);
+      setReviewerEmail(payload.reviewerEmail);
       setReviewPacketId(payload.packetId);
       setPhase("shared");
       setReviewCreated(true);
@@ -1211,7 +1224,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} accessCode={reviewAccessCode} reviewerEmail={reviewerEmail} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
@@ -1307,7 +1320,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>{geminiPaidService ? "Submit only scopes you are authorized to process, and never include secrets or regulated data." : "Use non-confidential scopes only."} Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft can be opened by anyone who uses this browser profile on this device, and it is deleted automatically after 24 hours."}</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>{geminiPaidService ? "Submit only scopes you are authorized to process, and never include secrets or regulated data." : "Use non-confidential scopes only."} Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft is limited to this browser tab and is deleted automatically after 30 minutes."}</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>
@@ -1603,7 +1616,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   );
 }
 
-function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
+function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
@@ -1614,6 +1627,7 @@ function SharedReview({ copied, onCopy, reviewUrl, packetId, clientName, criteri
           <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/{demo ? "demo" : "••••••••"}</span><small>{demo ? "Synthetic · local-only decision · not retained" : "Expires in 72 hours · one final decision"}</small></div>
           <button className="button button--outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button>
         </div>
+        {!demo && <div className="share-access-code"><span>Separate access code</span><strong>{accessCode}</strong><small>Bound to {reviewerEmail}. Send this code separately from the review link; the link can be redeemed only once.</small></div>}
         <a className="button button--lime" href={reviewUrl}>Open as the client <ArrowRight size={16} /></a>
         <div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO SECURE TOKEN" : `PACKET ${packetId} · SECURE TOKEN KEPT IN URL FRAGMENT`}</div>
       </section>

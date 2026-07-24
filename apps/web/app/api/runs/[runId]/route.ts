@@ -9,6 +9,9 @@ export const runtime = "nodejs";
 export async function GET(_request: Request, context: { params: Promise<{ runId: string }> }) {
   const { runId } = await context.params;
   try {
+    const owner = await getOwnerIdentity();
+    if (!owner.userId) return NextResponse.json({ error: "Sign in to access this verification run." }, { status: 401, headers: noStoreJsonHeaders() });
+    if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const database = requireSupabaseAdmin();
     const { data: run, error } = await database.from("verification_jobs_v2")
       .select("id, record_id, status, build_url, build_label, results, artifacts, browser_version, runner_version, manifest_sha256, last_error, started_at, completed_at, created_at")
@@ -16,11 +19,8 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       .single();
     if (error || !run) return NextResponse.json({ error: "Verification run not found." }, { status: 404, headers: noStoreJsonHeaders() });
 
-    const owner = await getOwnerIdentity();
-    if (!owner.userId) return NextResponse.json({ error: "Sign in to access this verification run." }, { status: 401, headers: noStoreJsonHeaders() });
-    if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const { data: record } = await database.from("transaction_records")
-      .select("public_id, owner_user_id, owner_token_hash, agency_name, client_name, project_name, milestone_title, amount_minor, currency, source_name, source_sha256, confirmed_criteria, criteria_revision, status")
+      .select("public_id, owner_user_id, agency_name, client_name, project_name, milestone_title, amount_minor, currency, source_name, source_sha256, confirmed_criteria, criteria_revision, status")
       .eq("id", run.record_id)
       .single();
     if (!record || record.owner_user_id !== owner.userId) return NextResponse.json({ error: "This account cannot access the run." }, { status: 403, headers: noStoreJsonHeaders() });
@@ -28,7 +28,7 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
     const artifacts = await Promise.all(((run.artifacts ?? []) as Array<Record<string, unknown>>).map(async (artifact) => {
       const storagePath = typeof artifact.storagePath === "string" ? artifact.storagePath : null;
       if (!storagePath) return artifact;
-      const { data } = await database.storage.from("evidence").createSignedUrl(storagePath, 300);
+      const { data } = await database.storage.from("evidence").createSignedUrl(storagePath, 60);
       return { ...artifact, url: data?.signedUrl ?? null };
     }));
 
@@ -54,6 +54,7 @@ export async function GET(_request: Request, context: { params: Promise<{ runId:
       record: { ...record, revision: record.criteria_revision },
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Verification status is unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Verification status lookup failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "Verification status is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

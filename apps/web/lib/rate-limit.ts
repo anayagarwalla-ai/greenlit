@@ -30,7 +30,9 @@ export async function consumeRateLimit(
     actor = identity ? sha256(`user:${identity}`) : requestActorHash(request);
   } catch {
     const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    actor = sha256(`${forwarded}|${request.headers.get("user-agent") ?? "unknown"}`);
+    // A missing attribution secret must not restore the old User-Agent bypass:
+    // changing client-controlled headers may never create a fresh quota key.
+    actor = sha256(`ip:${forwarded}`);
   }
   const { data, error } = await database.rpc("consume_api_quota", {
     p_rate_key: actor,

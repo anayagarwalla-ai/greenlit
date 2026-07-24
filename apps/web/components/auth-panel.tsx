@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { ArrowRight, CheckCircle2, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
 import { Brand } from "@/components/brand";
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { bindPendingAnonymousDraftClaim } from "@/lib/client-storage";
 
 export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { nextPath?: string; initialError?: string }) {
   const [email, setEmail] = useState("");
@@ -20,17 +20,11 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
       const inviteResponse = await fetch("/api/auth/invite", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, nextPath }),
       });
-      const invite = await inviteResponse.json() as { invited?: boolean; error?: string };
-      if (!inviteResponse.ok || !invite.invited) throw new Error(invite.error ?? "This email has not been invited to the beta.");
-      const client = getSupabaseBrowserClient();
-      if (!client) throw new Error("Agency sign-in is not configured yet.");
-      const { error: signInError } = await client.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`, shouldCreateUser: false },
-      });
-      if (signInError) throw signInError;
+      const invite = await inviteResponse.json() as { accepted?: boolean; error?: string };
+      if (!inviteResponse.ok || !invite.accepted) throw new Error(invite.error ?? "The sign-in request could not be accepted.");
+      bindPendingAnonymousDraftClaim(email);
       setSent(true);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "The sign-in link could not be sent.");

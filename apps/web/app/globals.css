@@ -482,12 +482,28 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .invoice-confirm-facts dd { margin: 0; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
 .invoice-decision-note .text-action { display: inline-flex; gap: 4px; margin-left: 4px; min-height: 0; text-decoration: underline; }
 
+/* Security handoff surfaces: recipient unlocks and operator MFA. */
+.review-unlock__form { width: min(430px,100%); margin-top: 20px; display: grid; gap: 9px; text-align: left; }
+.review-unlock__form label { color: var(--ink); font-size: 10px; font-weight: 850; }
+.review-unlock__form input { min-height: 46px; width: 100%; padding: 10px 12px; border: 1px solid #aeb7b0; background: white; color: var(--ink); font: 600 12px/1.2 var(--sans); }
+.review-unlock__form .button { margin-top: 7px; width: 100%; }
+.dashboard-review-link strong,.dashboard-review-link small { grid-column: 1/-1; overflow-wrap: anywhere; }
+.dashboard-review-link strong { color: var(--ink); font-size: 9px; }
+.dashboard-review-link small { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.admin-mfa-card { display: grid; }
+.mfa-enrollment { margin-top: 20px; padding: 16px; display: grid; justify-items: center; gap: 12px; border: 1px solid var(--line); background: #f7f6f1; }
+.mfa-enrollment img { width: min(220px,100%); height: auto; background: white; }
+.mfa-enrollment p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.mfa-enrollment code { color: var(--ink); font-weight: 800; }
+
 /* The four-step workflow stepper wraps to a 2×2 grid on narrow phones so the
    labels never collide. */
 @media (max-width: 480px) {
   .stepper { grid-template-columns: 1fr 1fr; gap: 16px 14px; margin-bottom: 24px; }
   .invoice-confirm-facts > div { grid-template-columns: 96px 1fr; gap: 8px; }
   .workspace-head__meta { gap: 8px; }
+  .dashboard-review-link { grid-template-columns: 1fr; }
+  .dashboard-review-link a,.dashboard-review-link button { min-height: 44px; justify-content: center; }
 }
 
 @media print {

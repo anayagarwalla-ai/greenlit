@@ -26,6 +26,20 @@ export async function betaAccessAllowedFresh(user: Pick<User, "email"> | string 
   return configured;
 }
 
+export async function activateBetaInviteAfterEmailProof(email: string | null | undefined) {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  const database = getSupabaseAdmin();
+  if (!database) return betaEmailAllowed(normalized);
+  const { data, error } = await database.from("beta_invites")
+    .update({ status: "ACTIVE", removed_at: null })
+    .eq("email", normalized)
+    .in("status", ["INVITED", "ACTIVE"])
+    .select("id")
+    .maybeSingle();
+  return !error && Boolean(data);
+}
+
 export function betaEmailAllowed(email: string | null | undefined) {
   const allowed = configuredEmails("BETA_ALLOWED_EMAILS");
   if (allowed.size === 0) return process.env.NODE_ENV !== "production";

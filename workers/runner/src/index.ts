@@ -24,8 +24,9 @@ type EvidenceArtifact = {
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
-const RUNNER_VERSION = "0.7.2";
+const RUNNER_VERSION = "0.8.0";
 const JOB_DEADLINE_MS = 48_000;
+const MAX_CONTROL_BODY_BYTES = 8_192;
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
 const axePageSource = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n${axe.source}`;
@@ -108,6 +109,31 @@ async function authenticatedRequest(request: Request, env: Env, body: string): P
   const supplied = request.headers.get("x-mp-signature") ?? "";
   if (!/^\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 300_000) return false;
   return constantTimeEqual(await signature(env.RUNNER_HMAC_SECRET, timestamp, body), supplied);
+}
+
+async function readLimitedBody(request: Request, maxBytes: number): Promise<string | null> {
+  const declared = request.headers.get("content-length");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let body = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      total += chunk.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      body += decoder.decode(chunk.value, { stream: true });
+    }
+    return body + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function authenticatedFetch(env: Env, path: string, payload: unknown): Promise<Response> {
@@ -255,9 +281,19 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
       const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, { leaseId: message.leaseId });
       if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
       const context = await browser.newContext({ serviceWorkers: "block", permissions: [], viewport: { width: 1280, height: 720 } });
-      await installNetworkIsolation(context, lease.targetOrigin);
+      let lastOriginValidationAt = 0;
+      let lastOriginValidation = false;
+      const validateTarget = async () => {
+        if (Date.now() - lastOriginValidationAt < 500) return lastOriginValidation;
+        const response = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, { leaseId: message.leaseId });
+        lastOriginValidationAt = Date.now();
+        lastOriginValidation = response.ok;
+        return response.ok;
+      };
+      await installNetworkIsolation(context, lease.targetOrigin, validateTarget);
       const page = await context.newPage();
       const addressValidations: Array<Promise<void>> = [];
+      let connectionFailure: Error | null = null;
       try {
         page.on("popup", (popup) => void popup.close());
         // DNS rebinding / TOCTOU defense: validate-origin only proves the
@@ -268,15 +304,20 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
         // otherwise reserved address, even if the pre-flight check passed.
         page.on("response", (response) => {
           if (!/^https?:/i.test(response.url())) return;
-          addressValidations.push(response.serverAddr().then((address) => {
+          const validation = response.serverAddr().then((address) => {
             if (!address?.ipAddress) throw new Error(`The runner could not verify the connected address for ${new URL(response.url()).hostname}.`);
             if (!addressMatchesFrozenSet(address.ipAddress, lease.originAddresses)) throw new Error(`Connection address ${address.ipAddress} does not match the job's frozen safe DNS set.`);
-          }));
+          }).catch(async (error) => {
+            connectionFailure = error instanceof Error ? error : new Error("The connected server address could not be verified.");
+            await page.close().catch(() => undefined);
+          });
+          addressValidations.push(validation);
         });
         const checkBudget = perCheckBudgetMs(deadline, Date.now(), lease.checks.length - checkIndex);
         const checkResult = await withinBudget(executeCheck(page, lease.targetOrigin, check), checkBudget, `Check ${check.id}`);
         await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
         await Promise.all(addressValidations);
+        if (connectionFailure) throw connectionFailure;
         const screenshot = new Uint8Array(await page.screenshot({ type: "jpeg", quality: 72 }));
         const evidence = { leaseId: message.leaseId, criterionId: check.criterionId, kind: "SCREENSHOT" as const, mimeType: "image/jpeg" as const, base64: base64(screenshot), sha256: await sha256Bytes(screenshot) };
         const uploaded = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/artifacts`, evidence);
@@ -306,9 +347,10 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "greenlit-runner", version: RUNNER_VERSION, queueConfigured: Boolean(env.JOB_QUEUE), browserConfigured: Boolean(env.BROWSER), webCallbackConfigured: Boolean(env.WEB_APP_URL && env.RUNNER_HMAC_SECRET) });
+    if (request.method === "GET" && url.pathname === "/health") return Response.json({ ok: true, service: "greenlit-runner" });
     if (request.method === "POST" && url.pathname === "/health/deep") {
-      const body = await request.text();
+      const body = await readLimitedBody(request, 1_024);
+      if (body === null) return Response.json({ error: "Request too large" }, { status: 413 });
       if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Unauthorized" }, { status: 401 });
       let browser: Awaited<ReturnType<typeof launchWithBackoff>> | null = null;
       try {
@@ -321,9 +363,12 @@ export default {
       }
     }
     if (request.method !== "POST" || url.pathname !== "/v1/jobs") return new Response("Not found", { status: 404 });
-    const body = await request.text();
+    const body = await readLimitedBody(request, MAX_CONTROL_BODY_BYTES);
+    if (body === null) return Response.json({ error: "Request too large" }, { status: 413 });
     if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Invalid or expired signature" }, { status: 401 });
-    const job = jobSchema.safeParse(JSON.parse(body));
+    let input: unknown;
+    try { input = JSON.parse(body); } catch { return Response.json({ error: "Invalid job" }, { status: 422 }); }
+    const job = jobSchema.safeParse(input);
     if (!job.success) return Response.json({ error: "Invalid job" }, { status: 422 });
     await env.JOB_QUEUE.send({ jobId: job.data.jobId, attempt: 1, leaseId: crypto.randomUUID() });
     return Response.json({ accepted: true, jobId: job.data.jobId }, { status: 202 });

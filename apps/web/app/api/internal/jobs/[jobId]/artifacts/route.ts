@@ -4,6 +4,7 @@ import { z } from "zod";
 import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { EVIDENCE_RETENTION_DAYS, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
+import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 const schema = z.object({
   leaseId: z.string().uuid(),
@@ -15,7 +16,9 @@ const schema = z.object({
 });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
-  const body = await request.text();
+  let body: string;
+  try { body = await readLimitedBody(request, 1_300_000); }
+  catch (error) { if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes); throw error; }
   const secret = process.env.RUNNER_HMAC_SECRET;
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
   const parsed = schema.safeParse(JSON.parse(body));
@@ -34,7 +37,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     if (sha256(bytes) !== parsed.data.sha256) return NextResponse.json({ error: "Evidence hash mismatch." }, { status: 422, headers: noStoreJsonHeaders() });
     const extension = parsed.data.mimeType === "image/jpeg" ? "jpg" : parsed.data.mimeType === "image/png" ? "png" : "json";
     const storagePath = `${job.record_id}/${jobId}/${parsed.data.criterionId}-${parsed.data.leaseId}-${parsed.data.kind.toLowerCase()}.${extension}`;
-    const { error: uploadError } = await database.storage.from("evidence").upload(storagePath, bytes, { contentType: parsed.data.mimeType, upsert: true, cacheControl: "300" });
+    const { error: uploadError } = await database.storage.from("evidence").upload(storagePath, bytes, { contentType: parsed.data.mimeType, upsert: true, cacheControl: "0" });
     if (uploadError) throw new Error(`Evidence upload failed: ${uploadError.message}`);
     const expiresAt = new Date(Date.now() + EVIDENCE_RETENTION_DAYS * 86_400_000).toISOString();
     const metadata = { criterionId: parsed.data.criterionId, kind: parsed.data.kind, mimeType: parsed.data.mimeType, byteSize: bytes.byteLength, sha256: parsed.data.sha256, storagePath, expiresAt };
@@ -42,6 +45,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     if (evidenceError) throw new Error(`Evidence metadata could not be recorded: ${evidenceError.message}`);
     return NextResponse.json({ artifact: metadata }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : "Evidence upload failed." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Evidence upload failed", cause instanceof Error ? cause.message : "unknown");
+    return NextResponse.json({ error: "Evidence upload failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

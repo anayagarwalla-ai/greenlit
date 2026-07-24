@@ -4,14 +4,17 @@ import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { logOperationalEvent } from "@/lib/operations";
+import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 const schema = z.object({ attempt: z.number().int().positive(), leaseId: z.string().uuid(), error: z.string().min(1).max(300) });
 
 export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) {
-  const body = await request.text();
+  let body: string;
+  try { body = await readLimitedBody(request, 8_000); }
+  catch (error) { if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes); throw error; }
   const secret = process.env.RUNNER_HMAC_SECRET;
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
-  const parsed = schema.safeParse(JSON.parse(body));
+  const parsed = schema.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
   if (!parsed.success) return NextResponse.json({ error: "Invalid failure payload." }, { status: 422, headers: noStoreJsonHeaders() });
   const { jobId } = await context.params;
 
@@ -27,6 +30,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     }
     return NextResponse.json({ jobId, accepted: true }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failure could not be recorded." }, { status: 503, headers: noStoreJsonHeaders() });
+    console.error("Runner failure callback failed", error instanceof Error ? error.message : "unknown");
+    return NextResponse.json({ error: "Failure could not be recorded." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

@@ -11,7 +11,12 @@ export async function getSupabaseServerClient() {
       getAll: () => store.getAll(),
       setAll: (values) => {
         try {
-          for (const value of values) store.set(value.name, value.value, value.options);
+          for (const value of values) store.set(value.name, value.value, {
+            ...value.options,
+            httpOnly: true,
+            sameSite: "lax",
+            secure: process.env.NODE_ENV === "production",
+          });
         } catch {
           // Server Components cannot always write refreshed cookies. Route handlers can.
         }

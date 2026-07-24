@@ -69,16 +69,16 @@ test("a blocked local store shows an honest save-failed state with a working ret
   await expect(page.getByText("This browser is not saving drafts.")).toBeHidden();
 });
 
-test("an anonymous draft older than 24 hours is purged on the next visit", async ({ page }) => {
+test("an anonymous draft older than 30 minutes is purged on the next visit", async ({ page }) => {
   await page.goto("/workspace");
-  const draftKeys = () => page.evaluate(() => Object.keys(window.localStorage).filter((key) => key.startsWith("greenlit-draft-v4:anon:")));
+  const draftKeys = () => page.evaluate(() => Object.keys(window.sessionStorage).filter((key) => key.startsWith("greenlit-draft-v4:anon:")));
   await page.getByLabel("Paste SOW text").fill("The launch page must display a visible Get started button on the home page for every visitor session.");
   await expect.poll(draftKeys).toHaveLength(1);
   const expiredDraftKey = (await draftKeys())[0]!;
-  // Backdate the saved-at stamp beyond the 24-hour retention window.
+  // Backdate the saved-at stamp beyond the 30-minute retention window.
   await page.evaluate(() => {
-    for (const key of Object.keys(window.localStorage)) {
-      if (key.startsWith("greenlit-draft-saved-v4:anon:")) window.localStorage.setItem(key, String(Date.now() - 25 * 60 * 60_000));
+    for (const key of Object.keys(window.sessionStorage)) {
+      if (key.startsWith("greenlit-draft-saved-v4:anon:")) window.sessionStorage.setItem(key, String(Date.now() - 31 * 60_000));
     }
   });
   await page.goto("/workspace");
@@ -86,7 +86,7 @@ test("an anonymous draft older than 24 hours is purged on the next visit", async
   // The workspace may autosave a new blank draft immediately; the important
   // guarantee is that the expired draft and its SOW content are gone.
   expect(await draftKeys()).not.toContain(expiredDraftKey);
-  expect(await page.evaluate((key) => window.localStorage.getItem(key), expiredDraftKey)).toBeNull();
+  expect(await page.evaluate((key) => window.sessionStorage.getItem(key), expiredDraftKey)).toBeNull();
 });
 
 test("a cross-device retained draft requires and accepts the exact pasted SOW before verification", async ({ page }) => {

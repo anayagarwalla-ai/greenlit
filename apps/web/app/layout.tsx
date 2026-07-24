@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import "./globals.css";
 import { LegalFooter } from "@/components/legal-footer";
 import { FeedbackWidget } from "@/components/feedback-widget";
@@ -27,7 +28,10 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // A strict nonce-based CSP requires request-time rendering so Next can apply
+  // the fresh nonce to its framework and hydration scripts.
+  await connection();
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body><a className="skip-link" href="#main-content">Skip to main content</a><div id="main-content" tabIndex={-1}>{children}</div><LegalFooter /><FeedbackWidget /></body>
