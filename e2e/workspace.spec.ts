@@ -103,6 +103,7 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   }) }));
   let submitted: Record<string, unknown> | null = null;
   let invoicePlan: Record<string, unknown> | null = null;
+  let reviewRequest: Record<string, unknown> | null = null;
   await page.route("**/api/account/stripe", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ configured: true, connection: { accountId: "acct_test", livemode: false, status: "CONNECTED" } }) }));
   await page.route("**/api/account/stripe/customers**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ customers: [{ id: "cus_test1", name: "Acme Outdoors LLC", email: "billing@acme.test" }] }) }));
   await page.route(`**/api/account/records/${recordId}/invoice-plan`, async (route) => {
@@ -114,6 +115,10 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ runId: "new-run", recordId, status: "QUEUED" }) });
   });
   await page.route("**/api/runs/new-run", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runId: "new-run", recordId, status: "COMPLETED", outcome: "READY_FOR_REVIEW", buildUrl: "http://127.0.0.1:3008/fixture/rc2", buildLabel: "launch-rc2", results: criteria.map((criterion) => ({ criterionId: criterion.id, status: "PASS", expected: "Expected", observed: "Observed", durationMs: 10, timestamp: "2026-07-20T20:01:00.000Z" })), artifacts: [], browserVersion: "test", runnerVersion: "test", manifestSha256: "b".repeat(64), completedAt: "2026-07-20T20:01:00.000Z", record: { public_id: "MP-TEST", revision: 1, confirmed_criteria: criteria } }) }));
+  await page.route("**/api/reviews", async (route) => {
+    reviewRequest = await route.request().postDataJSON();
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ packetId: "REVIEW-DEADLINE", reviewUrl: "http://127.0.0.1:3000/review/REVIEW-DEADLINE#t=test-token", accessCode: "ABC123XYZ789", reviewerEmail: "reviewer@acme.test", expiresAt: new Date(Date.now() + 120 * 3_600_000).toISOString(), snapshotSha256: "d".repeat(64) }) });
+  });
 
   await page.goto(`/workspace?record=${recordId}`);
   await expect(page.getByRole("heading", { name: "One automated check needs work." })).toBeVisible();
@@ -140,6 +145,15 @@ test("a retained imported fixture reruns rc2 directly instead of opening custom-
   expect(submitted).not.toHaveProperty("targetUrl");
   expect(submitted).not.toHaveProperty("checks");
   expect(submitted).not.toHaveProperty("originReceipt");
+  await page.getByRole("button", { name: "Create client review" }).click();
+  const reviewDialog = page.getByRole("dialog", { name: "Set the client decision window" });
+  await expect(reviewDialog).toBeVisible();
+  await reviewDialog.getByLabel("Authorized reviewer email").fill("reviewer@acme.test");
+  await reviewDialog.getByLabel("Response window").selectOption("120");
+  await expect(reviewDialog.getByText(/Decision due/)).toBeVisible();
+  await reviewDialog.getByRole("button", { name: "Create secure review" }).click();
+  await expect(page.getByRole("heading", { name: "Review packet created." })).toBeVisible();
+  expect(reviewRequest).toMatchObject({ recordId, runId: "new-run", reviewerEmail: "reviewer@acme.test", expiryHours: 120 });
 });
 
 test("an expired retained run returns to a retryable setup instead of an endless spinner", async ({ page }) => {

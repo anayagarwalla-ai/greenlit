@@ -9,6 +9,7 @@ import { formatTimestamp } from "@/lib/format";
 import { signOutAndClearDraftState } from "@/lib/client-storage";
 import { canCreateReviewLink } from "@/lib/review-lifecycle";
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
+import { ReviewSetupDialog, type ReviewExpiryHours } from "@/components/review-setup-dialog";
 
 type Run = { id: string; status: string; build_label: string; build_url: string; last_error?: string | null; completed_at?: string | null; created_at: string };
 type Review = { public_id: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewer_name?: string | null; reviewer_email?: string | null; reviewer_note?: string | null; decided_at?: string | null; expires_at: string; revoked_at?: string | null; created_at: string };
@@ -18,7 +19,7 @@ type Correction = { record_id: string; field_name: string; corrected_value: stri
 type RecordItem = { id: string; public_id: string; agency_name: string; client_name: string; project_name: string; milestone_title: string; amount_minor: number; currency: string; target_origin: string; revision: number; status: string; updated_at: string; latestRun?: Run | null; latestReview?: Review | null; latestInvoice?: Invoice | null; latestInvoiceJob?: InvoiceJob | null; invoicePlan?: { auto_send: boolean; billing_email: string; days_until_due: number } | null; corrections?: Correction[] | null };
 type Notice = { id: string; record_id?: string | null; event_type: string; title: string; body: string; read_at?: string | null; created_at: string };
 type DashboardPayload = { user: { id: string; email?: string }; stripe: { configured: boolean; connection: null | { accountId: string; livemode: boolean; status: string; lastError?: string | null } }; records: RecordItem[]; notifications: Notice[]; error?: string };
-type ShareGrant = { url: string; accessCode: string; recipientEmail: string };
+type ShareGrant = { url: string; accessCode: string; recipientEmail: string; expiresAt?: string };
 
 const money = (amount: number, currency: string) => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
 
@@ -42,9 +43,11 @@ export function AgencyDashboard() {
   const [reviewLinks, setReviewLinks] = useState<Record<string, ShareGrant>>({});
   const [receiptLinks, setReceiptLinks] = useState<Record<string, ShareGrant>>({});
   const [invoiceRecord, setInvoiceRecord] = useState<RecordItem | null>(null);
+  const [reviewSetupRecord, setReviewSetupRecord] = useState<RecordItem | null>(null);
   const [renderedAt] = useState(() => Date.now());
   const invoiceDialogRef = useRef<HTMLElement>(null);
   const invoiceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const reviewTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,17 +93,16 @@ export function AgencyDashboard() {
     return () => { document.removeEventListener("keydown", keydown); invoiceTriggerRef.current?.focus(); };
   }, [invoiceRecord]);
 
-  const createReview = async (record: RecordItem) => {
+  const createReview = async (record: RecordItem, { reviewerEmail, expiryHours }: { reviewerEmail: string; expiryHours: ReviewExpiryHours }) => {
     if (!record.latestRun) return;
-    const reviewerEmail = window.prompt("Client business email for this one-time review", record.invoicePlan?.billing_email ?? record.latestReview?.reviewer_email ?? "")?.trim();
-    if (!reviewerEmail) return;
     setBusy(`review:${record.id}`);
     setError("");
     try {
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id, reviewerEmail }) });
+      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id, reviewerEmail, expiryHours }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "A new review link could not be created.");
-      setReviewLinks((current) => ({ ...current, [record.id]: { url: payload.reviewUrl, accessCode: payload.accessCode, recipientEmail: payload.reviewerEmail } }));
+      setReviewLinks((current) => ({ ...current, [record.id]: { url: payload.reviewUrl, accessCode: payload.accessCode, recipientEmail: payload.reviewerEmail, expiresAt: payload.expiresAt } }));
+      setReviewSetupRecord(null);
       try { await navigator.clipboard.writeText(payload.reviewUrl); setCopied(record.id); } catch { setCopied(""); setError("Review created, but clipboard access is unavailable. Copy the visible link manually."); }
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "A new review link could not be created."); }
@@ -211,7 +213,7 @@ export function AgencyDashboard() {
             {record.status === "APPROVED" && noCharge && <div className="no-charge-note">No-charge milestone — {money(0, record.currency)}. There is nothing to invoice; the approval record stands on its own.</div>}
             <div className="record-card__actions">
               {record.status !== "APPROVED" && <Link className="button button--outline button--small" href={`/workspace?record=${record.id}` as Route}>{review?.decision === "CHANGES_REQUESTED" ? "Revise and rerun" : "Resume project"} <ArrowRight size={13} /></Link>}
-              {canCreateReview && <button className="button button--ink button--small" onClick={() => void createReview(record)} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
+              {canCreateReview && <button className="button button--ink button--small" onClick={(event) => { reviewTriggerRef.current = event.currentTarget; setError(""); setReviewSetupRecord(record); }} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
               {review && !review.decision && !review.revoked_at && !expired && <><button className="text-action" onClick={() => void reviewAction(record, "extend")}><Clock3 size={12} /> Extend 72h</button><button className="text-action text-action--danger" onClick={() => void reviewAction(record, "revoke")}>Revoke</button></>}
               {review?.decision === "APPROVED" && <button className="text-action" disabled={busy === `receipt:${record.id}`} onClick={() => void createReceiptLink(record)}><Clipboard size={12} /> {busy === `receipt:${record.id}` ? "Creating…" : "Create client receipt link"}</button>}
               {record.status === "APPROVED" && !noCharge && !record.latestInvoice && record.latestInvoiceJob?.status !== "PROCESSING" && record.latestInvoiceJob?.status !== "PENDING" && <button className="button button--ink button--small" onClick={(event) => { invoiceTriggerRef.current = event.currentTarget; setInvoiceRecord(record); }}><ReceiptText size={13} /> {record.latestInvoiceJob?.status === "FAILED" ? "Review & retry invoice" : data.stripe.connection?.livemode ? "Send invoice" : "Create test invoice"}</button>}
@@ -219,7 +221,7 @@ export function AgencyDashboard() {
               {(() => {
                 const sharedReview = reviewLinks[record.id];
                 if (!sharedReview) return null;
-                return <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={sharedReview.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReview.url); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy link"}</button><a href={sharedReview.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReview.accessCode}</strong><small>For {sharedReview.recipientEmail}. Share the code separately from the link.</small></div>;
+                return <div className="dashboard-review-link"><input aria-label={`Review link for ${record.milestone_title}`} readOnly value={sharedReview.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReview.url); setCopied(record.id); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === record.id ? <Check size={12} /> : <Clipboard size={12} />} {copied === record.id ? "Copied" : "Copy link"}</button><a href={sharedReview.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReview.accessCode}</strong><small>For {sharedReview.recipientEmail}. {sharedReview.expiresAt ? `Decision due ${formatTimestamp(new Date(sharedReview.expiresAt))}. ` : ""}Share the code separately from the link.</small></div>;
               })()}
               {(() => {
                 const sharedReceipt = receiptLinks[record.id];
@@ -229,6 +231,7 @@ export function AgencyDashboard() {
           </article>;
         })}</section>}
       </div>
+      {reviewSetupRecord && <ReviewSetupDialog initialEmail={reviewSetupRecord.invoicePlan?.billing_email ?? reviewSetupRecord.latestReview?.reviewer_email ?? ""} busy={busy === `review:${reviewSetupRecord.id}`} error={error} returnFocusRef={reviewTriggerRef} onClose={() => { if (!busy.startsWith("review:")) { setReviewSetupRecord(null); setError(""); } }} onSubmit={(details) => void createReview(reviewSetupRecord, details)} />}
       {invoiceRecord && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setInvoiceRecord(null); }}><section ref={invoiceDialogRef} className="dialog invoice-dialog" role="dialog" aria-modal="true" aria-labelledby="invoice-dialog-title"><button className="dialog-close" onClick={() => setInvoiceRecord(null)} aria-label="Close invoice setup"><X size={17} /></button><h2 id="invoice-dialog-title" tabIndex={-1}>Invoice approved work</h2><p>Confirm the billing contact. Greenlit will create one Stripe invoice for this retained approval and save its status.</p><InvoicePlanCard recordId={invoiceRecord.id} clientName={invoiceRecord.client_name} projectName={invoiceRecord.project_name} milestoneTitle={invoiceRecord.milestone_title} amountMinor={invoiceRecord.amount_minor} currency={invoiceRecord.currency} mode="approved" onComplete={() => { window.setTimeout(() => { setInvoiceRecord(null); void load(); }, 900); }} /></section></div>}
     </main>
   );

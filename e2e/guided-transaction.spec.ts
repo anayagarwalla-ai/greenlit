@@ -43,3 +43,21 @@ test("review decision controls remain reachable on a short mobile screen", async
   await dialog.press("Escape");
   await expect(dialog).toBeHidden();
 });
+
+test("a client labels new scope separately from a correction to the frozen milestone", async ({ page }) => {
+  await page.goto("/review/demo");
+  await page.getByRole("button", { name: "Request changes" }).click();
+  const dialog = page.getByRole("dialog", { name: "Request changes" });
+  await expect(dialog.getByText("Correction to agreed scope")).toBeVisible();
+  await expect(dialog.getByText("New request outside this milestone")).toBeVisible();
+  await dialog.getByLabel(/New request outside this milestone/).check();
+  await dialog.getByLabel("Your full name").fill("Sample Reviewer");
+  await dialog.getByLabel("Reviewer email").fill("reviewer@example.test");
+  await dialog.getByLabel("Note").fill("Please add a customer portal to this launch.");
+  await dialog.getByLabel(/I intend to request these changes/).check();
+  await dialog.getByLabel(/I accept the Terms/).check();
+  await dialog.getByLabel(/I understand this is a synthetic walkthrough/).check();
+  await dialog.getByRole("button", { name: "Confirm request" }).click();
+  await expect(page.getByRole("heading", { name: "Changes requested." })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(window.localStorage.getItem("greenlit-demo-decision") ?? "{}").reviewerNote ?? "")).toContain("Potential scope change");
+});

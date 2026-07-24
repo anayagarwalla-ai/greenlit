@@ -12,18 +12,25 @@ import { processInvoiceJob } from "@/lib/stripe-invoicing";
 const schema = z.object({
   decision: z.enum(["APPROVED", "CHANGES_REQUESTED"]),
   reviewerName: z.string().trim().min(2).max(160),
-  reviewerNote: z.string().trim().max(2_000).default(""),
+  reviewerNote: z.string().trim().max(1_700).default(""),
+  changeType: z.enum(["CRITERION_CORRECTION", "OUT_OF_SCOPE"]).optional(),
+  changeCriterionId: z.string().trim().max(80).optional(),
   intentConfirmed: z.literal(true),
   electronicRecordsConsent: z.literal(true),
   legalTermsAccepted: z.literal(true),
   noticeVersion: z.literal(RECORD_NOTICE_VERSION),
+}).superRefine((value, context) => {
+  if (value.decision !== "CHANGES_REQUESTED") return;
+  if (!value.reviewerNote) context.addIssue({ code: "custom", path: ["reviewerNote"], message: "Describe the requested change." });
+  if (!value.changeType) context.addIssue({ code: "custom", path: ["changeType"], message: "Classify the requested change." });
+  if (value.changeType === "CRITERION_CORRECTION" && !value.changeCriterionId) context.addIssue({ code: "custom", path: ["changeCriterionId"], message: "Choose the criterion that needs correction." });
 });
 
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "review-decision-hour", 10, 3_600);
   if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
   const parsed = schema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Name, business email, authority, Terms acceptance, and electronic-record consent are required." }, { status: 422, headers: noStoreJsonHeaders() });
+  if (!parsed.success) return NextResponse.json({ error: "Name, change classification, authority, Terms acceptance, and electronic-record consent are required." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
   const session = (await cookies()).get(reviewSessionCookieName(packetId))?.value;
   if (!session) return NextResponse.json({ error: "The secure review session has expired." }, { status: 401, headers: noStoreJsonHeaders() });
@@ -40,12 +47,21 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     const actorHash = requestActorHash(request);
     const reviewerEmail = packet.intended_reviewer_email?.trim().toLowerCase();
     if (!reviewerEmail) return NextResponse.json({ error: "This legacy review is not bound to a recipient. Ask the agency for a new secure review link." }, { status: 409, headers: noStoreJsonHeaders() });
-    const decisionRecord = { packetId, snapshotSha256: packet.snapshot_sha256, decision: parsed.data.decision, reviewerName: parsed.data.reviewerName, reviewerEmail, reviewerNote: parsed.data.reviewerNote, intentConfirmed: true, legalTermsAccepted: true, electronicRecordsConsent: true, noticeVersion: parsed.data.noticeVersion, actorHash, decidedAt };
+    const snapshotCriteria = Array.isArray((packet.snapshot as { criteria?: unknown[] }).criteria) ? (packet.snapshot as { criteria: Array<{ id?: string }> }).criteria : [];
+    if (parsed.data.decision === "CHANGES_REQUESTED" && parsed.data.changeType === "CRITERION_CORRECTION" && !snapshotCriteria.some((criterion) => criterion.id === parsed.data.changeCriterionId)) {
+      return NextResponse.json({ error: "The selected acceptance criterion is not part of this frozen review." }, { status: 422, headers: noStoreJsonHeaders() });
+    }
+    const recordedReviewerNote = parsed.data.decision === "CHANGES_REQUESTED"
+      ? parsed.data.changeType === "OUT_OF_SCOPE"
+        ? `[Potential scope change · outside frozen milestone] ${parsed.data.reviewerNote}`
+        : `[Needs correction · ${parsed.data.changeCriterionId}] ${parsed.data.reviewerNote}`
+      : parsed.data.reviewerNote;
+    const decisionRecord = { packetId, snapshotSha256: packet.snapshot_sha256, decision: parsed.data.decision, reviewerName: parsed.data.reviewerName, reviewerEmail, reviewerNote: recordedReviewerNote, intentConfirmed: true, legalTermsAccepted: true, electronicRecordsConsent: true, noticeVersion: parsed.data.noticeVersion, actorHash, decidedAt };
     const provisionalReceiptSha256 = sha256(canonicalJson({ snapshot: packet.snapshot, decision: decisionRecord }));
     const receiptSession = randomToken();
     const receiptExpiresAt = receiptSessionExpiry();
     const deliveryStatus = process.env.NOTIFICATION_WEBHOOK_URL ? "PENDING_EMAIL" : "IN_APP";
-    const { data: decisionData, error: updateError } = await database.rpc("record_review_decision_with_notification_atomic", { p_packet_id: packet.id, p_decision: parsed.data.decision, p_reviewer_name: parsed.data.reviewerName, p_reviewer_email: reviewerEmail, p_reviewer_note: parsed.data.reviewerNote, p_notice_version: parsed.data.noticeVersion, p_actor_hash: actorHash, p_country_code: request.headers.get("x-vercel-ip-country") ?? null, p_decided_at: decidedAt, p_receipt_sha256: provisionalReceiptSha256, p_delivery_status: deliveryStatus, p_receipt_session_hash: sha256(receiptSession), p_receipt_session_expires_at: receiptExpiresAt });
+    const { data: decisionData, error: updateError } = await database.rpc("record_review_decision_with_notification_atomic", { p_packet_id: packet.id, p_decision: parsed.data.decision, p_reviewer_name: parsed.data.reviewerName, p_reviewer_email: reviewerEmail, p_reviewer_note: recordedReviewerNote, p_notice_version: parsed.data.noticeVersion, p_actor_hash: actorHash, p_country_code: request.headers.get("x-vercel-ip-country") ?? null, p_decided_at: decidedAt, p_receipt_sha256: provisionalReceiptSha256, p_delivery_status: deliveryStatus, p_receipt_session_hash: sha256(receiptSession), p_receipt_session_expires_at: receiptExpiresAt });
     if (updateError) return NextResponse.json({ error: "Another decision was recorded first, or this review is no longer available. Refresh the review." }, { status: 409, headers: noStoreJsonHeaders() });
     const committedDecision = decisionData && typeof decisionData === "object" ? decisionData as { notificationId?: string | null; receiptSha256?: string; auditSequence?: number; invoiceJobId?: string | null } : null;
     const notificationId = committedDecision?.notificationId ?? null;
@@ -64,7 +80,7 @@ export async function POST(request: Request, context: { params: Promise<{ packet
       else try { await deliverNotification(notification as NotificationPayload); }
       catch (deliveryError) { await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "NOTIFICATION_STATUS_UPDATE_FAILED", recordId: packet.record_id, details: { notificationId, error: deliveryError instanceof Error ? deliveryError.message : "Notification delivery status failed" } }); }
     }
-    await logProductEvent({ eventType: "REVIEW_DECIDED", recordId: packet.record_id, properties: { status: parsed.data.decision } });
+    await logProductEvent({ eventType: "REVIEW_DECIDED", recordId: packet.record_id, properties: { status: parsed.data.decision, changeType: parsed.data.changeType ?? null, changeCriterionId: parsed.data.changeCriterionId ?? null } });
     const response = NextResponse.json({ decision: parsed.data.decision, decidedAt, receiptSha256, auditSequence: committedDecision?.auditSequence ?? null, invoiceStatus: committedDecision?.invoiceJobId ? "QUEUED" : null, receiptUrl: `/receipt/${packetId}`, receiptAccessExpiresAt: receiptExpiresAt }, { headers: noStoreJsonHeaders() });
     response.cookies.set(receiptSessionCookieName(packetId), receiptSession, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 30 * 24 * 60 * 60 });
     return response;

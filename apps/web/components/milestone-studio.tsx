@@ -40,6 +40,7 @@ import {
 import { Brand } from "@/components/brand";
 import { VerificationSetup, type CustomRunConfiguration, type VerificationSetupDraft } from "@/components/verification-setup";
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
+import { ReviewSetupDialog, type ReviewExpiryHours } from "@/components/review-setup-dialog";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
 import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { formatDuration, formatTimestamp } from "@/lib/format";
@@ -255,6 +256,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const [reviewAccessCode, setReviewAccessCode] = useState("");
   const [reviewerEmail, setReviewerEmail] = useState("");
   const [reviewPacketId, setReviewPacketId] = useState("");
+  const [reviewExpiresAt, setReviewExpiresAt] = useState("");
+  const [reviewSetupOpen, setReviewSetupOpen] = useState(false);
   const [changeRequest, setChangeRequest] = useState("");
   const [sessionEmail, setSessionEmail] = useState("");
   const [customRun, setCustomRun] = useState<CustomRunConfiguration | null>(null);
@@ -273,6 +276,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const draftHydrated = useRef(false);
   const launchDemoRef = useRef<() => void>(() => undefined);
   const phaseHeading = useRef<HTMLHeadingElement | null>(null);
+  const reviewTriggerRef = useRef<HTMLButtonElement | null>(null);
   const currentStep = phaseOrder[phase];
   const status = phaseStatus(phase, Boolean(sourceText.trim() || selectedFile));
   const canRunImportedFixture = fixtureCriteriaCompatible(sourceText, criteria);
@@ -1003,7 +1007,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     else startRun(false, sourceMode === "live" ? null : undefined);
   };
 
-  const share = async () => {
+  const share = async ({ reviewerEmail: intendedEmail, expiryHours }: { reviewerEmail: string; expiryHours: ReviewExpiryHours }) => {
     if (!latestRun) return;
     setReviewBusy(true);
     setRunError("");
@@ -1017,10 +1021,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         setToast("Synthetic client walkthrough ready");
         return;
       }
-      const intendedEmail = window.prompt("Client business email for this one-time review", reviewerEmail)?.trim();
-      if (!intendedEmail) throw new Error("Enter the intended client's business email before creating the review.");
       if (!recordId) throw new Error("The retained milestone record is unavailable.");
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail }) });
+      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
       const payload = await response.json();
       if (response.status === 409 && payload.activePacketId) {
         setReviewPacketId(payload.activePacketId);
@@ -1030,13 +1032,15 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         const revoked = await fetch(`/api/account/reviews/${encodeURIComponent(payload.activePacketId)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revoke" }) });
         const revokedPayload = await revoked.json();
         if (!revoked.ok) throw new Error(revokedPayload.error ?? "The existing review link could not be revoked.");
-        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail }) });
+        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
         const replacementPayload = await replacement.json();
         if (!replacement.ok) throw new Error(replacementPayload.error ?? "The replacement review link could not be created.");
         setReviewUrl(replacementPayload.reviewUrl);
         setReviewAccessCode(replacementPayload.accessCode);
         setReviewerEmail(replacementPayload.reviewerEmail);
         setReviewPacketId(replacementPayload.packetId);
+        setReviewExpiresAt(replacementPayload.expiresAt);
+        setReviewSetupOpen(false);
         setPhase("shared");
         setToast("Old review revoked; replacement link created");
         return;
@@ -1046,6 +1050,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       setReviewAccessCode(payload.accessCode);
       setReviewerEmail(payload.reviewerEmail);
       setReviewPacketId(payload.packetId);
+      setReviewExpiresAt(payload.expiresAt);
+      setReviewSetupOpen(false);
       setPhase("shared");
       setReviewCreated(true);
       setToast("Secure client review created");
@@ -1070,7 +1076,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     // it — never persisted — so if it's gone (e.g. after a reload) a fresh
     // review packet is minted rather than trying to resurrect the old link.
     if (reviewUrl) setPhase("shared");
-    else void share();
+    else if (sourceMode === "demo") void share({ reviewerEmail: "demo@example.test", expiryHours: 72 });
+    else setReviewSetupOpen(true);
   };
 
   const openApprovalRecord = async () => {
@@ -1223,10 +1230,11 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} initialDraftState={verificationDraft} onDraftChange={setVerificationDraft} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
-          {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={() => void share()} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} accessCode={reviewAccessCode} reviewerEmail={reviewerEmail} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
+          {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={(trigger) => { if (sourceMode === "demo") { void share({ reviewerEmail: "demo@example.test", expiryHours: 72 }); } else { reviewTriggerRef.current = trigger; setRunError(""); setReviewSetupOpen(true); } }} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
+          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} accessCode={reviewAccessCode} reviewerEmail={reviewerEmail} expiresAt={reviewExpiresAt} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
+      {reviewSetupOpen && <ReviewSetupDialog initialEmail={reviewerEmail} busy={reviewBusy} error={runError} returnFocusRef={reviewTriggerRef} onClose={() => { if (!reviewBusy) { setReviewSetupOpen(false); setRunError(""); } }} onSubmit={(details) => void share(details)} />}
       {toast && <div className="toast" role="status"><CheckCircle2 size={16} color="var(--lime)" /> {toast}</div>}
     </main>
   );
@@ -1558,7 +1566,7 @@ function RunLoading({ second, seeded }: { second: boolean; seeded: boolean }) {
   );
 }
 
-function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false, invoicePlan }: { run: RunResponse; criteria: Array<{ id: string; title: string; supported?: boolean; checkType?: CheckType }>; onRerun?: () => void; onShare?: () => void; shareBusy?: boolean; invoicePlan?: React.ReactNode }) {
+function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false, invoicePlan }: { run: RunResponse; criteria: Array<{ id: string; title: string; supported?: boolean; checkType?: CheckType }>; onRerun?: () => void; onShare?: (trigger: HTMLButtonElement) => void; shareBusy?: boolean; invoicePlan?: React.ReactNode }) {
   const isPass = run.outcome === "READY_FOR_REVIEW";
   const passed = run.results.filter((result) => result.status === "PASS").length;
   const totalDuration = run.results.reduce((sum, result) => sum + result.durationMs, 0);
@@ -1609,14 +1617,14 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
         <div><h3>{run.seededDemo ? isPass ? "Continue the sample client journey." : "A polished UI can hide a broken handoff." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "A polished UI hid a broken handoff." : "The evidence needs another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only sample review that creates no transaction record." : "Show the fixed rc2 sample against the same frozen promises." : isPass ? "Create a focused review page with the latest passing evidence." : "The fixed rc2 build is ready. Rerun the same frozen checks—no re-analysis needed."}</p></div>
         <div className="action-banner__buttons">
           {!isPass && <a className="button button--outline" href={run.buildUrl} target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
-          <button className="button button--lime" disabled={shareBusy} onClick={isPass ? onShare : onRerun}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
+          <button className="button button--lime" disabled={shareBusy} onClick={(event) => { if (isPass) onShare?.(event.currentTarget); else onRerun?.(); }}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
         </div>
       </div>
     </>
   );
 }
 
-function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
+function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, expiresAt, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; expiresAt: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
@@ -1624,7 +1632,7 @@ function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, pa
         <h2>{demo ? "Synthetic client walkthrough ready." : "Review packet created."}</h2>
         <p>{demo ? `This reliable presentation path shows ${clientName}’s ${criteriaCount}-criterion decision experience without creating or implying a retained transaction.` : `${clientName} gets a focused, no-account page containing only the ${criteriaCount} confirmed promises and the latest passing evidence.`}</p>
         <div className="share-box">
-          <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/{demo ? "demo" : "••••••••"}</span><small>{demo ? "Synthetic · local-only decision · not retained" : "Expires in 72 hours · one final decision"}</small></div>
+          <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/{demo ? "demo" : "••••••••"}</span><small>{demo ? "Synthetic · local-only decision · not retained" : `Decision due ${formatTimestamp(new Date(expiresAt))} · one final decision`}</small></div>
           <button className="button button--outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button>
         </div>
         {!demo && <div className="share-access-code"><span>Separate access code</span><strong>{accessCode}</strong><small>Bound to {reviewerEmail}. Send this code separately from the review link; the link can be redeemed only once.</small></div>}

@@ -14,6 +14,7 @@ const schema = z.object({
   recordId: z.string().uuid(),
   runId: z.string().uuid(),
   reviewerEmail: z.string().trim().email().max(320),
+  expiryHours: z.union([z.literal(24), z.literal(48), z.literal(72), z.literal(120), z.literal(168)]).default(REVIEW_EXPIRY_HOURS),
 });
 
 export async function POST(request: Request) {
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
     const token = randomToken();
     const accessCode = sha256(randomToken()).slice(0, 12).toUpperCase();
     const intendedReviewerEmail = parsed.data.reviewerEmail.trim().toLowerCase();
-    const expiresAt = new Date(Date.now() + REVIEW_EXPIRY_HOURS * 3_600_000).toISOString();
+    const expiresAt = new Date(Date.now() + parsed.data.expiryHours * 3_600_000).toISOString();
     const snapshot = {
       packetPublicId,
       recordId: record.id,
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
       p_criteria_revision: record.criteria_revision,
     });
     if (error) throw new Error(`Review packet could not be recorded: ${error.message}`);
-    await logProductEvent({ eventType: "REVIEW_LINK_CREATED", ownerUserId: owner.userId, recordId: record.id, properties: { criteriaCount: record.confirmed_criteria.length, status: "ACTIVE" } });
+    await logProductEvent({ eventType: "REVIEW_LINK_CREATED", ownerUserId: owner.userId, recordId: record.id, properties: { criteriaCount: record.confirmed_criteria.length, expiryHours: parsed.data.expiryHours, status: "ACTIVE" } });
     const origin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? request.url).origin;
     return NextResponse.json({
       packetId: packetPublicId,

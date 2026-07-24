@@ -76,6 +76,8 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
+  const [changeType, setChangeType] = useState<"criterion" | "scope">("criterion");
+  const [changeCriterionId, setChangeCriterionId] = useState("");
   const [intent, setIntent] = useState(false);
   const [recordsConsent, setRecordsConsent] = useState(false);
   const [legalAccepted, setLegalAccepted] = useState(false);
@@ -151,7 +153,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { setDialog(null); return; }
       if (event.key !== "Tab" || !node) return;
-      const controls = Array.from(node.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href]'));
+      const controls = Array.from(node.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'));
       if (controls.length === 0) return;
       const first = controls[0];
       const last = controls[controls.length - 1];
@@ -165,7 +167,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
 
   const openDialog = (kind: "approve" | "changes", trigger: HTMLButtonElement) => {
     triggerRef.current = trigger;
-    setName(""); setEmail(demo ? "" : packet?.intendedReviewerEmail ?? ""); setNote(""); setIntent(false); setRecordsConsent(false); setLegalAccepted(false); setError(""); setDialog(kind);
+    setName(""); setEmail(demo ? "" : packet?.intendedReviewerEmail ?? ""); setNote(""); setChangeType("criterion"); setChangeCriterionId(packet?.snapshot.criteria[0]?.id ?? ""); setIntent(false); setRecordsConsent(false); setLegalAccepted(false); setError(""); setDialog(kind);
   };
 
   const redeemReview = async (event: FormEvent) => {
@@ -201,22 +203,27 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
     if (!dialog) return;
     setSubmitting(true); setError("");
     try {
+      const recordedNote = dialog === "changes"
+        ? changeType === "scope"
+          ? `[Potential scope change · outside frozen milestone] ${note.trim()}`
+          : `[Needs correction · ${changeCriterionId}] ${note.trim()}`
+        : note.trim();
       if (demo) {
         const decidedAt = new Date().toISOString();
         const decision = dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED";
-        setPacket((current) => current ? { ...current, decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt, receiptSha256: "synthetic-walkthrough-no-hash" } : current);
+        setPacket((current) => current ? { ...current, decision, reviewerName: name, reviewerEmail: email, reviewerNote: recordedNote, decidedAt, receiptSha256: "synthetic-walkthrough-no-hash" } : current);
         setDialog(null);
         if (decision === "APPROVED") {
           // Demo-only, ephemeral hand-off between the two synthetic
           // walkthrough pages — never a real bearer token or account data.
-          try { window.localStorage.setItem("greenlit-demo-decision", JSON.stringify({ reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt })); } catch { /* optional walkthrough convenience */ }
+          try { window.localStorage.setItem("greenlit-demo-decision", JSON.stringify({ reviewerName: name, reviewerEmail: email, reviewerNote: recordedNote, decidedAt })); } catch { /* optional walkthrough convenience */ }
         }
         return;
       }
-      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", reviewerName: name, reviewerNote: note, intentConfirmed: intent, electronicRecordsConsent: recordsConsent, legalTermsAccepted: legalAccepted, noticeVersion: RECORD_NOTICE_VERSION }) });
+      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: dialog === "approve" ? "APPROVED" : "CHANGES_REQUESTED", reviewerName: name, reviewerNote: note.trim(), ...(dialog === "changes" ? { changeType: changeType === "scope" ? "OUT_OF_SCOPE" : "CRITERION_CORRECTION", ...(changeType === "criterion" ? { changeCriterionId } : {}) } : {}), intentConfirmed: intent, electronicRecordsConsent: recordsConsent, legalTermsAccepted: legalAccepted, noticeVersion: RECORD_NOTICE_VERSION }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The decision could not be recorded.");
-      setPacket((current) => current ? { ...current, decision: payload.decision, reviewerName: name, reviewerEmail: email, reviewerNote: note, decidedAt: payload.decidedAt, receiptSha256: payload.receiptSha256 } : current);
+      setPacket((current) => current ? { ...current, decision: payload.decision, reviewerName: name, reviewerEmail: email, reviewerNote: recordedNote, decidedAt: payload.decidedAt, receiptSha256: payload.receiptSha256 } : current);
       setDialog(null);
       if (payload.decision === "APPROVED") {
         // Best-effort refresh so the decided view reports the real invoice/job
@@ -320,15 +327,17 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
         </> : <section className="panel approval-success" role="status" aria-live="polite"><div className="success-mark">{approved ? <Check size={30} strokeWidth={3} /> : <MessageSquareText size={28} />}</div><span className={`status-badge ${approved ? "status-badge--pass" : "status-badge--fail"}`}>{demo ? "Sample decision" : "Decision recorded"}</span><h2 ref={decisionHeadingRef} tabIndex={-1}>{approved ? "Milestone approved." : "Changes requested."}</h2><p>Thanks, {packet.reviewerName}. {demo ? "This decision exists only in your browser as part of the synthetic walkthrough." : "The decision is bound to this evidence snapshot and its append-only audit chain."}</p>{approved && !demo && invoiceDecisionNote && <p className="invoice-decision-note" role="status"><CreditCard size={14} /> {invoiceDecisionNote} No payment method was charged by this approval.{packet.invoice?.hosted_invoice_url && <> <a className="text-action" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer">Open the hosted Stripe invoice <ExternalLink size={12} /></a></>}</p>}{approved && <Link className="button button--lime" href={demo ? "/receipt/demo" : `/receipt/${packetId}`}>View {demo ? "sample" : "approval"} record <ArrowRight size={16} /></Link>}{!demo && <a className="text-action decision-export" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}>Download transaction JSON</a>}<div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO TRANSACTION EXPORT" : `${snapshot.recordPublicId} · RECEIPT ${packet.receiptSha256?.slice(0, 16)}…`}</div></section>}
       </div>
 
-      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.${snapshot.invoicePlan ? deliveryMode === "LIVE_EMAIL" ? ` It will also email the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : deliveryMode === "TEST_DRAFT" ? ` It will also create the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} invoice as a Stripe test draft — no email is sent.` : deliveryMode === "MANUAL_AFTER_APPROVAL" ? ` ${snapshot.agencyName} may invoice the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} later; nothing is sent automatically.` : ` It will also queue the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : ""}` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
-        <div className="form-field"><label htmlFor="reviewer-name">Your full name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required /></div>
-        <div className="form-field"><label htmlFor="reviewer-email">{demo ? "Reviewer email" : "Verified recipient email"}</label><input id="reviewer-email" type="email" value={email} readOnly={!demo} aria-readonly={!demo} onChange={demo ? (event) => setEmail(event.target.value) : undefined} /></div>
-        <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" placeholder={dialog === "approve" ? "Looks ready to launch." : "Describe the requested change…"} value={note} onChange={(event) => setNote(event.target.value)} required={dialog === "changes"} /></div>
+      {dialog && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDialog(null); }}><section ref={dialogRef} className={`dialog ${dialog === "changes" ? "decision-dialog--changes" : ""}`} role="dialog" aria-modal="true" aria-labelledby="decision-title"><button className="dialog-close" onClick={() => setDialog(null)} aria-label="Close dialog"><X size={17} /></button><FileCheck2 size={25} /><h2 id="decision-title">{dialog === "approve" ? `Approve ${snapshot.milestoneTitle}?` : "Request changes"}</h2><p>{demo ? "This is a local-only sample decision and will not create a retained record." : dialog === "approve" ? `This records approval against revision ${snapshot.revision} and ${snapshot.run.buildLabel}.${snapshot.invoicePlan ? deliveryMode === "LIVE_EMAIL" ? ` It will also email the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : deliveryMode === "TEST_DRAFT" ? ` It will also create the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} invoice as a Stripe test draft — no email is sent.` : deliveryMode === "MANUAL_AFTER_APPROVAL" ? ` ${snapshot.agencyName} may invoice the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} later; nothing is sent automatically.` : ` It will also queue the disclosed ${money(snapshot.invoicePlan.amountMinor, snapshot.invoicePlan.currency)} Stripe invoice to ${snapshot.invoicePlan.billingEmail}; approval itself does not charge a payment method.` : ""}` : "Describe what still needs attention. The current evidence remains unchanged."}</p><form onSubmit={submitDecision}>
+        <div className={dialog === "changes" ? "decision-identity-grid" : ""}><div className="form-field"><label htmlFor="reviewer-name">Your full name</label><input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required /></div>
+        <div className="form-field"><label htmlFor="reviewer-email">{demo ? "Reviewer email" : "Verified recipient email"}</label><input id="reviewer-email" type="email" value={email} readOnly={!demo} aria-readonly={!demo} onChange={demo ? (event) => setEmail(event.target.value) : undefined} /></div></div>
+        {dialog === "changes" && <fieldset className="change-classification"><legend>What kind of change is this?</legend><label><input type="radio" name="change-type" value="criterion" checked={changeType === "criterion"} onChange={() => setChangeType("criterion")} /><span><strong>Correction to agreed scope</strong>The build does not yet satisfy one of the confirmed acceptance criteria.</span></label><label><input type="radio" name="change-type" value="scope" checked={changeType === "scope"} onChange={() => setChangeType("scope")} /><span><strong>New request outside this milestone</strong>This asks for work beyond the frozen acceptance criteria and may need separate scope.</span></label></fieldset>}
+        {dialog === "changes" && changeType === "criterion" && <div className="form-field"><label htmlFor="change-criterion">Acceptance criterion needing correction</label><select id="change-criterion" value={changeCriterionId} onChange={(event) => setChangeCriterionId(event.target.value)} required>{snapshot.criteria.map((criterion) => <option key={criterion.id} value={criterion.id}>{criterion.id} — {criterion.title}</option>)}</select></div>}
+        <div className="form-field"><label htmlFor="review-note">Note {dialog === "approve" ? "(optional)" : ""}</label><textarea id="review-note" maxLength={1_700} placeholder={dialog === "approve" ? "Looks ready to launch." : changeType === "scope" ? "Describe the additional work you would like the agency to consider…" : "Describe what does not yet meet the agreed criterion…"} value={note} onChange={(event) => setNote(event.target.value)} required={dialog === "changes"} /></div>
         <label className="decision-consent"><input type="checkbox" checked={intent} onChange={(event) => setIntent(event.target.checked)} /><span>I intend to {dialog === "approve" ? "approve this milestone" : "request these changes"} for {snapshot.clientName}, and I am authorized to make this decision.</span></label>
         <label className="decision-consent"><input type="checkbox" checked={legalAccepted} onChange={(event) => setLegalAccepted(event.target.checked)} /><span>I accept the <Link href="/terms" target="_blank">Terms</Link> and acknowledge the <Link href="/privacy" target="_blank">Privacy notice</Link>, version {RECORD_NOTICE_VERSION}.</span></label>
         <label className="decision-consent"><input type="checkbox" checked={recordsConsent} onChange={(event) => setRecordsConsent(event.target.checked)} /><span>{demo ? "I understand this is a synthetic walkthrough and no transaction record will be retained." : <>I consent to receive and retain this record electronically. I can print or save the final record as PDF. <Link href="/records" target="_blank">Record details</Link></>}</span></label>
         {error && <div className="analysis-error" role="alert">{error}</div>}
-        <div className="dialog-actions"><button type="button" className="button button--outline" onClick={() => setDialog(null)}>Cancel</button><button className={`button ${dialog === "approve" ? "button--ink" : "button--danger"}`} disabled={submitting || !name.trim() || !email.trim() || !intent || !legalAccepted || !recordsConsent || (dialog === "changes" && !note.trim())}>{submitting ? "Recording…" : `Confirm ${dialog === "approve" ? "approval" : "request"}`}</button></div>
+        <div className="dialog-actions"><button type="button" className="button button--outline" onClick={() => setDialog(null)}>Cancel</button><button className={`button ${dialog === "approve" ? "button--ink" : "button--danger"}`} disabled={submitting || !name.trim() || !email.trim() || !intent || !legalAccepted || !recordsConsent || (dialog === "changes" && (!note.trim() || (changeType === "criterion" && !changeCriterionId)))}>{submitting ? "Recording…" : `Confirm ${dialog === "approve" ? "approval" : "request"}`}</button></div>
       </form></section></div>}
       {changes && <div className="toast" role="status">Change request recorded for {snapshot.agencyName}.</div>}
     </main>

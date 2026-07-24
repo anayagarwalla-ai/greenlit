@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Check, FileCheck2, MousePointerClick, Play, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarClock, Check, CreditCard, FileCheck2, GitCompareArrows, MousePointerClick, Play, ScanSearch, ShieldCheck } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
 
@@ -76,9 +76,23 @@ export default function Home() {
           <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. Greenlit makes “done” concrete, reviewable, and auditable.</p>
         </div>
         <div className="steps-grid">
-          <article><span>01</span><FileCheck2 /><h3>Import the promise</h3><p>Paste or upload {paidGemini ? "a SOW section you are authorized to process" : "a redacted, non-confidential SOW section"}. AI drafts measurable criteria with exact source citations.</p></article>
-          <article><span>02</span><Play /><h3>Verify the build</h3><p>Run safe, typed browser checks against a staging site and capture evidence for every claim.</p></article>
-          <article><span>03</span><ShieldCheck /><h3>Collect approval</h3><p>Send one client-ready proof page, capture the decision, and create an invoice-ready record.</p></article>
+          <article><span>01</span><FileCheck2 /><h3>Freeze the promise</h3><p>Paste or upload {paidGemini ? "a SOW section you are authorized to process" : "a redacted, non-confidential SOW section"}. AI drafts measurable criteria with exact source citations; your team confirms the revision.</p></article>
+          <article><span>02</span><Play /><h3>Verify the build</h3><p>Run safe, typed browser checks against a staging site and capture evidence for every supported claim.</p></article>
+          <article><span>03</span><ShieldCheck /><h3>Collect a decision</h3><p>Give one named client reviewer a clear deadline, a focused proof page, and an approve-or-request-changes choice.</p></article>
+        </div>
+      </section>
+
+      <section className="agency-pains-section" aria-labelledby="agency-pains-title">
+        <div className="agency-pains-heading">
+          <div><span className="section-kicker">Built around agency bottlenecks</span><h2 id="agency-pains-title">Keep the last mile from eating the margin.</h2></div>
+          <p>Greenlit keeps the agreed scope, staging evidence, client decision, and billing handoff in one traceable workflow.</p>
+        </div>
+        <div className="agency-pain-grid">
+          <article><FileCheck2 /><div><h3>Make “done” measurable</h3><p>Exact SOW quotes stay attached to the confirmed acceptance criteria.</p></div></article>
+          <article><GitCompareArrows /><div><h3>Separate fixes from new scope</h3><p>Clients identify whether a request corrects an agreed criterion or adds work outside the frozen milestone.</p></div></article>
+          <article><CalendarClock /><div><h3>Put approval on a clock</h3><p>Assign one reviewer and a visible response deadline instead of chasing decisions across messages.</p></div></article>
+          <article><ScanSearch /><div><h3>Show the proof</h3><p>Expected and observed results, exact source language, screenshots, and hashes travel together.</p></div></article>
+          <article><CreditCard /><div><h3>Move approval into billing</h3><p>An approved record can trigger the configured Stripe invoice or remain ready for the agency’s billing process.</p></div></article>
         </div>
       </section>
 

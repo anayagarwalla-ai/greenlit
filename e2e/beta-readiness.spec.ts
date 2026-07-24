@@ -45,6 +45,9 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
 
 test("the landing-page CTA starts the guided demo directly", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Keep the last mile from eating the margin." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Separate fixes from new scope" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Put approval on a clock" })).toBeVisible();
   await page.getByRole("link", { name: /Try the guided demo/ }).click();
   await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
   await expect(page.locator(".demo-badge")).toHaveText(/Guided demo/i);
