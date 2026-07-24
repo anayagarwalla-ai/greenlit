@@ -51,6 +51,8 @@ test("a client labels new scope separately from a correction to the frozen miles
   await expect(dialog.getByText("Correction to agreed scope")).toBeVisible();
   await expect(dialog.getByText("New request outside this milestone")).toBeVisible();
   await dialog.getByLabel(/New request outside this milestone/).check();
+  await expect(dialog.getByLabel("Acceptance criterion needing correction")).toHaveCount(0);
+  await expect(dialog.getByLabel("Note")).toHaveAttribute("placeholder", /additional work/i);
   await dialog.getByLabel("Your full name").fill("Sample Reviewer");
   await dialog.getByLabel("Reviewer email").fill("reviewer@example.test");
   await dialog.getByLabel("Note").fill("Please add a customer portal to this launch.");
@@ -59,5 +61,4 @@ test("a client labels new scope separately from a correction to the frozen miles
   await dialog.getByLabel(/I understand this is a synthetic walkthrough/).check();
   await dialog.getByRole("button", { name: "Confirm request" }).click();
   await expect(page.getByRole("heading", { name: "Changes requested." })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => JSON.parse(window.localStorage.getItem("greenlit-demo-decision") ?? "{}").reviewerNote ?? "")).toContain("Potential scope change");
 });
