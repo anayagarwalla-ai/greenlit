@@ -57,4 +57,33 @@ describe("safe CheckSpec contract", () => {
       ownerAcknowledgedMutation: false,
     })).toThrow();
   });
+
+  it("bounds viewport and accessibility work to the beta runner budget", () => {
+    const base = {
+      id: "check-layout",
+      criterionId: "AC-06",
+      path: "/",
+      sourceQuote: "The page works on mobile and desktop.",
+      confirmedByHuman: true as const,
+    };
+    expect(() => checkSpecSchema.parse({
+      ...base,
+      type: "viewport_layout",
+      viewports: [{ width: 2560, height: 1800, label: "Oversized" }],
+    })).toThrow();
+    expect(() => checkSpecSchema.parse({
+      ...base,
+      type: "viewport_layout",
+      viewports: [
+        { width: 390, height: 844, label: "Mobile" },
+        { width: 1280, height: 720, label: "Desktop" },
+        { width: 1024, height: 768, label: "Tablet" },
+      ],
+    })).toThrow();
+    expect(() => checkSpecSchema.parse({
+      ...base,
+      type: "axe_scan",
+      tags: ["wcag2a", "attacker-controlled-tag"],
+    })).toThrow();
+  });
 });

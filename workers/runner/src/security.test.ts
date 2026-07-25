@@ -49,6 +49,13 @@ describe("addressMatchesFrozenSet", () => {
     expect(addressMatchesFrozenSet("127.0.0.1", ["127.0.0.1"])).toBe(false);
     expect(addressMatchesFrozenSet("::ffff:127.0.0.1", ["::ffff:127.0.0.1"])).toBe(false);
   });
+
+  it("canonicalizes equivalent IPv6 spellings before comparison", () => {
+    expect(addressMatchesFrozenSet(
+      "2606:4700:4700:0:0:0:0:1111",
+      ["2606:4700:4700::1111"],
+    )).toBe(true);
+  });
 });
 
 describe("perCheckBudgetMs", () => {

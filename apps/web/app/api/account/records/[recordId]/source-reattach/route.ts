@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
   const user = await getOptionalUser();
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with the invited account that owns this milestone." }, { status: 401, headers: noStoreJsonHeaders() });
   const quota = await consumeRateLimit(request, "source-reattach-hour", 12, 3_600, user.id, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const { recordId } = await context.params;
   try {
     const database = requireSupabaseAdmin();

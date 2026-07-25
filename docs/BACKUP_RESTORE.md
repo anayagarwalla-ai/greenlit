@@ -5,7 +5,7 @@ Greenlit's retained records live in Postgres and its screenshots live in the pri
 ## Encrypted backup
 
 1. Install/import the adult operator's GPG public key and choose an encrypted off-site destination that is not the production Supabase project.
-2. Set `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EXPECTED_SUPABASE_HOST`, `BACKUP_OUTPUT_DIR`, and `BACKUP_ENCRYPTION_RECIPIENT` in the local shell. Do not put their values in a committed file.
+2. Set `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EXPECTED_SUPABASE_HOST`, `BACKUP_OUTPUT_DIR`, and `BACKUP_ENCRYPTION_RECIPIENT` in the local shell. Do not put their values in a committed file. The script converts the database URL into a temporary mode-0600 PostgreSQL password file so credentials never appear in a child process command line.
 3. Run `pnpm ops:backup`.
 4. Move the resulting `.tar.gz.gpg` file to the restricted off-site destination and record the filename, operator, date, and destination in the private operations log.
 
@@ -14,7 +14,7 @@ The manifest contains no source text, but the database dump and screenshots cont
 ## Isolated restore test
 
 1. Create a new empty Postgres database whose name contains `restore`, `test`, or `scratch`. Never point the script at production.
-2. Set `RESTORE_DATABASE_URL` and `BACKUP_FILE` (or pass the encrypted backup path as the first argument).
+2. Set `RESTORE_DATABASE_URL` and `BACKUP_FILE` (or pass the encrypted backup path as the first argument). Restore clients also use a temporary mode-0600 password file rather than receiving the URL in their command line.
 3. Run `pnpm ops:restore-check`.
 
 The verifier refuses a non-empty database, validates the database-dump and every evidence-file hash, restores the database, and reports the restored record count and latest audit head. Inspect one restored transaction, its audit chain, and the matching screenshot hash before signing off the backup.

@@ -65,3 +65,39 @@ export function resolveInside(root, relative) {
   if (!destination.startsWith(`${root}/`)) throw new Error("Unsafe backup path.");
   return destination;
 }
+
+function pgPassField(value) {
+  return value.replaceAll("\\", "\\\\").replaceAll(":", "\\:");
+}
+
+export async function postgresClientEnvironment(databaseUrl, temporaryDirectory) {
+  const parsed = new URL(databaseUrl);
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || !parsed.username || !parsed.pathname.slice(1)) {
+    throw new Error("The database URL must be a complete postgres:// or postgresql:// connection string.");
+  }
+  const host = parsed.hostname;
+  const port = parsed.port || "5432";
+  const database = decodeURIComponent(parsed.pathname.slice(1));
+  const user = decodeURIComponent(parsed.username);
+  const password = decodeURIComponent(parsed.password);
+  const passFile = join(temporaryDirectory, ".pgpass");
+  await writeFile(passFile, `${[host, port, database, user, password].map(pgPassField).join(":")}\n`, { mode: 0o600 });
+
+  // Do not copy raw connection URLs into child environments. PostgreSQL
+  // clients receive non-secret coordinates plus a mode-0600 password file,
+  // keeping credentials out of both argv and ordinary environment listings.
+  const { DATABASE_URL: _databaseUrl, RESTORE_DATABASE_URL: _restoreDatabaseUrl, ...baseEnvironment } = process.env;
+  void _databaseUrl;
+  void _restoreDatabaseUrl;
+  const environment = {
+    ...baseEnvironment,
+    PGHOST: host,
+    PGPORT: port,
+    PGDATABASE: database,
+    PGUSER: user,
+    PGPASSFILE: passFile,
+  };
+  const sslMode = parsed.searchParams.get("sslmode");
+  if (sslMode) environment.PGSSLMODE = sslMode;
+  return { database, environment };
+}

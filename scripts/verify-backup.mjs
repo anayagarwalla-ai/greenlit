@@ -3,12 +3,11 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { required } from "./ops-lib.mjs";
-import { resolveInside } from "./ops-lib.mjs";
+import { postgresClientEnvironment, required, resolveInside } from "./ops-lib.mjs";
 
-function run(command, args, capture = false) {
+function run(command, args, capture = false, environment = process.env) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit" });
+    const child = spawn(command, args, { stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit", env: environment });
     let output = "";
     if (capture) child.stdout.on("data", (chunk) => { output += chunk; });
     child.once("error", reject);
@@ -18,9 +17,10 @@ function run(command, args, capture = false) {
 
 const encryptedBackup = resolve(process.argv[2] || required("BACKUP_FILE"));
 const restoreUrl = required("RESTORE_DATABASE_URL");
-const databaseName = decodeURIComponent(new URL(restoreUrl).pathname.replace(/^\//, ""));
-if (!/(restore|test|scratch)/i.test(databaseName)) throw new Error("RESTORE_DATABASE_URL must name an isolated database containing restore, test, or scratch.");
 const temporary = await mkdtemp(join(tmpdir(), "greenlit-restore-"));
+const postgres = await postgresClientEnvironment(restoreUrl, temporary);
+const databaseName = postgres.database;
+if (!/(restore|test|scratch)/i.test(databaseName)) throw new Error("RESTORE_DATABASE_URL must name an isolated database containing restore, test, or scratch.");
 
 try {
   const archive = join(temporary, basename(encryptedBackup).replace(/\.gpg$/, ""));
@@ -40,10 +40,10 @@ try {
     if (createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error(`Evidence hash mismatch: ${artifact.path}`);
   }
 
-  const publicTables = await run("psql", [restoreUrl, "-Atc", "select count(*) from pg_tables where schemaname='public'"], true);
+  const publicTables = await run("psql", ["-Atc", "select count(*) from pg_tables where schemaname='public'"], true, postgres.environment);
   if (Number(publicTables) !== 0) throw new Error("The restore database is not empty; refusing to overwrite it.");
-  await run("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", `--dbname=${restoreUrl}`, join(bundle, manifest.database.file)]);
-  const verification = await run("psql", [restoreUrl, "-Atc", "select json_build_object('records',count(*),'latestAuditHead',max(audit_chain_head)) from public.transaction_records"], true);
+  await run("pg_restore", ["--exit-on-error", "--no-owner", "--no-privileges", `--dbname=${databaseName}`, join(bundle, manifest.database.file)], false, postgres.environment);
+  const verification = await run("psql", ["-Atc", "select json_build_object('records',count(*),'latestAuditHead',max(audit_chain_head)) from public.transaction_records"], true, postgres.environment);
   console.log(JSON.stringify({ ok: true, backup: encryptedBackup, evidenceHashesVerified: manifest.evidence.length, restoredDatabase: databaseName, databaseVerification: JSON.parse(verification) }, null, 2));
 } finally {
   if (temporary.startsWith(`${tmpdir()}/greenlit-restore-`)) await rm(temporary, { recursive: true, force: true });

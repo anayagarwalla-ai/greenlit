@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { randomToken, sha256 } from "@/lib/recordkeeping";
-import { receiptSessionCookieName, receiptSessionExpiry } from "@/lib/review-session";
+import { RECEIPT_SESSION_TTL_SECONDS, receiptSessionCookieName, receiptSessionExpiry } from "@/lib/review-session";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
@@ -14,7 +14,7 @@ const schema = z.object({
 
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "receipt-redeem-hour", 12, 3_600, null, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "This receipt link is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
@@ -34,6 +34,6 @@ export async function POST(request: Request, context: { params: Promise<{ packet
   });
   if (redeemError) return NextResponse.json({ error: "This one-time receipt link, access code, or recipient email is invalid or expired. Ask the agency for a new link." }, { status: 410, headers: noStoreJsonHeaders() });
   const response = NextResponse.json({ redeemed: true }, { headers: noStoreJsonHeaders() });
-  response.cookies.set(receiptSessionCookieName(packetId), session, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 24 * 60 * 60 });
+  response.cookies.set(receiptSessionCookieName(packetId), session, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: RECEIPT_SESSION_TTL_SECONDS });
   return response;
 }

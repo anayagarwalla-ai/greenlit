@@ -12,7 +12,7 @@ const schema = z.object({ email: z.string().trim().email().max(320), nextPath: z
 
 export async function POST(request: Request) {
   const quota = await consumeRateLimit(request, "invite-check-hour", 30, 3_600);
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid business email." }, { status: 422, headers: noStoreJsonHeaders() });
   try {

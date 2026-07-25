@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const validated = validateStagingUrl(body.data.target);
   if (!validated.ok) return NextResponse.json({ error: validated.reason }, { status: 422 });
   const quota = await consumeRateLimit(request, "origin-verification-hour", 12, 3_600, user.id, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   try {
     const [v4, v6] = await Promise.all([resolve4(validated.url.hostname).catch(() => []), resolve6(validated.url.hostname).catch(() => [])]);
     const addresses = [...v4, ...v6].sort();

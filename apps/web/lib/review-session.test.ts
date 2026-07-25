@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertReviewSnapshotIntegrity, reviewSessionCookieName, reviewSessionExpiry } from "./review-session";
+import { assertReviewSnapshotIntegrity, receiptSessionExpiry, reviewSessionCookieName, reviewSessionExpiry } from "./review-session";
 import { canonicalJson, sha256 } from "./recordkeeping";
 
 describe("review sessions", () => {
@@ -19,6 +19,10 @@ describe("review sessions", () => {
 
   it("isolates cookies for different review packets", () => {
     expect(reviewSessionCookieName("REVIEW-ONE")).not.toBe(reviewSessionCookieName("REVIEW-TWO"));
+  });
+
+  it("keeps receipt access consistent with the published 30-day window", () => {
+    expect(receiptSessionExpiry(now)).toBe("2026-08-20T12:00:00.000Z");
   });
 
   it("fails closed when a retained snapshot no longer matches its hash", () => {

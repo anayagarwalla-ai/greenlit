@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     if (!owner.userId || !owner.user) return NextResponse.json({ error: "Sign in to create a client review." }, { status: 401, headers: noStoreJsonHeaders() });
     if (!await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
     const quota = await consumeRateLimit(request, "review-packet-day", 20, 86_400, owner.userId);
-    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+    if (!quota.allowed) return rateLimitedResponse(quota);
     const { data: record, error: recordError } = await database.from("transaction_records").select("*").eq("id", parsed.data.recordId).single();
     const authorized = record && record.owner_user_id === owner.userId;
     const { data: run, error: runError } = await database.from("verification_jobs_v2").select("*").eq("id", parsed.data.runId).eq("record_id", parsed.data.recordId).single();

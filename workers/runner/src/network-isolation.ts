@@ -19,7 +19,11 @@ async function handleHttpRoute(route: Route, targetOrigin: string, validateTarge
     return;
   }
   const resourceType = route.request().resourceType();
-  if (validateTarget && ["document", "xhr", "fetch"].includes(resourceType) && !await validateTarget()) {
+  // Validate immediately before every navigation. All other network traffic
+  // is still restricted to this exact origin, while the runner independently
+  // checks every connected response address. Avoiding one DNS RPC per
+  // fetch/XHR prevents a hostile page from amplifying validation traffic.
+  if (validateTarget && resourceType === "document" && !await validateTarget()) {
     await route.abort("blockedbyclient");
     return;
   }

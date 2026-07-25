@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { getOptionalUser } from "@/lib/supabase-server";
-import { assertDecisionReceiptIntegrity, assertReviewSnapshotIntegrity, hydrateReviewEvidence, receiptSessionAuthorized, receiptSessionCookieName, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
+import { assertDecisionReceiptIntegrity, assertReviewSnapshotIntegrity, hydrateReviewEvidence, receiptSessionCookieName, receiptSessionDetails, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 
 export async function GET(_request: Request, context: { params: Promise<{ packetId: string }> }) {
@@ -18,7 +18,8 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
     if (error || !packet) return NextResponse.json({ error: "The review record was not found." }, { status: 404, headers: noStoreJsonHeaders() });
     assertReviewSnapshotIntegrity(packet.snapshot, packet.snapshot_sha256);
     const reviewerAuthorized = await reviewSessionAuthorized(database, packet.id, session);
-    const receiptAuthorized = packet.decision ? await receiptSessionAuthorized(database, packet.id, receiptSession) : false;
+    const receiptDetails = packet.decision ? await receiptSessionDetails(database, packet.id, receiptSession) : null;
+    const receiptAuthorized = Boolean(receiptDetails);
     const activeOwner = user && await betaAccessAllowedFresh(user) ? user : null;
     const { data: ownerRecord } = activeOwner ? await database.from("transaction_records").select("id").eq("id", packet.record_id).eq("owner_user_id", activeOwner.id).maybeSingle() : { data: null };
     if (!reviewerAuthorized && !receiptAuthorized && !ownerRecord) return NextResponse.json({ error: "The review session is invalid or this account does not own the record." }, { status: 401, headers: noStoreJsonHeaders() });
@@ -36,7 +37,7 @@ export async function GET(_request: Request, context: { params: Promise<{ packet
     const auditHead = auditResult.data;
     const invoice = invoiceResult.data;
     const invoiceJob = invoiceJobResult.data;
-    return NextResponse.json({ packetId, viewerRole: ownerRecord ? "OWNER" : "REVIEWER", snapshot: await hydrateReviewEvidence(database, packet.snapshot), snapshotSha256: packet.snapshot_sha256, intendedReviewerEmail: packet.intended_reviewer_email, expiresAt: packet.expires_at, decision: packet.decision, reviewerName: packet.reviewer_name, reviewerEmail: packet.reviewer_email, reviewerNote: packet.reviewer_note, decidedAt: packet.decided_at, receiptSha256: packet.receipt_sha256, invoice, invoiceJob: invoiceJob ? { status: invoiceJob.status, lastError: ownerRecord ? invoiceJob.last_error : null, updatedAt: invoiceJob.updated_at } : null, corrections: correctionResult.data ?? [], decisionEvent, auditHead: auditHead ? { sequence: auditHead.sequence, eventHash: auditHead.event_hash, occurredAt: auditHead.occurred_at } : null }, { headers: noStoreJsonHeaders() });
+    return NextResponse.json({ packetId, viewerRole: ownerRecord ? "OWNER" : "REVIEWER", snapshot: await hydrateReviewEvidence(database, packet.snapshot), snapshotSha256: packet.snapshot_sha256, intendedReviewerEmail: packet.intended_reviewer_email, expiresAt: packet.expires_at, receiptAccessExpiresAt: receiptDetails?.expiresAt ?? null, decision: packet.decision, reviewerName: packet.reviewer_name, reviewerEmail: packet.reviewer_email, reviewerNote: packet.reviewer_note, decidedAt: packet.decided_at, receiptSha256: packet.receipt_sha256, invoice, invoiceJob: invoiceJob ? { status: invoiceJob.status, lastError: ownerRecord ? invoiceJob.last_error : null, updatedAt: invoiceJob.updated_at } : null, corrections: correctionResult.data ?? [], decisionEvent, auditHead: auditHead ? { sequence: auditHead.sequence, eventHash: auditHead.event_hash, occurredAt: auditHead.occurred_at } : null }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     console.error("Review record lookup failed", error instanceof Error ? error.message : "unknown");
     return NextResponse.json({ error: "The review record is temporarily unavailable." }, { status: 503, headers: noStoreJsonHeaders() });

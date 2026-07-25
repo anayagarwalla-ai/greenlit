@@ -42,7 +42,11 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const expiresAt = new Date(Date.now() + EVIDENCE_RETENTION_DAYS * 86_400_000).toISOString();
     const metadata = { criterionId: parsed.data.criterionId, kind: parsed.data.kind, mimeType: parsed.data.mimeType, byteSize: bytes.byteLength, sha256: parsed.data.sha256, storagePath, expiresAt };
     const { error: evidenceError } = await database.from("evidence_artifacts_v2").upsert({ record_id: job.record_id, run_id: jobId, criterion_id: parsed.data.criterionId, kind: parsed.data.kind, storage_path: storagePath, mime_type: parsed.data.mimeType, byte_size: bytes.byteLength, sha256: parsed.data.sha256, expires_at: expiresAt }, { onConflict: "run_id,criterion_id,kind" });
-    if (evidenceError) throw new Error(`Evidence metadata could not be recorded: ${evidenceError.message}`);
+    if (evidenceError) {
+      const { error: cleanupError } = await database.storage.from("evidence").remove([storagePath]);
+      if (cleanupError) console.error("Uncommitted evidence cleanup failed", storagePath, cleanupError.message);
+      throw new Error(`Evidence metadata could not be recorded: ${evidenceError.message}`);
+    }
     return NextResponse.json({ artifact: metadata }, { status: 201, headers: noStoreJsonHeaders() });
   } catch (cause) {
     console.error("Evidence upload failed", cause instanceof Error ? cause.message : "unknown");

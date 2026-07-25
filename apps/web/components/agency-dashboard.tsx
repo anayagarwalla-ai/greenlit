@@ -125,12 +125,13 @@ export function AgencyDashboard() {
     if (!record.latestReview?.decision) return;
     const recipientEmail = window.prompt("Business email authorized to open this one-time receipt", record.latestReview.reviewer_email ?? record.invoicePlan?.billing_email ?? "")?.trim();
     if (!recipientEmail) return;
+    if (!window.confirm("Creating this link revokes every previous receipt link and open receipt session for this approval. Continue?")) return;
     setBusy(`receipt:${record.id}`); setError("");
     try {
       const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmail }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The authorized receipt link could not be created.");
-      setReceiptLinks((current) => ({ ...current, [record.id]: { url: payload.receiptUrl, accessCode: payload.accessCode, recipientEmail: payload.recipientEmail } }));
+      setReceiptLinks((current) => ({ ...current, [record.id]: { url: payload.receiptUrl, accessCode: payload.accessCode, recipientEmail: payload.recipientEmail, expiresAt: payload.expiresAt } }));
       try { await navigator.clipboard.writeText(payload.receiptUrl); setCopied(`receipt:${record.id}`); }
       catch { setCopied(""); setError("Receipt link created, but clipboard access is unavailable. Select and copy the visible link manually."); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The authorized receipt link could not be created."); }
@@ -226,7 +227,7 @@ export function AgencyDashboard() {
               {(() => {
                 const sharedReceipt = receiptLinks[record.id];
                 if (!sharedReceipt) return null;
-                return <div className="dashboard-review-link"><input aria-label={`Client receipt link for ${record.milestone_title}`} readOnly value={sharedReceipt.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReceipt.url); setCopied(`receipt:${record.id}`); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === `receipt:${record.id}` ? <Check size={12} /> : <Clipboard size={12} />} {copied === `receipt:${record.id}` ? "Copied" : "Copy link"}</button><a href={sharedReceipt.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReceipt.accessCode}</strong><small>For {sharedReceipt.recipientEmail}. Share the code separately from the link.</small></div>;
+                return <div className="dashboard-review-link"><input aria-label={`Client receipt link for ${record.milestone_title}`} readOnly value={sharedReceipt.url} /><button className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(sharedReceipt.url); setCopied(`receipt:${record.id}`); } catch { setCopied(""); setError("Clipboard access is unavailable. Select and copy the link manually."); } }}>{copied === `receipt:${record.id}` ? <Check size={12} /> : <Clipboard size={12} />} {copied === `receipt:${record.id}` ? "Copied" : "Copy link"}</button><a href={sharedReceipt.url} target="_blank" rel="noreferrer">Open <ExternalLink size={12} /></a><strong>Separate code: {sharedReceipt.accessCode}</strong><small>For {sharedReceipt.recipientEmail}. {sharedReceipt.expiresAt ? `Access expires ${formatTimestamp(new Date(sharedReceipt.expiresAt))}. ` : ""}Share the code separately from the link.</small></div>;
               })()}
           </article>;
         })}</section>}

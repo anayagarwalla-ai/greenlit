@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const viewportSchema = z.object({
-  width: z.number().int().min(320).max(2560),
-  height: z.number().int().min(480).max(1800),
+  width: z.number().int().min(320).max(1280),
+  height: z.number().int().min(480).max(900),
   label: z.string().min(1).max(32),
 });
 
@@ -43,13 +43,13 @@ export const formSubmissionCheckSchema = baseCheck.extend({
 
 export const viewportLayoutCheckSchema = baseCheck.extend({
   type: z.literal("viewport_layout"),
-  viewports: z.array(viewportSchema).min(1).max(4),
+  viewports: z.array(viewportSchema).min(1).max(2),
   maxHorizontalOverflowPx: z.number().min(0).max(20).default(1),
 });
 
 export const axeScanCheckSchema = baseCheck.extend({
   type: z.literal("axe_scan"),
-  tags: z.array(z.string()).default(["wcag2a", "wcag2aa", "wcag22aa"]),
+  tags: z.array(z.enum(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])).min(1).max(6).default(["wcag2a", "wcag2aa", "wcag22aa"]),
   failImpacts: z.array(z.enum(["critical", "serious"])).default(["critical", "serious"]),
   submitRef: z.string().trim().min(1).max(160).optional(),
   ownerAcknowledgedMutation: z.literal(true).optional(),

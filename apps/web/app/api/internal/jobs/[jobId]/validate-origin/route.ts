@@ -20,7 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   if (!parsed.success) return NextResponse.json({ error: "Invalid origin-validation request." }, { status: 422, headers: noStoreJsonHeaders() });
   const { jobId } = await context.params;
   try {
-    const { data: job, error } = await requireSupabaseAdmin().from("verification_jobs_v2").select("target_origin, origin_addresses, status, lease_id").eq("id", jobId).single();
+    const { data: job, error } = await requireSupabaseAdmin().from("verification_jobs_v2").select("target_origin, status, lease_id").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
     if (job.status !== "RUNNING") return NextResponse.json({ error: "Job is not actively leased." }, { status: 409, headers: noStoreJsonHeaders() });
     if (job.lease_id !== parsed.data.leaseId) return NextResponse.json({ error: "This origin check belongs to a stale or replayed runner lease." }, { status: 409, headers: noStoreJsonHeaders() });
@@ -29,10 +29,11 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const [v4, v6] = await Promise.all([resolve4(target.url.hostname).catch(() => []), resolve6(target.url.hostname).catch(() => [])]);
     const addresses = [...v4, ...v6];
     assertSafeResolvedAddresses(addresses);
-    const frozen = Array.isArray(job.origin_addresses) ? job.origin_addresses.filter((item): item is string => typeof item === "string").map((item) => item.toLowerCase()).sort() : [];
-    const current = addresses.map((item) => item.toLowerCase()).sort();
-    if (frozen.length === 0 || frozen.length !== current.length || frozen.some((item, index) => item !== current[index])) return NextResponse.json({ error: "The origin's DNS addresses changed after this job was queued." }, { status: 409, headers: noStoreJsonHeaders() });
-    return NextResponse.json({ origin: target.url.origin, addresses: current }, { headers: noStoreJsonHeaders() });
+    // CDN and geo-DNS answers legitimately rotate. The security property is
+    // that every current answer is public and the browser's actual connected
+    // address belongs to this freshly resolved set, not that it equals the
+    // resolver answer captured when the job was queued.
+    return NextResponse.json({ origin: target.url.origin, addresses }, { headers: noStoreJsonHeaders() });
   } catch {
     return NextResponse.json({ error: "The verified origin now resolves to an unsafe or unavailable address." }, { status: 422, headers: noStoreJsonHeaders() });
   }

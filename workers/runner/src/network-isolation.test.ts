@@ -94,4 +94,23 @@ describe("installNetworkIsolation", () => {
     expect(navigation.abort).toHaveBeenCalledWith("blockedbyclient");
     expect(navigation.continue).not.toHaveBeenCalled();
   });
+
+  it("does not amplify DNS validation for same-origin fetch bursts", async () => {
+    let httpHandler: ((route: Route) => Promise<void>) | undefined;
+    const context = {
+      addInitScript: vi.fn(async () => undefined),
+      route: vi.fn(async (_pattern: string, handler: (route: Route) => Promise<void>) => { httpHandler = handler; }),
+      routeWebSocket: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const validate = vi.fn(async () => true);
+    await installNetworkIsolation(context, "https://staging.example.com", validate);
+    const fetchRoute = {
+      request: () => ({ url: () => "https://staging.example.com/api/data", resourceType: () => "fetch" }),
+      continue: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    } as unknown as Route;
+    await httpHandler!(fetchRoute);
+    expect(validate).not.toHaveBeenCalled();
+    expect(fetchRoute.continue).toHaveBeenCalledOnce();
+  });
 });

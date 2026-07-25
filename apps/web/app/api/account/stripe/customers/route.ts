@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const user = await getOptionalUser();
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with an invited account to continue." }, { status: 401, headers: noStoreJsonHeaders() });
   const quota = await consumeRateLimit(request, "stripe-customer-lookup-hour", 30, 3_600, user.id, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = emailSchema.safeParse(new URL(request.url).searchParams.get("email"));
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid billing email." }, { status: 422, headers: noStoreJsonHeaders() });
   try {

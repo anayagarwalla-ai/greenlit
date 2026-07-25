@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
   const intakeQuota = await consumeRateLimit(request, "verification-run-request-hour", 20, 3_600, owner.userId, { failClosed: true });
-  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota.retryAfterSeconds);
+  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "The verified run request is incomplete.", issues: parsed.error.issues }, { status: 422, headers: noStoreJsonHeaders() });
 
@@ -157,7 +157,7 @@ export async function POST(request: Request) {
       recordPublicId = publicRecordId("MP");
     }
     const quota = await consumeRateLimit(request, "verification-run-day", 3, 86_400, owner.userId, { failClosed: true });
-    if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+    if (!quota.allowed) return rateLimitedResponse(quota);
     const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
     const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "greenlit-global-browser-capacity", { failClosed: true });
     if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });

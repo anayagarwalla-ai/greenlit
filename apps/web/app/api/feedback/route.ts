@@ -15,7 +15,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   const user = await getOptionalUser();
   const quota = await consumeRateLimit(request, "beta-feedback-day", 10, 86_400, user?.id);
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Choose a category and include at least 10 characters." }, { status: 422, headers: noStoreJsonHeaders() });
   try {

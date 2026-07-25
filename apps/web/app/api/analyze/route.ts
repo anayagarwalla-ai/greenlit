@@ -150,7 +150,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
   if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
   const intakeQuota = await consumeRateLimit(request, "sow-analysis-intake-hour", 20, 3_600, user.id, { failClosed: true });
-  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota.retryAfterSeconds);
+  if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota);
   let input: AnalysisInput;
   try {
     input = await readInput(request, geminiConfiguration.paidService);
@@ -178,7 +178,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Your consent record could not be retained, so the SOW was not sent to Gemini. Try again later.", code: "CONSENT_RECORD_FAILED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
   const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
   const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "greenlit-global-analysis-capacity", { failClosed: true });
   if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });

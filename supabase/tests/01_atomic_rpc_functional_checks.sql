@@ -12,6 +12,8 @@ declare
   v_outcome text;
   v_packet_id uuid;
   v_overlapping_packet_id uuid;
+  v_receipt_grant_id uuid;
+  v_replacement_receipt_grant_id uuid;
   v_record public.transaction_records;
   v_evidence_id1 uuid := gen_random_uuid();
   v_evidence_id2 uuid := gen_random_uuid();
@@ -195,6 +197,22 @@ begin
   ), 'decision transaction should create its durable owner notification';
   assert exists (select 1 from receipt_sessions_v2 where packet_id = v_packet_id and session_hash = 'receiptSessionHash1'), 'decision transaction should create narrow receipt access atomically';
   assert exists (select 1 from review_packets_v2 where id = v_packet_id and legal_terms_accepted and receipt_sha256 = decision_event_hash), 'decision must retain legal acceptance and bind receipt to the decision audit event';
+  v_receipt_grant_id := mint_receipt_session_secure_atomic(
+    v_packet_id,v_owner,'receiptGrantToken1','receiptGrantCode1','reviewer@example.test',
+    now()+interval '30 days','ownerActor'
+  );
+  assert exists(select 1 from receipt_sessions_v2 where packet_id=v_packet_id and session_hash='receiptSessionHash1' and revoked_at is not null), 'minting a receipt link must revoke the prior browser receipt session';
+  assert exists(select 1 from receipt_sessions_v2 where id=v_receipt_grant_id and expires_at>now()+interval '29 days'), 'receipt grants must honor the published 30-day access window';
+  perform redeem_receipt_session_secure_atomic(
+    v_packet_id,'receiptGrantToken1','receiptGrantCode1','reviewer@example.test',
+    'redeemedReceiptSession1',now()+interval '30 days',now()
+  );
+  v_replacement_receipt_grant_id := mint_receipt_session_secure_atomic(
+    v_packet_id,v_owner,'receiptGrantToken2','receiptGrantCode2','reviewer@example.test',
+    now()+interval '30 days','ownerActor'
+  );
+  assert exists(select 1 from receipt_sessions_v2 where id=v_receipt_grant_id and session_hash='redeemedReceiptSession1' and revoked_at is not null), 'a replacement receipt link must revoke an already-redeemed copied session';
+  assert exists(select 1 from receipt_sessions_v2 where id=v_replacement_receipt_grant_id and revoked_at is null), 'the replacement receipt grant must remain active';
   begin
     perform record_review_decision_with_notification_atomic(v_packet_id, 'APPROVED', 'Reviewer', 'reviewer@example.test', 'again', '2026-07-20', 'actorHash2', 'US', now(), 'receiptHash2', 'IN_APP', 'receiptSessionHash2', now() + interval '30 days');
     raise exception 'CHECK 7 FAILED: a second decision on the same packet must be rejected';

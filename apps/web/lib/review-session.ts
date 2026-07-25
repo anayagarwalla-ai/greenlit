@@ -1,7 +1,8 @@
 import { canonicalJson, sha256 } from "./recordkeeping";
 
 const REVIEW_SESSION_TTL_MS = 2 * 60 * 60_000;
-const RECEIPT_SESSION_TTL_MS = 24 * 60 * 60_000;
+export const RECEIPT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const RECEIPT_SESSION_TTL_MS = RECEIPT_SESSION_TTL_SECONDS * 1_000;
 
 export function reviewSessionCookieName(packetId: string) {
   return `mp_review_${sha256(packetId).slice(0, 16)}`;
@@ -37,10 +38,14 @@ export async function reviewSessionAuthorized(database: ReturnType<typeof import
   return true;
 }
 
-export async function receiptSessionAuthorized(database: ReturnType<typeof import("@/lib/database").requireSupabaseAdmin>, packetId: string, session: string | undefined) {
-  if (!session) return false;
+export async function receiptSessionDetails(database: ReturnType<typeof import("@/lib/database").requireSupabaseAdmin>, packetId: string, session: string | undefined) {
+  if (!session) return null;
   const { data } = await database.from("receipt_sessions_v2").select("id,expires_at").eq("packet_id", packetId).eq("session_hash", sha256(session)).is("revoked_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
-  return Boolean(data);
+  return data ? { id: data.id, expiresAt: data.expires_at } : null;
+}
+
+export async function receiptSessionAuthorized(database: ReturnType<typeof import("@/lib/database").requireSupabaseAdmin>, packetId: string, session: string | undefined) {
+  return Boolean(await receiptSessionDetails(database, packetId, session));
 }
 
 export async function assertDecisionReceiptIntegrity(database: ReturnType<typeof import("@/lib/database").requireSupabaseAdmin>, packet: { record_id: string; decision?: string | null; receipt_sha256?: string | null; decision_event_hash?: string | null }) {

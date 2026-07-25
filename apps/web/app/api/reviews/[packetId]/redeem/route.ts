@@ -14,7 +14,7 @@ const schema = z.object({
 
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "review-redeem-hour", 12, 3_600, null, { failClosed: true });
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "The review token is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;

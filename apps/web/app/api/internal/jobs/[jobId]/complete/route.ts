@@ -40,8 +40,11 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   const { jobId } = await context.params;
   try {
     const database = requireSupabaseAdmin();
-    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks").eq("id", jobId).single();
+    const { data: job, error } = await database.from("verification_jobs_v2").select("id, record_id, status, checks, runner_version").eq("id", jobId).single();
     if (error || !job) return NextResponse.json({ error: "Job not found." }, { status: 404, headers: noStoreJsonHeaders() });
+    if (!job.runner_version || parsed.data.runnerVersion !== job.runner_version) {
+      return NextResponse.json({ error: "The runner version does not match the version frozen for this job." }, { status: 409, headers: noStoreJsonHeaders() });
+    }
     const artifactMetadata = parsed.data.artifacts;
     const checks = (job.checks ?? []) as Array<{ criterionId?: string }>;
     const checkIds = checks.map((check) => check.criterionId).filter((id): id is string => Boolean(id));

@@ -14,7 +14,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   const quota = await consumeRateLimit(request, "privacy-request-day", 5, 86_400);
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid business email and request type." }, { status: 422, headers: noStoreJsonHeaders() });
   try {

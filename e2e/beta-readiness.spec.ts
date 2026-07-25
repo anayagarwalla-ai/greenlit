@@ -38,6 +38,7 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
     reviewerEmail: "reviewer@example.test",
     decidedAt: iso,
     receiptSha256: "e".repeat(64),
+    receiptAccessExpiresAt: futureIso,
     auditHead: null,
     ...overrides,
   };
@@ -51,6 +52,18 @@ test("the landing-page CTA starts the guided demo directly", async ({ page }) =>
   await page.getByRole("link", { name: /Try the guided demo/ }).click();
   await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
   await expect(page.locator(".demo-badge")).toHaveText(/Guided demo/i);
+});
+
+test("privacy verification links show success, expired, and invalid outcomes", async ({ page }) => {
+  await page.goto("/privacy-request?verification=success&requestId=PRIV-TEST01");
+  await expect(page.getByRole("status")).toContainText("Identity verified.");
+  await expect(page.getByRole("status")).toContainText("PRIV-TEST01");
+
+  await page.goto("/privacy-request?verification=expired");
+  await expect(page.getByRole("alert")).toContainText("Verification link expired.");
+
+  await page.goto("/privacy-request?verification=invalid");
+  await expect(page.getByRole("alert")).toContainText("Verification was not completed.");
 });
 
 test("a blocked local store shows an honest save-failed state with a working retry", async ({ page }) => {
@@ -121,6 +134,7 @@ test("reviewers never see the owner workspace link on a receipt, owners do", asy
   await page.goto("/receipt/REVIEW-BETA1");
   await expect(page.getByRole("heading", { name: "Milestone approval record" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Workspace" })).toHaveCount(0);
+  await expect(page.getByText("Secure access until")).toBeVisible();
 
   await page.unroute("**/api/reviews/REVIEW-BETA1");
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(receiptPacket({ viewerRole: "OWNER" })) }));

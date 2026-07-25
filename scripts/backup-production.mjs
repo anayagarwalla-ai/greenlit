@@ -3,11 +3,11 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { downloadStorageObject, listStorageObjects, required, resolveInside, safeTimestamp, supabaseConfig } from "./ops-lib.mjs";
+import { downloadStorageObject, listStorageObjects, postgresClientEnvironment, required, resolveInside, safeTimestamp, supabaseConfig } from "./ops-lib.mjs";
 
-function run(command, args) {
+function run(command, args, environment) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
+    const child = spawn(command, args, { stdio: "inherit", env: environment });
     child.once("error", reject);
     child.once("exit", (code) => code === 0 ? resolvePromise() : reject(new Error(`${command} exited with ${code}.`)));
   });
@@ -24,8 +24,9 @@ const encryptedOutput = join(outputDir, `greenlit-${stamp}.tar.gz.gpg`);
 
 try {
   await mkdir(join(bundle, "evidence"), { recursive: true, mode: 0o700 });
+  const postgres = await postgresClientEnvironment(databaseUrl, temporary);
   const databaseFile = join(bundle, "database.dump");
-  await run("pg_dump", ["--format=custom", "--no-owner", "--no-privileges", `--file=${databaseFile}`, databaseUrl]);
+  await run("pg_dump", ["--format=custom", "--no-owner", "--no-privileges", `--file=${databaseFile}`], postgres.environment);
 
   const storageObjects = await listStorageObjects("evidence", supabase);
   const evidence = [];

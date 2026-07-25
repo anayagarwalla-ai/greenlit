@@ -10,7 +10,9 @@ export function pathWithQueryAndHash(url: URL): string {
 }
 
 export function normalizeAddress(address: string): string {
-  return address.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const unwrapped = address.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  try { return ipaddr.parse(unwrapped).toNormalizedString(); }
+  catch { return unwrapped; }
 }
 
 export function addressMatchesFrozenSet(address: string, frozenAddresses: string[]): boolean {

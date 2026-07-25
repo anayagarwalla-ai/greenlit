@@ -12,6 +12,65 @@ function authorized(request: Request) {
   return Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`);
 }
 
+async function deleteOrphanedEvidence(database: ReturnType<typeof requireSupabaseAdmin>) {
+  const knownPaths = new Set<string>();
+  for (let offset = 0; ; offset += 1_000) {
+    const { data, error } = await database.from("evidence_artifacts_v2")
+      .select("storage_path")
+      .not("storage_path", "is", null)
+      .range(offset, offset + 999);
+    if (error) throw new Error(`Evidence metadata inventory failed: ${error.message}`);
+    for (const row of data ?? []) if (row.storage_path) knownPaths.add(row.storage_path);
+    if ((data ?? []).length < 1_000) break;
+  }
+
+  const cutoff = Date.now() - 60 * 60_000;
+  const prefixes = [""];
+  const candidates: string[] = [];
+  let scanned = 0;
+  while (prefixes.length > 0 && scanned < 5_000 && candidates.length < 500) {
+    const prefix = prefixes.shift()!;
+    for (let offset = 0; offset < 1_000 && scanned < 5_000; offset += 100) {
+      const { data, error } = await database.storage.from("evidence").list(prefix, {
+        limit: 100,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+      if (error) throw new Error(`Evidence bucket inventory failed at ${prefix || "/"}: ${error.message}`);
+      for (const item of data ?? []) {
+        scanned += 1;
+        const path = prefix ? `${prefix}/${item.name}` : item.name;
+        const isFile = Boolean(item.id || item.metadata);
+        if (!isFile) {
+          if (path.split("/").length < 3) prefixes.push(path);
+          continue;
+        }
+        const createdAt = item.created_at ? new Date(item.created_at).getTime() : Number.NaN;
+        if (!knownPaths.has(path) && Number.isFinite(createdAt) && createdAt < cutoff) candidates.push(path);
+      }
+      if ((data ?? []).length < 100) break;
+    }
+  }
+
+  let deleted = 0;
+  for (let offset = 0; offset < candidates.length; offset += 100) {
+    const batch = candidates.slice(offset, offset + 100);
+    // Recheck metadata immediately before deletion to close the inventory race
+    // with an evidence upload that commits while maintenance is scanning.
+    const { data: nowTracked, error: recheckError } = await database.from("evidence_artifacts_v2")
+      .select("storage_path")
+      .in("storage_path", batch);
+    if (recheckError) throw new Error(`Evidence orphan recheck failed: ${recheckError.message}`);
+    const tracked = new Set((nowTracked ?? []).flatMap((item) => item.storage_path ? [item.storage_path] : []));
+    const orphaned = batch.filter((path) => !tracked.has(path));
+    if (orphaned.length === 0) continue;
+    const { error: removeError } = await database.storage.from("evidence").remove(orphaned);
+    if (removeError) throw new Error(`Orphaned evidence deletion failed: ${removeError.message}`);
+    deleted += orphaned.length;
+  }
+  return { deleted, scanned, candidates: candidates.length };
+}
+
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET) return NextResponse.json({ error: "Retention maintenance is not configured." }, { status: 503, headers: noStoreJsonHeaders() });
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
@@ -58,6 +117,19 @@ export async function GET(request: Request) {
         const { error: failureError } = await database.rpc("fail_evidence_deletion_atomic", { p_ids: items.map((item) => item.id), p_record_id: recordId, p_error: message, p_processed_at: now });
         if (failureError) await database.from("operational_events").insert({ severity: "ERROR", service: "retention", event_type: "EVIDENCE_DELETION_STATE_FAILED", record_id: recordId, details: { error: failureError.message } });
       }
+    }
+    let orphanedEvidence = { deleted: 0, scanned: 0, candidates: 0 };
+    let orphanedEvidenceReconciliationFailures = 0;
+    try {
+      orphanedEvidence = await deleteOrphanedEvidence(database);
+    } catch (cause) {
+      orphanedEvidenceReconciliationFailures = 1;
+      await database.from("operational_events").insert({
+        severity: "ERROR",
+        service: "retention",
+        event_type: "ORPHANED_EVIDENCE_RECONCILIATION_FAILED",
+        details: { error: cause instanceof Error ? cause.message.slice(0, 1_000) : "Orphaned evidence reconciliation failed" },
+      });
     }
 
     const { data: expiredRecords, error: recordsError } = await database.rpc("stage_expired_record_deletion", { p_limit: 50, p_now: now });
@@ -136,7 +208,7 @@ export async function GET(request: Request) {
     const { error: webhookEventError, count: deletedStripeEvents } = await database.from("stripe_webhook_events").delete({ count: "exact" }).lt("received_at", stripeEventCutoff);
     if (webhookEventError) throw new Error(webhookEventError.message);
     const notificationDelivery = await deliverPendingNotifications(20);
-    const summary = { expiredJobs: Number(expiredJobs ?? 0), strandedInvoiceJobs: strandedInvoiceJobs?.length ?? 0, recoveredInvoices, deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, purgedRecords, recordDeletionFailures, deletedAccounts, accountDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, deletedOperatorEvents: deletedOperatorEvents ?? 0, deletedConsentEvents: deletedConsentEvents ?? 0, deletedProductEvents: deletedProductEvents ?? 0, deletedMaintenanceRuns: deletedMaintenanceRuns ?? 0, deletedOauthStates: deletedOauthStates ?? 0, deletedStripeEvents: deletedStripeEvents ?? 0, notificationDelivery, processedAt: now };
+    const summary = { expiredJobs: Number(expiredJobs ?? 0), strandedInvoiceJobs: strandedInvoiceJobs?.length ?? 0, recoveredInvoices, deletedEvidence: deletedEvidenceCount, evidenceDeletionFailures, orphanedEvidenceDeleted: orphanedEvidence.deleted, orphanedEvidenceScanned: orphanedEvidence.scanned, orphanedEvidenceCandidates: orphanedEvidence.candidates, orphanedEvidenceReconciliationFailures, purgedRecords, recordDeletionFailures, deletedAccounts, accountDeletionFailures, deletedPrivacyRequests: privacyIds.length, deletedRateWindows: deletedRateWindows ?? 0, deletedFeedback: deletedFeedback ?? 0, deletedNotifications: deletedNotifications ?? 0, deletedOperationalEvents: deletedOperationalEvents ?? 0, deletedOperatorEvents: deletedOperatorEvents ?? 0, deletedConsentEvents: deletedConsentEvents ?? 0, deletedProductEvents: deletedProductEvents ?? 0, deletedMaintenanceRuns: deletedMaintenanceRuns ?? 0, deletedOauthStates: deletedOauthStates ?? 0, deletedStripeEvents: deletedStripeEvents ?? 0, notificationDelivery, processedAt: now };
     const { error: maintenanceCompleteError } = await database.from("maintenance_runs").update({ status: "SUCCEEDED", completed_at: new Date().toISOString(), summary }).eq("id", maintenanceRunId);
     if (maintenanceCompleteError) throw new Error(`Maintenance heartbeat could not complete: ${maintenanceCompleteError.message}`);
     return NextResponse.json({ ok: true, ...summary }, { headers: noStoreJsonHeaders() });

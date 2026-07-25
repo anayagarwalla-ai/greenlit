@@ -25,6 +25,7 @@ describe("consumeRateLimit fail-closed behavior on protected routes", () => {
     const request = new Request("https://example.test/api/runs");
     const result = await consumeRateLimit(request, "verification-run-day", 8, 86_400, "user-1", { failClosed: true });
     expect(result.allowed).toBe(false);
+    expect(result.unavailable).toBe(true);
   });
 
   it("stays fail-open in local development when the quota store is simply not configured", async () => {
@@ -36,12 +37,13 @@ describe("consumeRateLimit fail-closed behavior on protected routes", () => {
     expect(result.allowed).toBe(true);
   });
 
-  it("defaults to fail-open when failClosed is not requested", async () => {
+  it("defaults to fail-closed in production when failClosed is not specified", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     const request = new Request("https://example.test/api/feedback");
     const result = await consumeRateLimit(request, "beta-feedback-day", 10, 86_400, "user-1");
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.unavailable).toBe(true);
   });
 });

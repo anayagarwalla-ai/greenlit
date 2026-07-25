@@ -6,7 +6,7 @@ import { canonicalJson, noStoreJsonHeaders, randomToken, RECORD_NOTICE_VERSION, 
 import { deliverNotification, type NotificationPayload } from "@/lib/notifications";
 import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
-import { assertReviewSnapshotIntegrity, receiptSessionCookieName, receiptSessionExpiry, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
+import { assertReviewSnapshotIntegrity, RECEIPT_SESSION_TTL_SECONDS, receiptSessionCookieName, receiptSessionExpiry, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
 
 const schema = z.object({
@@ -28,7 +28,7 @@ const schema = z.object({
 
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "review-decision-hour", 10, 3_600);
-  if (!quota.allowed) return rateLimitedResponse(quota.retryAfterSeconds);
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Name, change classification, authority, Terms acceptance, and electronic-record consent are required." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
@@ -82,7 +82,7 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     }
     await logProductEvent({ eventType: "REVIEW_DECIDED", recordId: packet.record_id, properties: { status: parsed.data.decision, changeType: parsed.data.changeType ?? null, changeCriterionId: parsed.data.changeCriterionId ?? null } });
     const response = NextResponse.json({ decision: parsed.data.decision, decidedAt, receiptSha256, auditSequence: committedDecision?.auditSequence ?? null, invoiceStatus: committedDecision?.invoiceJobId ? "QUEUED" : null, receiptUrl: `/receipt/${packetId}`, receiptAccessExpiresAt: receiptExpiresAt }, { headers: noStoreJsonHeaders() });
-    response.cookies.set(receiptSessionCookieName(packetId), receiptSession, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 30 * 24 * 60 * 60 });
+    response.cookies.set(receiptSessionCookieName(packetId), receiptSession, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: RECEIPT_SESSION_TTL_SECONDS });
     return response;
   } catch (error) {
     console.error("Review decision failed", error instanceof Error ? error.message : "unknown");

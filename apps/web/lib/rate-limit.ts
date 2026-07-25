@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "./database";
 import { requestActorHash, sha256 } from "./recordkeeping";
 
-export type RateLimitResult = { allowed: boolean; retryAfterSeconds: number };
+export type RateLimitResult = { allowed: boolean; retryAfterSeconds: number; unavailable?: boolean };
 
 export function positiveIntegerSetting(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -16,13 +16,13 @@ export async function consumeRateLimit(
   identity?: string | null,
   options?: { failClosed?: boolean },
 ): Promise<RateLimitResult> {
-  const failClosed = options?.failClosed ?? false;
+  const failClosed = options?.failClosed ?? process.env.NODE_ENV === "production";
   const database = getSupabaseAdmin();
   if (!database) {
     // Only local/dev environments run without Supabase configured at all;
     // production always configures it, so this branch never masks a real
     // outage there.
-    if (failClosed && process.env.NODE_ENV === "production") return { allowed: false, retryAfterSeconds: windowSeconds };
+    if (failClosed && process.env.NODE_ENV === "production") return { allowed: false, retryAfterSeconds: windowSeconds, unavailable: true };
     return { allowed: true, retryAfterSeconds: windowSeconds };
   }
   let actor: string;
@@ -45,16 +45,17 @@ export async function consumeRateLimit(
     // Protected/high-cost routes (runner capacity, Gemini capacity, origin
     // network probes) must fail closed when the quota store is unreachable
     // rather than silently granting unlimited access.
-    return { allowed: !failClosed, retryAfterSeconds: windowSeconds };
+    return { allowed: !failClosed, retryAfterSeconds: windowSeconds, unavailable: failClosed };
   }
   const elapsed = Math.floor(Date.now() / 1000) % windowSeconds;
   return { allowed: Boolean(data), retryAfterSeconds: Math.max(1, windowSeconds - elapsed) };
 }
 
-export function rateLimitedResponse(retryAfterSeconds: number) {
+export function rateLimitedResponse(result: RateLimitResult) {
+  if (result.unavailable) return degradedRateLimitResponse();
   return Response.json(
     { error: "This beta has reached its current request allowance. Please retry after the limit resets.", code: "RATE_LIMITED" },
-    { status: 429, headers: { "Retry-After": String(retryAfterSeconds), "Cache-Control": "no-store" } },
+    { status: 429, headers: { "Retry-After": String(result.retryAfterSeconds), "Cache-Control": "no-store" } },
   );
 }
 
