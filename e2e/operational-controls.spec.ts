@@ -198,10 +198,7 @@ test("resource copy, download, navigation, and calculator controls are operation
 
   await page.goto("/trust");
   const reportingLink = page.getByRole("link", { name: "Reporting concerns" });
-  if ((page.viewportSize()?.width ?? 1280) > 680) await reportingLink.click();
-  else {
-    await expect(reportingLink).toBeHidden();
-    await page.goto("/trust#reporting");
-  }
+  await expect(reportingLink).toBeVisible();
+  await reportingLink.click();
   await expect(page).toHaveURL(/\/trust#reporting$/);
 });

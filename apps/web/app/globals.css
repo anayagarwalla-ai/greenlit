@@ -525,7 +525,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .trust-grid { grid-template-columns: 1fr; padding: 0 16px 70px; }
   .trust-grid article { min-height: 190px; }
   .trust-detail { padding: 70px 16px; }
-  .trust-detail__nav { display: none; }
+  .trust-detail__nav { padding-bottom: 28px; }
+  .trust-detail__nav a { min-height: 44px; display: inline-flex; align-items: center; }
   .trust-detail__content h2 { font-size: 34px; }
   .trust-links { grid-template-columns: 1fr 1fr; padding: 35px 16px; }
 }
