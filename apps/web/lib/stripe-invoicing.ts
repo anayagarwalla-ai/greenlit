@@ -2,6 +2,7 @@ import { requireSupabaseAdmin } from "./database";
 import { assertFrozenInvoicePlan } from "./invoice-plan";
 import { createStripeCustomer, createStripeInvoice, createStripeInvoiceItem, getStripeAccessForOwner, listStripeCustomers, retrieveStripeCustomer, retrieveStripeInvoice, sendStripeInvoice, type StripeInvoice } from "./stripe-api";
 import { logOperationalEvent } from "./operations";
+import { getOperationalControl } from "./operational-controls";
 
 type InvoiceJob = { id: string; record_id: string; packet_id: string; owner_user_id: string; plan: unknown; idempotency_prefix: string; status: string };
 
@@ -34,6 +35,12 @@ function testDraftRpcPayload(jobId: string, invoice: StripeInvoice) {
 }
 
 export async function processInvoiceJob(jobId: string, ownerUserId: string) {
+  // Retention recovery, approval callbacks, and operator retries all call the
+  // executor directly. Check before the atomic claim so a pause leaves the
+  // durable job pending and safe to resume.
+  const control = await getOperationalControl("INVOICES");
+  if (control.paused) return { status: "PAUSED" as const, control };
+
   const database = requireSupabaseAdmin();
   const { data: claimed, error: claimError } = await database.rpc("claim_invoice_job_atomic", { p_job_id: jobId, p_owner_user_id: ownerUserId, p_now: new Date().toISOString() });
   if (claimError) throw new Error(claimError.message);

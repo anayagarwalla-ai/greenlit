@@ -4,10 +4,13 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { noStoreJsonHeaders, requestActorHash } from "@/lib/recordkeeping";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
 import { getOptionalUser } from "@/lib/supabase-server";
+import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
 
 export async function POST(request: Request, context: { params: Promise<{ recordId: string }> }) {
   const user = await getOptionalUser();
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with an invited account to continue." }, { status: 401, headers: noStoreJsonHeaders() });
+  const invoiceControl = await getOperationalControl("INVOICES");
+  if (invoiceControl.paused) return operationalPauseResponse(invoiceControl);
   const { recordId } = await context.params;
   const database = requireSupabaseAdmin();
   const { data: record } = await database.from("transaction_records").select("id,status,owner_user_id").eq("id", recordId).maybeSingle();
@@ -19,6 +22,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
   if (error || !job) return NextResponse.json({ error: "The invoice could not be queued. Confirm this milestone is approved and no invoice is already pending." }, { status: 409, headers: noStoreJsonHeaders() });
   try {
     const result = await processInvoiceJob(job.id, user.id);
+    if (result.status === "PAUSED") return operationalPauseResponse(result.control);
     return NextResponse.json(result, { headers: noStoreJsonHeaders() });
   } catch {
     return NextResponse.json({ error: "Stripe could not finish the invoice. The failed job is retained for a safe retry.", jobId: job.id }, { status: 502, headers: noStoreJsonHeaders() });

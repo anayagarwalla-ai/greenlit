@@ -42,8 +42,8 @@ import { VerificationSetup, type CustomRunConfiguration, type VerificationSetupD
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
 import { ReviewSetupDialog, type ReviewExpiryHours } from "@/components/review-setup-dialog";
 import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, normalizeWhitespace, type AnalysisCriterion, type CheckType } from "@/lib/analysis";
-import { demoCriteria, demoSowText, seededDemoResults, sowExcerpt } from "@/lib/demo";
-import { formatDuration, formatTimestamp } from "@/lib/format";
+import { demoCriteria, demoSowText, seededDemoArtifacts, seededDemoResults, sowExcerpt } from "@/lib/demo";
+import { DEMO_TIME_ZONE, formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 import { isActiveRunStatus, isTerminalRunFailure, terminalRunMessage } from "@/lib/run-status";
 import {
@@ -59,6 +59,7 @@ import {
   removeProjectDraft,
   saveProjectDraft,
 } from "@/lib/client-storage";
+import { fetchWithTimeout } from "@/lib/client-request";
 
 type Phase = "intake" | "analyzing" | "criteria" | "handoff" | "running1" | "run1" | "running2" | "run2" | "shared";
 type SourceMode = "live" | "demo";
@@ -253,6 +254,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const [runError, setRunError] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewUrl, setReviewUrl] = useState("");
+  const [manualReviewCopy, setManualReviewCopy] = useState(false);
   const [reviewAccessCode, setReviewAccessCode] = useState("");
   const [reviewerEmail, setReviewerEmail] = useState("");
   const [reviewPacketId, setReviewPacketId] = useState("");
@@ -313,12 +315,12 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
 
   const saveRetainedSnapshot = useCallback(async (snapshot: WorkspaceDraft, signal?: AbortSignal) => {
     if (!recordId || !sessionEmail) return;
-    const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}`, {
+    const response = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ workspaceState: snapshot }),
       ...(signal ? { signal } : {}),
-    });
+    }, 15_000);
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error((payload as { error?: string }).error ?? "The retained workspace could not be saved.");
@@ -404,7 +406,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     const restore = async () => {
       let email = "";
       try {
-        const response = await fetch("/api/account/session", { cache: "no-store" });
+        const response = await fetchWithTimeout("/api/account/session", { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "Your sign-in session could not be checked.");
         email = payload.user?.email ?? "";
@@ -430,7 +432,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       const requestedDraftId = currentUrl.searchParams.get("draft");
       if (email && resumeId) {
         try {
-          const response = await fetch(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" });
+          const response = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(resumeId)}`, { cache: "no-store" }, 20_000);
           const resumed = await response.json();
           if (!response.ok) throw new Error(resumed.error ?? "The retained workspace could not be restored.");
           if (cancelled) return;
@@ -603,7 +605,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     const controller = new AbortController();
     const poll = async () => {
       try {
-        const response = await fetch(`/api/runs/${encodeURIComponent(activeRunId)}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetchWithTimeout(`/api/runs/${encodeURIComponent(activeRunId)}`, { cache: "no-store", signal: controller.signal }, 20_000);
         const payload = await response.json() as RunResponse & { error?: string };
         if (!response.ok) throw new Error(payload.error ?? "Verification status is unavailable.");
         setLatestRun(payload);
@@ -723,6 +725,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   const launchDemo = () => {
     runController.current?.abort("guided-demo");
     runController.current = null;
+    setDraftId(crypto.randomUUID());
     setSourceMode("demo");
     setSourceText(demoSowText);
     setSourceName("Acme × Northstar — SOW.pdf");
@@ -760,6 +763,17 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
   };
 
   useEffect(() => { launchDemoRef.current = launchDemo; });
+
+  const openGuidedDemo = async () => {
+    const hasLiveWork = sourceMode === "live" && Boolean(sourceText.trim() || selectedFile || criteria.length || recordId);
+    if (hasLiveWork) {
+      const saved = await preserveDraft();
+      if (!saved && !window.confirm("This live draft could not be fully saved. Open the guided demo anyway? Your latest unsaved changes may not be recoverable.")) return;
+    }
+    // A full navigation gives the synthetic walkthrough its own in-memory
+    // workspace while keeping the live draft URL in browser history.
+    window.location.assign("/workspace?demo=guided");
+  };
 
   const analyze = async () => {
     if (!attested || !aiDisclosureAccepted || !adultBusinessUseAttested) {
@@ -884,7 +898,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           buildUrl: `/fixture/${second ? "rc2" : "rc1"}`,
           buildLabel: `launch-${second ? "rc2" : "rc1"}`,
           results,
-          artifacts: [],
+          artifacts: seededDemoArtifacts(second ? "rc2" : "rc1"),
           browserVersion: "Illustrative sample",
           runnerVersion: "walkthrough-1.0",
           manifestSha256: null,
@@ -907,7 +921,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       const requestId = runRequestId ?? crypto.randomUUID();
       setRunRequestId(requestId);
       if (draftId) saveProjectDraft(sessionEmail, draftId, JSON.stringify({ ...workspaceSnapshot(!sessionEmail), runRequestId: requestId, savedAt: new Date().toISOString() }));
-      const response = await fetch("/api/runs", {
+      const response = await fetchWithTimeout("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: controller.signal,
@@ -930,7 +944,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           workspaceState: workspaceSnapshot(false),
           ...(activeCustomRun ?? {}),
         }),
-      });
+      }, 25_000);
       const created = await response.json();
       if (created.recordId) {
         setRecordId(created.recordId);
@@ -946,7 +960,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         let statusResponse: Response;
         let statusPayload: RunResponse & { error?: string };
         try {
-          statusResponse = await fetch(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" });
+          statusResponse = await fetchWithTimeout(`/api/runs/${encodeURIComponent(created.runId)}`, { signal: controller.signal, cache: "no-store" }, 20_000);
           statusPayload = await statusResponse.json() as RunResponse & { error?: string };
         } catch (statusError) {
           if (controller.signal.aborted) return;
@@ -1015,27 +1029,29 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       if (sourceMode === "demo") {
         const origin = window.location.origin;
         setReviewUrl(`${origin}/review/demo`);
-        setReviewPacketId("DEMO-NOT-RETAINED");
-        setPhase("shared");
+      setReviewPacketId("DEMO-NOT-RETAINED");
+      setManualReviewCopy(false);
+      setPhase("shared");
         setReviewCreated(true);
         setToast("Synthetic client walkthrough ready");
         return;
       }
       if (!recordId) throw new Error("The retained milestone record is unavailable.");
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
+      const response = await fetchWithTimeout("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
       const payload = await response.json();
       if (response.status === 409 && payload.activePacketId) {
         setReviewPacketId(payload.activePacketId);
         setReviewCreated(true);
         const replace = window.confirm("A client-review link is already active, but its secret cannot be recovered after reload. Revoke that link and create a replacement?");
         if (!replace) throw new Error("The existing review link remains active. You can revoke or extend it from the dashboard.");
-        const revoked = await fetch(`/api/account/reviews/${encodeURIComponent(payload.activePacketId)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revoke" }) });
+        const revoked = await fetchWithTimeout(`/api/account/reviews/${encodeURIComponent(payload.activePacketId)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revoke" }) });
         const revokedPayload = await revoked.json();
         if (!revoked.ok) throw new Error(revokedPayload.error ?? "The existing review link could not be revoked.");
-        const replacement = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
+        const replacement = await fetchWithTimeout("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId, runId: latestRun.runId, reviewerEmail: intendedEmail, expiryHours }) });
         const replacementPayload = await replacement.json();
         if (!replacement.ok) throw new Error(replacementPayload.error ?? "The replacement review link could not be created.");
         setReviewUrl(replacementPayload.reviewUrl);
+        setManualReviewCopy(false);
         setReviewAccessCode(replacementPayload.accessCode);
         setReviewerEmail(replacementPayload.reviewerEmail);
         setReviewPacketId(replacementPayload.packetId);
@@ -1047,6 +1063,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       }
       if (!response.ok) throw new Error(payload.error ?? "The client review could not be created.");
       setReviewUrl(payload.reviewUrl);
+      setManualReviewCopy(false);
       setReviewAccessCode(payload.accessCode);
       setReviewerEmail(payload.reviewerEmail);
       setReviewPacketId(payload.packetId);
@@ -1064,9 +1081,11 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     try {
       await navigator.clipboard.writeText(reviewUrl);
       setCopied(true);
+      setManualReviewCopy(false);
       setToast("Review link copied");
     } catch {
       setCopied(false);
+      setManualReviewCopy(true);
       setToast("Clipboard unavailable — select and copy the link manually");
     }
   };
@@ -1084,7 +1103,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     if (!reviewPacketId) return;
     if (sourceMode === "demo") { window.location.assign("/receipt/demo"); return; }
     try {
-      const response = await fetch(`/api/reviews/${encodeURIComponent(reviewPacketId)}`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`/api/reviews/${encodeURIComponent(reviewPacketId)}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "This review record is unavailable.");
       if (payload.decision === "APPROVED") window.location.assign(`/receipt/${reviewPacketId}`);
@@ -1207,7 +1226,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           <div className="sr-only" aria-live="polite" aria-atomic="true">{phase === "analyzing" ? "Gemini analysis in progress" : phase.startsWith("running") ? "Verification in progress" : status.text}</div>
 
           {storageBlocked && sourceMode === "live" && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span><strong>This browser is not saving drafts.</strong> Local storage is unavailable (private browsing, blocked storage, or a full disk), so this draft exists only in this open tab and will be lost if you reload or leave. {sessionEmail ? "Completed verification runs are still retained to your account." : "Sign in and run verification to retain the work server-side."}</span></div>}
-          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span>{pollNetworkFailure ? <Link className="mini-action" href="/dashboard">Return to dashboard</Link> : <button className="mini-action" type="button" onClick={launchDemo}>Open synthetic walkthrough</button>}</div>}
+          {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span>{pollNetworkFailure ? <Link className="mini-action" href="/dashboard">Return to dashboard</Link> : <button className="mini-action" type="button" onClick={() => void openGuidedDemo()}>Open synthetic walkthrough</button>}</div>}
           {changeRequest && <div className="analysis-notice change-request-note" role="status"><PencilLine size={15} /><div><strong>Client change request</strong><span>{changeRequest}</span></div></div>}
 
           {(phase === "intake" || phase === "analyzing") && (
@@ -1227,7 +1246,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
               error={analysisError}
               analyzing={phase === "analyzing"}
               onAnalyze={analyze}
-              onDemo={launchDemo}
+              onDemo={() => void openGuidedDemo()}
               signedInEmail={sessionEmail}
               signInHref={signInHref}
               geminiPaidService={geminiPaidService}
@@ -1254,11 +1273,11 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
               onContinue={continueFromCriteria}
             />
           )}
-          {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} initialDraftState={verificationDraft} onDraftChange={setVerificationDraft} onBack={() => setPhase("criteria")} onDemo={launchDemo} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
+          {phase === "handoff" && <VerificationSetup criteria={criteria} sourceName={sourceName} signedInEmail={sessionEmail} initialConfiguration={customRun} initialDraftState={verificationDraft} onDraftChange={setVerificationDraft} onBack={() => setPhase("criteria")} onDemo={() => void openGuidedDemo()} onRun={(configuration) => { setCustomRun(configuration); void startRun(false, configuration); }} />}
           {(phase === "running1" || phase === "running2") && <RunLoading second={phase === "running2"} seeded={sourceMode === "demo"} />}
           {phase === "run1" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onRerun={() => sourceMode === "demo" ? void startRun(true) : canUseImportedFixture ? void startRun(true, null) : setPhase("handoff")} />}
           {phase === "run2" && latestRun && <VerificationReport run={latestRun} criteria={sourceMode === "demo" ? demoCriteria.map((item) => ({ id: item.id, title: item.title })) : criteria} onShare={(trigger) => { if (sourceMode === "demo") { void share({ reviewerEmail: "demo@example.test", expiryHours: 72 }); } else { reviewTriggerRef.current = trigger; setRunError(""); setReviewSetupOpen(true); } }} shareBusy={reviewBusy} invoicePlan={!latestRun.seededDemo && sourceMode === "live" ? <InvoicePlanCard recordId={latestRun.recordId} clientName={business.clientName} projectName={business.projectName} milestoneTitle={business.milestoneTitle} amountMinor={Math.round(Number(business.amountDollars) * 100)} currency={business.currency} /> : null} />}
-          {phase === "shared" && <SharedReview copied={copied} onCopy={copyReview} reviewUrl={reviewUrl} accessCode={reviewAccessCode} reviewerEmail={reviewerEmail} expiresAt={reviewExpiresAt} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
+          {phase === "shared" && <SharedReview copied={copied} manualCopy={manualReviewCopy} onCopy={copyReview} reviewUrl={reviewUrl} accessCode={reviewAccessCode} reviewerEmail={reviewerEmail} expiresAt={reviewExpiresAt} packetId={reviewPacketId} clientName={business.clientName} criteriaCount={sourceMode === "demo" ? demoCriteria.length : criteria.length} resultCount={latestRun?.results.length ?? 0} demo={sourceMode === "demo"} />}
         </section>
       </div>
       {reviewSetupOpen && <ReviewSetupDialog initialEmail={reviewerEmail} busy={reviewBusy} error={runError} returnFocusRef={reviewTriggerRef} onClose={() => { if (!reviewBusy) { setReviewSetupOpen(false); setRunError(""); } }} onSubmit={(details) => void share(details)} />}
@@ -1493,7 +1512,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
     setReattachBusy(true); setReattachError("");
     try {
       const form = new FormData(); form.set("file", file);
-      const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, { method: "POST", body: form });
+      const response = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, { method: "POST", body: form }, 20_000);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The source could not be reattached.");
       onSourceReattached(payload.sourceText, payload.sourceName, file);
@@ -1505,11 +1524,11 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
     if (!recordId || pastedSource.trim().length < 1) return;
     setReattachBusy(true); setReattachError("");
     try {
-      const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, {
+      const response = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}/source-reattach`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: pastedSource, sourceName: sourceName || "Pasted SOW" }),
-      });
+      }, 20_000);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The pasted source could not be reattached.");
       onSourceReattached(payload.sourceText, payload.sourceName, null);
@@ -1522,7 +1541,7 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   return (
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <div className="source-reattach-actions"><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Choose file</button><button type="button" className="mini-action" aria-expanded={showPasteReattach} onClick={() => setShowPasteReattach((current) => !current)}><FileText size={12} /> Paste original</button></div>}</div>
+        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <div className="source-reattach-actions"><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" aria-label="Choose the original SOW file to reattach" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Choose file</button><button type="button" className="mini-action" aria-expanded={showPasteReattach} onClick={() => setShowPasteReattach((current) => !current)}><FileText size={12} /> Paste original</button></div>}</div>
         {sourceReattachRequired && <div className="analysis-error source-reattach-warning" role="alert"><AlertTriangle size={15} /><span><strong>Complete source required before verification.</strong> This browser restored the retained criteria and exact quotes, but not the rest of the SOW. Paste the original text or choose the exact original file; Greenlit will verify its frozen hash.</span></div>}
         {showPasteReattach && recordId && <div className="source-reattach-panel"><label htmlFor="reattach-pasted-source">Exact original SOW text</label><textarea id="reattach-pasted-source" value={pastedSource} onChange={(event) => { setPastedSource(event.target.value); setReattachError(""); }} placeholder="Paste the same SOW text used for this milestone" /><div><button type="button" className="button button--outline button--small" disabled={reattachBusy || !pastedSource.trim()} onClick={() => void reattachPastedSource()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <ShieldCheck size={12} />} Verify and restore</button><button type="button" className="mini-action" onClick={() => { setShowPasteReattach(false); setPastedSource(""); setReattachError(""); }}>Cancel</button></div></div>}
         {reattachError && <div className="analysis-error" role="alert">{reattachError}</div>}
@@ -1612,7 +1631,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const evidence = (caughtFalseSuccess ? run.artifacts.find((artifact) => artifact.url && artifact.criterionId === "AC-04") : null)
     ?? run.artifacts.find((artifact) => artifact.url && (!isPass ? resultByCriterion[artifact.criterionId]?.status !== "PASS" : true))
     ?? run.artifacts.find((artifact) => artifact.url);
-  const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt)) : "Just now";
+  const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt), run.seededDemo ? DEMO_TIME_ZONE : undefined) : "Just now";
   const actionBanner = (
     <div className="action-banner">
       <div><h3>{run.seededDemo ? isPass ? "Continue to the client decision." : "Next: verify the fixed sample build." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "Next: verify the fixed build." : "Next: verify another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only client review and try the decision flow." : "Run the same six checks against rc2—no re-analysis needed." : isPass ? "Create a focused review page with the latest passing evidence." : "Rerun the same frozen checks after the build is corrected."}</p></div>
@@ -1627,7 +1646,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
       <div className="report-grid">
         <section>
           <div className="panel report-summary">
-            {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough — not retained evidence</strong><span>These seeded outcomes illustrate the workflow. No browser session, evidence artifact, audit event, or legal transaction record was created.</span></div></div>}
+            {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough — not retained evidence</strong><span>The displayed frames were captured from Greenlit&apos;s included local fixture for presentation. The outcomes are seeded; no runner session, retained artifact, audit event, or legal transaction record was created.</span></div></div>}
             <div className="score-line">
               <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
               <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every automated check passes." : failed === 1 ? "Sample: one automated check needs work." : `Sample: ${failed} automated checks need work.` : isPass ? manualCount ? "Automated checks pass; client judgment remains." : "Every promise has browser evidence." : failed === 1 ? "One automated check needs work." : `${failed} automated checks need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? manualCount ? `${run.results.length} automated checks passed; ${manualCount} manual ${manualCount === 1 ? "promise awaits" : "promises await"} the client’s judgment.` : "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
@@ -1649,12 +1668,12 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
         <aside className="run-side">
           <div className="panel evidence-card">
             <div className="evidence-preview">
-              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={`Browser evidence for ${evidence.criterionId}`} /> : <div className="evidence-unavailable"><FileWarning size={28} /><strong>{run.seededDemo ? "No screenshot in this sample" : "Evidence unavailable"}</strong><span>{run.seededDemo ? "A real verification run shows its captured screenshot here." : "No captured screenshot was attached to this check."}</span></div>}
+              {evidence?.url ? <Image unoptimized width={1280} height={720} src={evidence.url} alt={run.seededDemo ? `Synthetic fixture frame for ${evidence.criterionId}` : `Browser evidence for ${evidence.criterionId}`} /> : <div className="evidence-unavailable"><FileWarning size={28} /><strong>Evidence unavailable</strong><span>No captured screenshot was attached to this check.</span></div>}
               {!isPass && <span className="evidence-pin">!</span>}
             </div>
-            <div className="evidence-body"><strong>{run.seededDemo ? "Illustrative walkthrough frame" : isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{run.seededDemo ? "This visual and its outcomes are synthetic examples, not captured browser evidence." : isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. Greenlit caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
+            <div className="evidence-body"><strong>{run.seededDemo ? "Illustrative walkthrough frame" : isPass ? "Evidence captured" : `Failure evidence · ${evidence?.criterionId ?? "check"}`}</strong><p>{run.seededDemo ? "This frame comes from the included synthetic fixture. It is presentation media, not a retained runner artifact or proof claim." : isPass ? `${run.artifacts.length} timestamped screenshots are attached to this retained run.` : caughtFalseSuccess ? "The visible confirmation contradicted the network response. Greenlit caught the false success." : "The observed browser evidence did not satisfy this frozen check."}</p></div>
           </div>
-          <div className="panel audit-card"><h3>{run.seededDemo ? "Walkthrough boundary" : "Run integrity"}</h3><div className="audit-item"><strong>{run.seededDemo ? "Seeded outcomes" : "Target constrained"}</strong>{run.seededDemo ? "Reliable presentation path when free runner capacity is unavailable." : `The runner was constrained to the owner-verified origin ${new URL(run.buildUrl).origin}.`}</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>{run.seededDemo ? "No evidence claim" : "Artifacts hashed"}</strong>{run.seededDemo ? "No screenshots, hashes, audit events, or approvals are persisted." : `SHA-256 manifest ${run.manifestSha256?.slice(0, 12) ?? "pending"}…`}</div><div className="audit-item"><strong>Source minimized</strong>{run.seededDemo ? "Only the included synthetic SOW is displayed." : "Only a source hash and confirmed criteria enter the record."}</div></div>
+          <div className="panel audit-card"><h3>{run.seededDemo ? "Walkthrough boundary" : "Run integrity"}</h3><div className="audit-item"><strong>{run.seededDemo ? "Seeded outcomes" : "Target constrained"}</strong>{run.seededDemo ? "Reliable presentation path when free runner capacity is unavailable." : `The runner was constrained to the owner-verified origin ${new URL(run.buildUrl).origin}.`}</div><div className="audit-item"><strong>Specs frozen</strong>{criteria.length} human-confirmed checks, revision {run.record?.revision ?? 1}.</div><div className="audit-item"><strong>{run.seededDemo ? "No evidence claim" : "Artifacts hashed"}</strong>{run.seededDemo ? "Fixture frames are bundled presentation media; no artifact hashes, audit events, or approvals are persisted." : `SHA-256 manifest ${run.manifestSha256?.slice(0, 12) ?? "pending"}…`}</div><div className="audit-item"><strong>Source minimized</strong>{run.seededDemo ? "Only the included synthetic SOW is displayed." : "Only a source hash and confirmed criteria enter the record."}</div></div>
         </aside>
       </div>
       {isPass && invoicePlan}
@@ -1663,7 +1682,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   );
 }
 
-function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, expiresAt, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; expiresAt: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
+function SharedReview({ copied, manualCopy, onCopy, reviewUrl, accessCode, reviewerEmail, expiresAt, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; manualCopy: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; expiresAt: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
   return (
     <div className="report-grid">
       <section className="panel approval-success">
@@ -1674,6 +1693,7 @@ function SharedReview({ copied, onCopy, reviewUrl, accessCode, reviewerEmail, ex
           <div><LockKeyhole size={13} /><span>{new URL(reviewUrl).origin.replace(/^https?:\/\//, "")}/review/{demo ? "demo" : "••••••••"}</span><small>{demo ? "Synthetic · local-only decision · not retained" : `Decision due ${formatTimestamp(new Date(expiresAt))} · one final decision`}</small></div>
           <button className="button button--outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</button>
         </div>
+        {manualCopy && <label className="share-manual-link">Review URL<input readOnly value={reviewUrl} onFocus={(event) => event.currentTarget.select()} onClick={(event) => event.currentTarget.select()} /></label>}
         {!demo && <div className="share-access-code"><span>Separate access code</span><strong>{accessCode}</strong><small>Bound to {reviewerEmail}. Send this code separately from the review link; the link can be redeemed only once.</small></div>}
         <a className="button button--lime" href={reviewUrl}>Open as the client <ArrowRight size={16} /></a>
         <div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO SECURE TOKEN" : `PACKET ${packetId} · SECURE TOKEN KEPT IN URL FRAGMENT`}</div>

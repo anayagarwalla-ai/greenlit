@@ -19,7 +19,19 @@ export async function logOperationalEvent(input: {
   if (error) console.error("Operational event could not be recorded", input.eventType, error.message);
 }
 
-const PRODUCT_PROPERTY_ALLOWLIST = new Set(["mode", "reason", "checkCount", "criteriaCount", "status", "durationBucket", "sourceMode"]);
+const PRODUCT_PROPERTY_ALLOWLIST = new Set([
+  "mode",
+  "reason",
+  "checkCount",
+  "criteriaCount",
+  "status",
+  "durationBucket",
+  "sourceMode",
+  "agencySize",
+  "milestoneVolume",
+  "nextStep",
+  "stagingModel",
+]);
 
 export async function logProductEvent(input: {
   eventType: string;

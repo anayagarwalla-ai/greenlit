@@ -11,11 +11,13 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { RECORD_NOTICE_VERSION, requestActorHash } from "@/lib/recordkeeping";
 import { extractSourceFileText, SourceInputError } from "@/lib/source-extraction";
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
+import { readLimitedFormData, readLimitedJson, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
 const MAX_SOURCE_LENGTH = 45_000;
+const MAX_ANALYSIS_REQUEST_BYTES = 1_650_000;
 const MAX_CRITERIA = 8;
 const GEMINI_TIMEOUT_MS = 8_000;
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
@@ -44,7 +46,7 @@ const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).mi
 async function readInput(request: Request, paidService: boolean) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
-    const form = await request.formData();
+    const form = await readLimitedFormData(request, MAX_ANALYSIS_REQUEST_BYTES);
     if (form.get("sourceDataAttested") !== "true") {
       throw new SourceInputError(
         paidService
@@ -65,8 +67,13 @@ async function readInput(request: Request, paidService: boolean) {
     return requestSchema.parse({ text, sourceName: file.name, sourceDataAttested: true, aiDisclosureAccepted: true, adultBusinessUseAttested: true });
   }
 
-  const body = await request.json().catch(() => null);
-  const parsed = requestSchema.safeParse(body && typeof body === "object" ? { ...body, text: normalizeSourceText(String(body.text ?? "")) } : body);
+  const body = await readLimitedJson(request, 64_000);
+  const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : null;
+  const parsed = requestSchema.safeParse(bodyRecord
+    ? { ...bodyRecord, text: normalizeSourceText(String(bodyRecord.text ?? "")) }
+    : body);
   if (!parsed.success) {
     throw new SourceInputError(
       paidService
@@ -155,6 +162,7 @@ export async function POST(request: Request) {
   try {
     input = await readInput(request, geminiConfiguration.paidService);
   } catch (error) {
+    if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes);
     if (error instanceof SourceInputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
     return NextResponse.json({ error: "The SOW could not be read. Try pasting the text instead.", code: "SOURCE_READ_FAILED" }, { status: 422 });

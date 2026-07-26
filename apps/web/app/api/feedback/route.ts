@@ -4,6 +4,7 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { noStoreJsonHeaders, publicRecordId, requestActorHash } from "@/lib/recordkeeping";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({
   category: z.enum(["BUG", "CONFUSING", "IDEA", "OTHER"]),
@@ -16,7 +17,9 @@ export async function POST(request: Request) {
   const user = await getOptionalUser();
   const quota = await consumeRateLimit(request, "beta-feedback-day", 10, 86_400, user?.id);
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 16_384);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Choose a category and include at least 10 characters." }, { status: 422, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();

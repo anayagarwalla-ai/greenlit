@@ -3,6 +3,7 @@ import { requireSupabaseAdmin } from "./database";
 import { decryptStripeSecret, encryptStripeSecret } from "./stripe-crypto";
 
 const STRIPE_API = "https://api.stripe.com/v1";
+const STRIPE_REQUEST_TIMEOUT_MS = 6_000;
 
 type StripeTokenResponse = {
   access_token: string;
@@ -53,7 +54,7 @@ async function tokenRequest(form: URLSearchParams): Promise<StripeTokenResponse>
     headers: { Authorization: `Basic ${Buffer.from(`${secretKey()}:`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
     cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(STRIPE_REQUEST_TIMEOUT_MS),
   });
   const body = await response.json().catch(() => ({})) as Partial<StripeTokenResponse> & { error_description?: string; error?: string };
   if (!response.ok || !body.access_token || !body.refresh_token || !body.expires_in) throw new Error(body.error_description ?? body.error ?? "Stripe authorization failed.");
@@ -71,6 +72,7 @@ export async function deauthorizeStripeAccount(accountId: string): Promise<void>
     headers: { Authorization: `Basic ${Buffer.from(`${secretKey()}:`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
     cache: "no-store",
+    signal: AbortSignal.timeout(STRIPE_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok && response.status !== 404) {
     const body = await response.json().catch(() => ({})) as { error_description?: string; error?: { message?: string } };
@@ -139,7 +141,7 @@ async function stripeRequest<T>(accessToken: string, path: string, init?: { meth
     },
     ...(init?.method === "POST" ? { body: form } : {}),
     cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(STRIPE_REQUEST_TIMEOUT_MS),
   });
   const body = await response.json().catch(() => ({})) as T & { error?: { message?: string } };
   if (!response.ok) throw new Error(body.error?.message ?? `Stripe returned HTTP ${response.status}.`);

@@ -22,5 +22,9 @@ max_retries = 1
 [vars]
 WEB_APP_URL = "https://greenlitproof.vercel.app"
 
+[triggers]
+crons = ["17 4 * * *", "7 * * * *", "37 * * * *"]
+
 # Secrets set with `wrangler secret put`:
 # RUNNER_HMAC_SECRET
+# CRON_SECRET

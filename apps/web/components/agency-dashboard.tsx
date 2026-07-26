@@ -10,6 +10,12 @@ import { signOutAndClearDraftState } from "@/lib/client-storage";
 import { canCreateReviewLink } from "@/lib/review-lifecycle";
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
 import { ReviewSetupDialog, type ReviewExpiryHours } from "@/components/review-setup-dialog";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
+import {
+  parseStripeReturn,
+  stripeConnectionActionLabel,
+  type StripeReturnNotice,
+} from "@/lib/stripe-return";
 
 type Run = { id: string; status: string; build_label: string; build_url: string; last_error?: string | null; completed_at?: string | null; created_at: string };
 type Review = { public_id: string; decision?: "APPROVED" | "CHANGES_REQUESTED" | null; reviewer_name?: string | null; reviewer_email?: string | null; reviewer_note?: string | null; decided_at?: string | null; expires_at: string; revoked_at?: string | null; created_at: string };
@@ -44,16 +50,21 @@ export function AgencyDashboard() {
   const [receiptLinks, setReceiptLinks] = useState<Record<string, ShareGrant>>({});
   const [invoiceRecord, setInvoiceRecord] = useState<RecordItem | null>(null);
   const [reviewSetupRecord, setReviewSetupRecord] = useState<RecordItem | null>(null);
-  const [renderedAt] = useState(() => Date.now());
+  const [receiptRecord, setReceiptRecord] = useState<RecordItem | null>(null);
+  const [receiptEmail, setReceiptEmail] = useState("");
+  const [stripeNotice, setStripeNotice] = useState<StripeReturnNotice | null>(null);
+  const [renderedAt, setRenderedAt] = useState(() => Date.now());
   const invoiceDialogRef = useRef<HTMLElement>(null);
   const invoiceTriggerRef = useRef<HTMLButtonElement | null>(null);
   const reviewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const receiptDialogRef = useRef<HTMLElement>(null);
+  const receiptTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/account/records", { cache: "no-store" });
+      const response = await fetchWithTimeout("/api/account/records", { cache: "no-store" });
       const payload = await response.json() as DashboardPayload;
       if (response.status === 401 || response.status === 403) {
         setAuthError(payload.error ?? "Sign in to open the agency dashboard.");
@@ -63,13 +74,26 @@ export function AgencyDashboard() {
       setAuthError("");
       setData(payload);
     } catch (cause) {
-      setError(cause instanceof TypeError || cause instanceof SyntaxError ? "The dashboard could not be loaded because of a network problem. Your records are unchanged — retry when you are back online." : cause instanceof Error ? cause.message : "The dashboard could not be loaded.");
+      setError(clientRequestMessage(cause, "The dashboard could not be loaded. Your records are unchanged."));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+
+  useEffect(() => {
+    const result = parseStripeReturn(window.location.href);
+    if (!result) return;
+    window.history.replaceState(window.history.state, "", result.cleanPath);
+    const timer = window.setTimeout(() => setStripeNotice(result.notice), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRenderedAt(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // The invoice dialog is a real modal: Escape closes it, Tab is trapped
   // inside it, and focus returns to the button that opened it.
@@ -93,19 +117,38 @@ export function AgencyDashboard() {
     return () => { document.removeEventListener("keydown", keydown); invoiceTriggerRef.current?.focus(); };
   }, [invoiceRecord]);
 
+  useEffect(() => {
+    if (!receiptRecord) return;
+    const node = receiptDialogRef.current;
+    node?.querySelector<HTMLElement>("h2")?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy.startsWith("receipt:")) { setReceiptRecord(null); return; }
+      if (event.key !== "Tab" || !node) return;
+      const controls = Array.from(node.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), a[href]'));
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const heading = node.querySelector<HTMLElement>("h2");
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); receiptTriggerRef.current?.focus(); };
+  }, [busy, receiptRecord]);
+
   const createReview = async (record: RecordItem, { reviewerEmail, expiryHours }: { reviewerEmail: string; expiryHours: ReviewExpiryHours }) => {
     if (!record.latestRun) return;
     setBusy(`review:${record.id}`);
     setError("");
     try {
-      const response = await fetch("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id, reviewerEmail, expiryHours }) });
+      const response = await fetchWithTimeout("/api/reviews", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordId: record.id, runId: record.latestRun.id, reviewerEmail, expiryHours }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "A new review link could not be created.");
       setReviewLinks((current) => ({ ...current, [record.id]: { url: payload.reviewUrl, accessCode: payload.accessCode, recipientEmail: payload.reviewerEmail, expiresAt: payload.expiresAt } }));
       setReviewSetupRecord(null);
       try { await navigator.clipboard.writeText(payload.reviewUrl); setCopied(record.id); } catch { setCopied(""); setError("Review created, but clipboard access is unavailable. Copy the visible link manually."); }
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "A new review link could not be created."); }
+    } catch (cause) { setError(clientRequestMessage(cause, "A new review link could not be created.")); }
     finally { setBusy(""); }
   };
 
@@ -113,28 +156,26 @@ export function AgencyDashboard() {
     if (!record.latestReview) return;
     setBusy(`${action}:${record.id}`);
     try {
-      const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+      const response = await fetchWithTimeout(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The review could not be updated.");
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "The review could not be updated."); }
+    } catch (cause) { setError(clientRequestMessage(cause, "The review could not be updated.")); }
     finally { setBusy(""); }
   };
 
-  const createReceiptLink = async (record: RecordItem) => {
+  const createReceiptLink = async (record: RecordItem, recipientEmail: string) => {
     if (!record.latestReview?.decision) return;
-    const recipientEmail = window.prompt("Business email authorized to open this one-time receipt", record.latestReview.reviewer_email ?? record.invoicePlan?.billing_email ?? "")?.trim();
-    if (!recipientEmail) return;
-    if (!window.confirm("Creating this link revokes every previous receipt link and open receipt session for this approval. Continue?")) return;
     setBusy(`receipt:${record.id}`); setError("");
     try {
-      const response = await fetch(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmail }) });
+      const response = await fetchWithTimeout(`/api/account/reviews/${encodeURIComponent(record.latestReview.public_id)}/receipt-link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientEmail: recipientEmail.trim() }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The authorized receipt link could not be created.");
       setReceiptLinks((current) => ({ ...current, [record.id]: { url: payload.receiptUrl, accessCode: payload.accessCode, recipientEmail: payload.recipientEmail, expiresAt: payload.expiresAt } }));
+      setReceiptRecord(null);
       try { await navigator.clipboard.writeText(payload.receiptUrl); setCopied(`receipt:${record.id}`); }
       catch { setCopied(""); setError("Receipt link created, but clipboard access is unavailable. Select and copy the visible link manually."); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "The authorized receipt link could not be created."); }
+    } catch (cause) { setError(clientRequestMessage(cause, "The authorized receipt link could not be created.")); }
     finally { setBusy(""); }
   };
 
@@ -142,13 +183,13 @@ export function AgencyDashboard() {
     setBusy("notifications");
     setError("");
     try {
-      const response = await fetch("/api/account/records", { method: "PATCH" });
+      const response = await fetchWithTimeout("/api/account/records", { method: "PATCH" });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error((payload as { error?: string }).error ?? "Notifications could not be marked read.");
       }
       await load();
-    } catch (cause) { setError(cause instanceof TypeError || cause instanceof SyntaxError ? "Notifications could not be marked read because of a network problem. They are unchanged." : cause instanceof Error ? cause.message : "Notifications could not be marked read."); }
+    } catch (cause) { setError(clientRequestMessage(cause, "Notifications could not be marked read. They are unchanged.")); }
     finally { setBusy(""); }
   };
 
@@ -157,13 +198,13 @@ export function AgencyDashboard() {
     setBusy("stripe-disconnect");
     setError("");
     try {
-      const response = await fetch("/api/account/stripe", { method: "DELETE" });
+      const response = await fetchWithTimeout("/api/account/stripe", { method: "DELETE" });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error((payload as { error?: string }).error ?? "Stripe could not be disconnected.");
       }
       await load();
-    } catch (cause) { setError(cause instanceof TypeError || cause instanceof SyntaxError ? "Stripe could not be disconnected because of a network problem. The connection is unchanged." : cause instanceof Error ? cause.message : "Stripe could not be disconnected."); }
+    } catch (cause) { setError(clientRequestMessage(cause, "Stripe could not be disconnected. The connection is unchanged.")); }
     finally { setBusy(""); }
   };
 
@@ -177,7 +218,7 @@ export function AgencyDashboard() {
       if (!signedOut) throw new Error("Sign-out failed. You are still signed in and your local draft was kept.");
       window.location.assign("/");
     } catch (cause) {
-      setError(cause instanceof TypeError || cause instanceof SyntaxError ? "Sign-out failed because of a network problem. You are still signed in and your local draft was kept." : cause instanceof Error ? cause.message : "Sign-out failed. You are still signed in and your local draft was kept.");
+      setError(clientRequestMessage(cause, "Sign-out failed. You are still signed in and your local draft was kept."));
       setBusy("");
     }
   };
@@ -191,7 +232,9 @@ export function AgencyDashboard() {
     <main className="dashboard-shell">
       <header className="dashboard-header"><Brand /><div><span>{data.user.email}</span><button className="button button--outline button--small" onClick={() => void signOut()} disabled={busy === "sign-out"}>{busy === "sign-out" ? <LoaderCircle className="spin" size={13} /> : <LogOut size={13} />} Sign out</button></div></header>
       <div className="dashboard-main">
-        <section className="dashboard-heading"><div><div className="legal-kicker">Closed agency beta</div><h1>Your milestone proofs</h1><p>Resume projects, watch client decisions, and keep approval and invoice records accessible across devices.</p></div><div className="dashboard-heading__actions">{data.stripe.configured && data.stripe.connection?.status !== "CONNECTED" && <a className="button button--outline" href="/api/stripe/install"><CreditCard size={15} /> Connect Stripe</a>}<Link className="button button--lime" href="/workspace">New milestone <ArrowRight size={15} /></Link></div></section>
+        <section className="dashboard-heading"><div><div className="legal-kicker">Closed agency beta</div><h1>Your milestone proofs</h1><p>Resume projects, watch client decisions, and keep approval and invoice records accessible across devices.</p></div><div className="dashboard-heading__actions">{data.stripe.configured && data.stripe.connection?.status !== "CONNECTED" && <a className="button button--outline" href="/api/stripe/install"><CreditCard size={15} /> {stripeConnectionActionLabel(data.stripe.connection?.status)}</a>}<Link className="button button--lime" href="/workspace">New milestone <ArrowRight size={15} /></Link></div></section>
+        {stripeNotice && <div className={stripeNotice.kind === "error" ? "form-message is-error" : "form-message"} role={stripeNotice.kind === "error" ? "alert" : "status"}>{stripeNotice.message}</div>}
+        {data.stripe.connection?.status !== "CONNECTED" && data.stripe.connection?.lastError && <div className="form-message is-error" role="alert">Stripe needs attention: {data.stripe.connection.lastError}</div>}
         {data.stripe.configured && data.stripe.connection?.status === "CONNECTED" && <div className="stripe-account-banner" role="status"><CreditCard size={15} /><span>Stripe {data.stripe.connection.livemode ? "live" : "test"} mode connected · {data.stripe.connection.accountId}</span><button className="text-action" onClick={() => void disconnectStripe()} disabled={busy === "stripe-disconnect"}>{busy === "stripe-disconnect" ? "Disconnecting…" : "Disconnect"}</button></div>}
 
         {unread.length > 0 && <section className="panel notification-panel"><div className="panel-header"><div><h2><Bell size={17} /> Recent client activity</h2><p>Remote decisions appear here even when the client used a different device.</p></div><button className="mini-action" onClick={() => void markNotificationsRead()} disabled={busy === "notifications"}>{busy === "notifications" ? "Marking…" : "Mark read"}</button></div>{unread.slice(0, 5).map((notice) => <article key={notice.id}><strong>{notice.title}</strong><span>{notice.body}</span><time>{formatTimestamp(new Date(notice.created_at))}</time></article>)}</section>}
@@ -216,7 +259,7 @@ export function AgencyDashboard() {
               {record.status !== "APPROVED" && <Link className="button button--outline button--small" href={`/workspace?record=${record.id}` as Route}>{review?.decision === "CHANGES_REQUESTED" ? "Revise and rerun" : "Resume project"} <ArrowRight size={13} /></Link>}
               {canCreateReview && <button className="button button--ink button--small" onClick={(event) => { reviewTriggerRef.current = event.currentTarget; setError(""); setReviewSetupRecord(record); }} disabled={busy === `review:${record.id}`}>{busy === `review:${record.id}` ? <LoaderCircle className="spin" size={13} /> : copied === record.id ? <Check size={13} /> : <Clipboard size={13} />}{copied === record.id ? "New link copied" : "Create new review link"}</button>}
               {review && !review.decision && !review.revoked_at && !expired && <><button className="text-action" onClick={() => void reviewAction(record, "extend")}><Clock3 size={12} /> Extend 72h</button><button className="text-action text-action--danger" onClick={() => void reviewAction(record, "revoke")}>Revoke</button></>}
-              {review?.decision === "APPROVED" && <button className="text-action" disabled={busy === `receipt:${record.id}`} onClick={() => void createReceiptLink(record)}><Clipboard size={12} /> {busy === `receipt:${record.id}` ? "Creating…" : "Create client receipt link"}</button>}
+              {review?.decision === "APPROVED" && <button className="text-action" disabled={busy === `receipt:${record.id}`} onClick={(event) => { receiptTriggerRef.current = event.currentTarget; setReceiptEmail(record.latestReview?.reviewer_email ?? record.invoicePlan?.billing_email ?? ""); setError(""); setReceiptRecord(record); }}><Clipboard size={12} /> {busy === `receipt:${record.id}` ? "Creating…" : "Create client receipt link"}</button>}
               {record.status === "APPROVED" && !noCharge && !record.latestInvoice && record.latestInvoiceJob?.status !== "PROCESSING" && record.latestInvoiceJob?.status !== "PENDING" && <button className="button button--ink button--small" onClick={(event) => { invoiceTriggerRef.current = event.currentTarget; setInvoiceRecord(record); }}><ReceiptText size={13} /> {record.latestInvoiceJob?.status === "FAILED" ? "Review & retry invoice" : data.stripe.connection?.livemode ? "Send invoice" : "Create test invoice"}</button>}
             </div>
               {(() => {
@@ -233,6 +276,7 @@ export function AgencyDashboard() {
         })}</section>}
       </div>
       {reviewSetupRecord && <ReviewSetupDialog initialEmail={reviewSetupRecord.invoicePlan?.billing_email ?? reviewSetupRecord.latestReview?.reviewer_email ?? ""} busy={busy === `review:${reviewSetupRecord.id}`} error={error} returnFocusRef={reviewTriggerRef} onClose={() => { if (!busy.startsWith("review:")) { setReviewSetupRecord(null); setError(""); } }} onSubmit={(details) => void createReview(reviewSetupRecord, details)} />}
+      {receiptRecord && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy.startsWith("receipt:")) setReceiptRecord(null); }}><section ref={receiptDialogRef} className="dialog receipt-link-dialog" role="dialog" aria-modal="true" aria-labelledby="receipt-link-dialog-title"><button className="dialog-close" type="button" disabled={busy.startsWith("receipt:")} onClick={() => setReceiptRecord(null)} aria-label="Close receipt-link setup"><X size={17} /></button><h2 id="receipt-link-dialog-title" tabIndex={-1}>Create secure client receipt access</h2><p>Choose the business email authorized to open this approval record. Creating the new one-time link revokes every previous receipt link and open receipt session for this approval.</p><label htmlFor="receipt-recipient-email">Authorized business email</label><input id="receipt-recipient-email" type="email" autoComplete="email" value={receiptEmail} onChange={(event) => setReceiptEmail(event.target.value)} required /><div className="resource-callout resource-callout--warning"><strong>Previous receipt access will end</strong><p>Only continue after confirming the recipient. You will receive a new link and a separate access code.</p></div>{error && <div className="analysis-error" role="alert">{error}</div>}<div className="dialog-actions"><button className="button button--outline" type="button" disabled={busy.startsWith("receipt:")} onClick={() => setReceiptRecord(null)}>Cancel</button><button className="button button--ink" type="button" disabled={busy.startsWith("receipt:") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail.trim())} onClick={() => void createReceiptLink(receiptRecord, receiptEmail)}>{busy.startsWith("receipt:") ? <><LoaderCircle className="spin" size={14} /> Creating…</> : <>Revoke old access and create link</>}</button></div></section></div>}
       {invoiceRecord && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setInvoiceRecord(null); }}><section ref={invoiceDialogRef} className="dialog invoice-dialog" role="dialog" aria-modal="true" aria-labelledby="invoice-dialog-title"><button className="dialog-close" onClick={() => setInvoiceRecord(null)} aria-label="Close invoice setup"><X size={17} /></button><h2 id="invoice-dialog-title" tabIndex={-1}>Invoice approved work</h2><p>Confirm the billing contact. Greenlit will create one Stripe invoice for this retained approval and save its status.</p><InvoicePlanCard recordId={invoiceRecord.id} clientName={invoiceRecord.client_name} projectName={invoiceRecord.project_name} milestoneTitle={invoiceRecord.milestone_title} amountMinor={invoiceRecord.amount_minor} currency={invoiceRecord.currency} mode="approved" onComplete={() => { window.setTimeout(() => { setInvoiceRecord(null); void load(); }, 900); }} /></section></div>}
     </main>
   );

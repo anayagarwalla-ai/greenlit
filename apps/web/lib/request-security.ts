@@ -14,26 +14,44 @@ export function contentLengthWithin(request: Request, maxBytes: number): boolean
   return Number.isSafeInteger(length) && length >= 0 && length <= maxBytes;
 }
 
-export async function readLimitedBody(request: Request, maxBytes: number): Promise<string> {
+export async function readLimitedBytes(request: Request, maxBytes: number): Promise<Uint8Array> {
   if (!contentLengthWithin(request, maxBytes)) throw new RequestSizeError(maxBytes);
-  if (!request.body) return "";
+  if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
-  const decoder = new TextDecoder();
   let total = 0;
-  let body = "";
+  const chunks: Uint8Array[] = [];
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) throw new RequestSizeError(maxBytes);
-      body += decoder.decode(value, { stream: true });
+      chunks.push(value);
     }
-    body += decoder.decode();
+    const body = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return body;
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function readLimitedBody(request: Request, maxBytes: number): Promise<string> {
+  return new TextDecoder().decode(await readLimitedBytes(request, maxBytes));
+}
+
+export async function readLimitedFormData(request: Request, maxBytes: number): Promise<FormData> {
+  const bytes = await readLimitedBytes(request, maxBytes);
+  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+  }).formData();
 }
 
 export async function readLimitedJson(request: Request, maxBytes: number): Promise<unknown> {
@@ -42,6 +60,23 @@ export async function readLimitedJson(request: Request, maxBytes: number): Promi
     return JSON.parse(body);
   } catch {
     return null;
+  }
+}
+
+export async function readLimitedJsonResult(
+  request: Request,
+  maxBytes: number,
+): Promise<
+  | { ok: true; body: unknown }
+  | { ok: false; response: NextResponse }
+> {
+  try {
+    return { ok: true, body: await readLimitedJson(request, maxBytes) };
+  } catch (error) {
+    if (error instanceof RequestSizeError) {
+      return { ok: false, response: requestTooLargeResponse(error.maxBytes) };
+    }
+    throw error;
   }
 }
 

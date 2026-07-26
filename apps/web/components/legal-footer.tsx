@@ -1,10 +1,16 @@
 import Link from "next/link";
+import type { Route } from "next";
 
 export function LegalFooter() {
   return (
     <footer className="legal-footer" aria-label="Legal and privacy">
       <span>Greenlit · U.S. business beta · 18+</span>
       <nav>
+        <Link href={"/resources" as Route}>Resources</Link>
+        <Link href={"/resources/roi-calculator" as Route}>Calculator</Link>
+        <Link href={"/resources/changelog" as Route}>Changelog</Link>
+        <Link href={"/trust" as Route}>Trust</Link>
+        <Link href={"/request-demo" as Route}>Request demo</Link>
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
         <Link href="/records">Recordkeeping</Link>

@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, CreditCard, Download, ExternalLink, FileJson2, FileWarning, LockKeyhole } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { demoCriteria, demoMilestone, seededDemoResults } from "@/lib/demo";
-import { formatTimestamp } from "@/lib/format";
+import { DEMO_TIME_ZONE, formatTimestamp } from "@/lib/format";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
 
 type Result = { criterionId: string; status: string; expected: string; observed: string };
 type Criterion = { id: string; title: string; supported?: boolean; checkType?: string };
@@ -59,12 +61,12 @@ function demoReceipt(reviewer: DemoReviewer = { reviewerName: "Sample Client", r
 }
 
 export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; demo?: boolean }) {
-  const dateTime = (value: string) => formatTimestamp(new Date(value), demo ? "America/Los_Angeles" : undefined);
+  const dateTime = (value: string) => formatTimestamp(new Date(value), demo ? DEMO_TIME_ZONE : undefined);
   const dateStamp = (value: string) => new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-    ...(demo ? { timeZone: "America/Los_Angeles" } : {}),
+    ...(demo ? { timeZone: DEMO_TIME_ZONE } : {}),
   }).format(new Date(value)).toUpperCase();
   // Demo timestamps are intentionally client-only so the initial HTML and
   // hydration render remain deterministic.
@@ -93,12 +95,12 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
         window.history.replaceState({}, "", window.location.pathname);
         return;
       }
-      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
+      const response = await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The approval record is unavailable.");
       if (payload.decision !== "APPROVED") throw new Error("This packet does not have an approval record.");
       if (!cancelled) setPacket(payload);
-    })().catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "The approval record is unavailable."); });
+    })().catch((loadError) => { if (!cancelled) setError(clientRequestMessage(loadError, "The approval record is unavailable.")); });
     return () => { cancelled = true; };
   }, [demo, packetId]);
 
@@ -107,16 +109,16 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
     setUnlocking(true);
     setError("");
     try {
-      const redeemResponse = await fetch(`/api/reviews/${encodeURIComponent(packetId)}/receipt-redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: pendingToken, accessCode, recipientEmail }) });
+      const redeemResponse = await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}/receipt-redeem`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: pendingToken, accessCode, recipientEmail }) });
       const redeemed = await redeemResponse.json();
       if (!redeemResponse.ok) throw new Error(redeemed.error ?? "This receipt link is invalid or expired.");
-      const response = await fetch(`/api/reviews/${encodeURIComponent(packetId)}`);
+      const response = await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}`);
       const payload = await response.json();
       if (!response.ok || payload.decision !== "APPROVED") throw new Error(payload.error ?? "The approval record is unavailable.");
       setPacket(payload);
       setPendingToken("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The approval record could not be unlocked.");
+      setError(clientRequestMessage(cause, "The approval record could not be unlocked."));
     } finally {
       setUnlocking(false);
     }
@@ -131,7 +133,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const results = Object.fromEntries(snapshot.run.results.map((result) => [result.criterionId, result]));
   return (
     <main className="receipt-shell">
-      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button>{!demo && packet.viewerRole !== "OWNER" && <button className="text-action" onClick={async () => { await fetch(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }).catch(() => undefined); window.location.assign("/"); }}>End secure session</button>}</div></div>
+      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button>{!demo && packet.viewerRole !== "OWNER" && <button className="text-action" onClick={async () => { await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }, 10_000).catch(() => undefined); window.location.assign("/"); }}>End secure session</button>}</div></div>
       <article className="receipt-page" aria-label="Milestone approval record">
         {demo && <div className="analysis-notice"><FileWarning size={15} /><div><strong>Synthetic sample — not a retained approval record</strong><span>This printable page illustrates the final format. It has no evidence hashes, audit chain, server-side decision, or legal-record status.</span></div></div>}
         <header className="receipt-head"><div><Brand /><h1>Milestone approval record</h1></div><div className="receipt-stamp"><span><Check size={23} strokeWidth={3} /><br />APPROVED<br />{dateStamp(packet.decidedAt)}</span></div></header>
@@ -152,6 +154,7 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
         <p className="receipt-disclaimer">{demo ? "This is a synthetic walkthrough artifact only. It is not evidence of a browser run, client approval, invoice, payment, signature, or retained transaction." : "This record documents acceptance evidence and a client business decision for the named project milestone. It is not an invoice, payment guarantee, notarization, legal e-signature, or certification of Web Content Accessibility Guidelines compliance. Evidence reflects only the specified build and checks at the recorded time. Retention and legal effect can vary by contract, industry, and jurisdiction."}</p>
         <footer className="receipt-page__foot"><span>Generated by Greenlit</span><span>{demo ? "DEMO · NOT RETAINED" : packet.packetId}</span></footer>
       </article>
+      {demo && <section className="demo-conversion" aria-labelledby="demo-conversion-title"><span className="resource-kicker">Next step</span><h2 id="demo-conversion-title">Would this remove approval chasing for one milestone?</h2><p>Share your current workflow in a short design-partner request. Do not send a SOW or client-confidential information.</p><Link className="button button--lime" href={"/request-demo" as Route}>Request a conversation <ArrowRight size={16} /></Link></section>}
       {toast && <div className="toast" role="status"><Check size={15} /> {toast}</div>}
     </main>
   );

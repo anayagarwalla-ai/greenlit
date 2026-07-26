@@ -6,6 +6,7 @@ import { assertSafeResolvedAddresses, validateStagingUrl } from "@/lib/security"
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { z } from "zod";
 import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
+import { getOperationalControl, internalRunsPauseResponse } from "@/lib/operational-controls";
 
 export const runtime = "nodejs";
 const schema = z.object({ leaseId: z.string().uuid() });
@@ -18,6 +19,12 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
   if (!secret || !await verifyRunnerRequest(body, secret, request.headers.get("x-mp-timestamp"), request.headers.get("x-mp-signature"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStoreJsonHeaders() });
   const parsed = schema.safeParse((() => { try { return JSON.parse(body); } catch { return null; } })());
   if (!parsed.success) return NextResponse.json({ error: "Invalid origin-validation request." }, { status: 422, headers: noStoreJsonHeaders() });
+  try {
+    const runControl = await getOperationalControl("RUNS");
+    if (runControl.paused) return internalRunsPauseResponse(false);
+  } catch {
+    return internalRunsPauseResponse(false);
+  }
   const { jobId } = await context.params;
   try {
     const { data: job, error } = await requireSupabaseAdmin().from("verification_jobs_v2").select("target_origin, status, lease_id").eq("id", jobId).single();

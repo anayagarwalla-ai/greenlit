@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, CreditCard, ExternalLink, LoaderCircle, Search, Send, X } from "lucide-react";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
 
 type StripeConnection = { configured: boolean; connection: null | { accountId: string; livemode: boolean; status: string; lastError?: string | null } };
 type Customer = { id: string; name: string; email: string };
@@ -41,8 +42,8 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      fetch("/api/account/stripe", { cache: "no-store" }).then((response) => readApiResponse<StripeConnection>(response, "The Stripe connection could not be loaded.")),
-      fetch(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { cache: "no-store" }).then((response) => readApiResponse<{ plan: SavedPlan | null }>(response, "The saved invoice details could not be loaded.")),
+      fetchWithTimeout("/api/account/stripe", { cache: "no-store" }).then((response) => readApiResponse<StripeConnection>(response, "The Stripe connection could not be loaded.")),
+      fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { cache: "no-store" }).then((response) => readApiResponse<{ plan: SavedPlan | null }>(response, "The saved invoice details could not be loaded.")),
     ]).then(([stripe, planPayload]) => {
       if (cancelled) return;
       setConnection(stripe as StripeConnection);
@@ -81,9 +82,21 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       const last = controls[controls.length - 1];
       if (!first || !last) return;
       const heading = node.querySelector<HTMLElement>("h2");
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      else if (!node.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      const active = document.activeElement;
+      event.preventDefault();
+      if (active === heading) {
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      const activeIndex = controls.findIndex((control) => control === active);
+      if (activeIndex < 0) {
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      const nextIndex = event.shiftKey
+        ? (activeIndex - 1 + controls.length) % controls.length
+        : (activeIndex + 1) % controls.length;
+      controls[nextIndex]?.focus();
     };
     document.addEventListener("keydown", keydown, true);
     return () => { document.removeEventListener("keydown", keydown, true); confirmTriggerRef.current?.focus(); };
@@ -92,19 +105,19 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
   const matchCustomers = async () => {
     setBusy("customers"); setMessage(null);
     try {
-      const response = await fetch(`/api/account/stripe/customers?email=${encodeURIComponent(billingEmail)}`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`/api/account/stripe/customers?email=${encodeURIComponent(billingEmail)}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Stripe customers could not be checked.");
       const matches = payload.customers as Customer[];
       setCustomers(matches);
       setCustomerId(matches.length === 1 ? matches[0]!.id : null);
       setMessage({ kind: "success", text: matches.length === 0 ? "No match found. Stripe will create this customer when the invoice is created." : matches.length === 1 ? `Matched ${matches[0]!.name || matches[0]!.email}.` : "Choose the correct Stripe customer." });
-    } catch (error) { setMessage({ kind: "error", text: error instanceof Error && !(error instanceof TypeError) ? error.message : "Stripe customers could not be checked — likely a network problem. Nothing was changed." }); }
+    } catch (error) { setMessage({ kind: "error", text: clientRequestMessage(error, "Stripe customers could not be checked. Nothing was changed.") }); }
     finally { setBusy(""); }
   };
 
   const savePlan = async (withAutoSend: boolean) => {
-    const response = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ billingName, billingEmail, daysUntilDue, memo, autoSend: mode === "pre-review" ? withAutoSend : false, stripeCustomerId: customerId }) });
+    const response = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}/invoice-plan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ billingName, billingEmail, daysUntilDue, memo, autoSend: mode === "pre-review" ? withAutoSend : false, stripeCustomerId: customerId }) });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Invoice details could not be saved.");
   };
@@ -140,7 +153,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       if (trimmedName.length < 2 || !EMAIL_PATTERN.test(normalizedEmail)) throw new Error("Enter the billing contact name and a valid billing email before continuing.");
       if (confirming === "enable-auto" && !customerId) throw new Error("Automatic invoicing requires a confirmed existing Stripe customer. Close this dialog and use “Check for existing Stripe customer”.");
       if (customerId) {
-        const response = await fetch(`/api/account/stripe/customers?email=${encodeURIComponent(normalizedEmail)}`, { cache: "no-store" });
+        const response = await fetchWithTimeout(`/api/account/stripe/customers?email=${encodeURIComponent(normalizedEmail)}`, { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "The selected Stripe customer could not be re-checked.");
         const matches = payload.customers as Customer[];
@@ -153,7 +166,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       }
       await savePlan(confirming === "enable-auto");
       if (confirming === "send") {
-        const sendResponse = await fetch(`/api/account/records/${encodeURIComponent(recordId)}/invoice`, { method: "POST" });
+        const sendResponse = await fetchWithTimeout(`/api/account/records/${encodeURIComponent(recordId)}/invoice`, { method: "POST" }, 20_000);
         const sendPayload = await sendResponse.json().catch(() => ({}));
         if (!sendResponse.ok) throw new Error((sendPayload as { error?: string }).error ?? "The invoice could not be created.");
         setMessage({ kind: "success", text: livemode ? `Stripe sent the ${formattedAmount} invoice to ${normalizedEmail} and Greenlit saved its transaction record.` : `Stripe created a ${formattedAmount} test draft invoice. Test mode sends no email to the client.` });

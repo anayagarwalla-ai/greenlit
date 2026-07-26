@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { getAdminAuthorization } from "@/lib/admin-auth";
-import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
+import { PRIVACY_VERIFICATION_CLEANUP_EXPORT_FIELDS } from "@/lib/privacy-verification-cleanup";
 
 export async function GET(_request: Request, context: { params: Promise<{ requestId: string }> }) {
   const authorization = await getAdminAuthorization();
@@ -32,7 +33,8 @@ export async function GET(_request: Request, context: { params: Promise<{ reques
     if (ownerRecordsError) throw new Error(ownerRecordsError.message);
     const ownerRecordIds = (ownerRecords ?? []).map((record) => record.id);
 
-    const [runs, ownerReviews, events, amendments, notifications, feedbackByOwner, feedbackByEmail, relatedPrivacyRequests, consentEvents, invite, holds, productEvents, accountDeletions, stripeConnection, stripeConnectionEvents, ownerInvoicePlans, ownerInvoiceJobs, ownerInvoices, reviewerPackets, billingPlans, billingInvoices] = await Promise.all([
+    const subjectEmailHash = sha256(subjectEmail);
+    const [runs, ownerReviews, events, amendments, notifications, feedbackByOwner, feedbackByEmail, demoRequests, relatedPrivacyRequests, consentEvents, invite, holds, productEvents, accountDeletions, verificationAccountCleanups, stripeConnection, stripeConnectionEvents, ownerInvoicePlans, ownerInvoiceJobs, ownerInvoices, reviewerPackets, billingPlans, billingInvoices] = await Promise.all([
       ownerRecordIds.length ? database.from("verification_jobs_v2").select("*").in("record_id", ownerRecordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
       ownerRecordIds.length ? database.from("review_packets_v2").select("id,record_id,run_id,public_id,snapshot,snapshot_sha256,expires_at,decision,reviewer_name,reviewer_email,reviewer_note,intent_confirmed,legal_terms_accepted,electronic_records_consent,notice_version,country_code,decided_at,receipt_sha256,decision_event_hash,revoked_at,created_at").in("record_id", ownerRecordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
       ownerRecordIds.length ? database.from("transaction_audit_events").select("record_id,sequence,event_type,actor_type,actor_hash,payload,previous_hash,event_hash,occurred_at").in("record_id", ownerRecordIds).order("occurred_at") : Promise.resolve({ data: [], error: null }),
@@ -40,12 +42,14 @@ export async function GET(_request: Request, context: { params: Promise<{ reques
       ownerId ? database.from("operator_notifications").select("id,record_id,event_type,title,body,payload,read_at,delivery_status,created_at").eq("owner_user_id", ownerId).order("created_at") : Promise.resolve({ data: [], error: null }),
       ownerId ? database.from("beta_feedback").select("id,public_id,record_id,email,category,message,page_path,status,created_at").eq("owner_user_id", ownerId).order("created_at") : Promise.resolve({ data: [], error: null }),
       database.from("beta_feedback").select("id,public_id,record_id,email,category,message,page_path,status,created_at").eq("email", subjectEmail).order("created_at"),
+      database.from("demo_requests").select("id,public_id,name,email,agency_name,role,agency_size,location,monthly_milestone_volume,approval_delay_days,staging_model,desired_next_step,current_process,source_path,status,privacy_notice_version,contact_consent,adult_business_use_attested,consented_at,retention_until,created_at,updated_at").eq("email", subjectEmail).order("created_at"),
       database.from("privacy_requests_v2").select("id,public_id,request_type,email,details,status,assigned_to,identity_verified_at,response_summary,response_sent_at,created_at,completed_at").eq("email", subjectEmail).order("created_at"),
       ownerId ? database.from("analysis_consent_events").select("id,source_mode,source_byte_size,notice_version,provider_notice_version,accepted_terms,accepted_data_notice,country_code,created_at").eq("owner_user_id", ownerId).order("created_at") : Promise.resolve({ data: [], error: null }),
-      database.from("beta_invites").select("id,email,status,adult_sponsor,invited_by,invited_at,last_sign_in_requested_at,removed_at,notes").eq("email", subjectEmail).maybeSingle(),
+      database.from("beta_invites").select("id,email,status,adult_sponsor,invited_at,last_sign_in_requested_at,removed_at").eq("email", subjectEmail).maybeSingle(),
       ownerRecordIds.length ? database.from("legal_holds_v2").select("id,record_id,privacy_request_id,reason,owner_email,review_at,active,created_at,released_at").in("record_id", ownerRecordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
       ownerId ? database.from("product_events").select("id,event_type,record_id,properties,created_at").eq("owner_user_id", ownerId).order("created_at") : Promise.resolve({ data: [], error: null }),
-      database.from("privacy_account_deletions").select("id,request_id,email,status,attempts,last_error,requested_at,completed_at").eq("email", subjectEmail).order("requested_at"),
+      database.from("privacy_account_deletions").select("request_id,status,requested_at,completed_at").eq("email_hash", subjectEmailHash).order("requested_at"),
+      database.from("privacy_verification_account_cleanups").select(PRIVACY_VERIFICATION_CLEANUP_EXPORT_FIELDS).eq("email_hash", subjectEmailHash).order("requested_at"),
       ownerId ? database.from("stripe_connections").select("stripe_account_id,livemode,status,connected_at,disconnected_at,last_error,updated_at").eq("owner_user_id", ownerId).maybeSingle() : Promise.resolve({ data: null, error: null }),
       ownerId ? database.from("stripe_connection_events").select("id,stripe_account_id,event_type,details,occurred_at").eq("owner_user_id", ownerId).order("occurred_at") : Promise.resolve({ data: [], error: null }),
       ownerRecordIds.length ? database.from("record_invoice_plans").select("record_id,stripe_customer_id,billing_name,billing_email,days_until_due,memo,auto_send,amount_minor,currency,criteria_revision,plan_sha256,created_at,updated_at").in("record_id", ownerRecordIds).order("created_at") : Promise.resolve({ data: [], error: null }),
@@ -55,7 +59,7 @@ export async function GET(_request: Request, context: { params: Promise<{ reques
       database.from("record_invoice_plans").select("record_id,billing_name,billing_email,days_until_due,memo,amount_minor,currency,criteria_revision,created_at,updated_at").eq("billing_email", subjectEmail).order("created_at"),
       database.from("record_invoices").select("record_id,packet_id,invoice_number,status,amount_due_minor,amount_paid_minor,currency,billing_email,due_at,hosted_invoice_url,invoice_pdf_url,sent_at,paid_at,voided_at,created_at,updated_at").eq("billing_email", subjectEmail).order("created_at"),
     ]);
-    const results = [runs, ownerReviews, events, amendments, notifications, feedbackByOwner, feedbackByEmail, relatedPrivacyRequests, consentEvents, invite, holds, productEvents, accountDeletions, stripeConnection, stripeConnectionEvents, ownerInvoicePlans, ownerInvoiceJobs, ownerInvoices, reviewerPackets, billingPlans, billingInvoices];
+    const results = [runs, ownerReviews, events, amendments, notifications, feedbackByOwner, feedbackByEmail, demoRequests, relatedPrivacyRequests, consentEvents, invite, holds, productEvents, accountDeletions, verificationAccountCleanups, stripeConnection, stripeConnectionEvents, ownerInvoicePlans, ownerInvoiceJobs, ownerInvoices, reviewerPackets, billingPlans, billingInvoices];
     const queryError = results.find((result) => result.error)?.error;
     if (queryError) throw new Error(queryError.message);
 
@@ -68,15 +72,15 @@ export async function GET(_request: Request, context: { params: Promise<{ reques
     const exportedAt = new Date().toISOString();
     const feedback = [...(feedbackByOwner.data ?? []), ...(feedbackByEmail.data ?? [])].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
     const payload = {
-      exportVersion: 5, exportedAt, privacyRequest,
+      exportVersion: 7, exportedAt, privacyRequest,
       account: { email: subjectEmail, userId: ownerId || null }, invite: invite.data ?? null,
-      accountDeletions: accountDeletions.data ?? [], stripeConnection: stripeConnection.data ?? null, stripeConnectionEvents: stripeConnectionEvents.data ?? [],
+      accountDeletions: accountDeletions.data ?? [], privacyVerificationAccountCleanups: verificationAccountCleanups.data ?? [], stripeConnection: stripeConnection.data ?? null, stripeConnectionEvents: stripeConnectionEvents.data ?? [],
       records: ownerRecords ?? [], verificationJobs: runs.data ?? [], reviewPackets: ownerReviews.data ?? [], auditEvents: events.data ?? [], corrections: amendments.data ?? [],
       invoicePlans: ownerInvoicePlans.data ?? [], invoiceJobs: ownerInvoiceJobs.data ?? [], invoices: ownerInvoices.data ?? [],
       reviewParticipation: minimize(reviewerPackets.data ?? []), billingRelationships: { plans: minimize(billingPlans.data ?? []), invoices: minimize(billingInvoices.data ?? []) },
-      notifications: notifications.data ?? [], feedback, relatedPrivacyRequests: relatedPrivacyRequests.data ?? [], analysisConsents: consentEvents.data ?? [], legalHolds: holds.data ?? [], productEvents: productEvents.data ?? [],
+      notifications: notifications.data ?? [], feedback, demoRequests: demoRequests.data ?? [], relatedPrivacyRequests: relatedPrivacyRequests.data ?? [], analysisConsents: consentEvents.data ?? [], legalHolds: holds.data ?? [], productEvents: productEvents.data ?? [],
     };
-    const { error: actionError } = await database.rpc("record_operator_action", { p_operator_email: operator.email, p_action_type: "EXPORT_PRIVACY_DATA", p_target_type: "privacy_request", p_target_id: requestId, p_details: { exportedAt, ownerRecordCount: ownerRecordIds.length, reviewerParticipationCount: payload.reviewParticipation.length, billingRelationshipCount: payload.billingRelationships.plans.length + payload.billingRelationships.invoices.length } });
+    const { error: actionError } = await database.rpc("record_operator_action", { p_operator_email: operator.email, p_action_type: "EXPORT_PRIVACY_DATA", p_target_type: "privacy_request", p_target_id: requestId, p_details: { exportedAt, ownerRecordCount: ownerRecordIds.length, demoRequestCount: payload.demoRequests.length, verificationCleanupCount: payload.privacyVerificationAccountCleanups.length, reviewerParticipationCount: payload.reviewParticipation.length, billingRelationshipCount: payload.billingRelationships.plans.length + payload.billingRelationships.invoices.length } });
     if (actionError) throw new Error(`The export was not released because its operator log failed: ${actionError.message}`);
     return new NextResponse(JSON.stringify(payload, null, 2), { headers: { ...noStoreJsonHeaders(), "content-type": "application/json; charset=utf-8", "content-disposition": `attachment; filename="${privacyRequest.public_id}-export.json"` } });
   } catch (error) {

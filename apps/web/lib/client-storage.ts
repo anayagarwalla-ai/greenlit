@@ -1,5 +1,7 @@
 "use client";
 
+import { fetchWithTimeout } from "./client-request";
+
 // Browser drafts are isolated by both account and project. Review bearer
 // tokens are never persisted here; only non-secret packet ids may appear in a
 // workspace snapshot.
@@ -219,7 +221,7 @@ export function clearLegacyGlobalDraftState(): void {
  * draft untouched so a still-signed-in user does not lose work.
  */
 export async function signOutAndClearDraftState(email: string | null | undefined): Promise<boolean> {
-  const response = await fetch("/api/account/session", { method: "DELETE" });
+  const response = await fetchWithTimeout("/api/account/session", { method: "DELETE" });
   if (!response.ok) return false;
   clearAccountDraftState(email);
   return true;

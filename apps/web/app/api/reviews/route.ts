@@ -9,6 +9,8 @@ import { assertReviewSnapshotIntegrity } from "@/lib/review-session";
 import { logProductEvent } from "@/lib/operations";
 import { assertFrozenInvoicePlan } from "@/lib/invoice-plan";
 import { validateVerificationManifest } from "@/lib/verification-manifest";
+import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({
   recordId: z.string().uuid(),
@@ -18,13 +20,17 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 16_384);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "A completed record and run are required." }, { status: 422, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();
     const owner = await getOwnerIdentity();
     if (!owner.userId || !owner.user) return NextResponse.json({ error: "Sign in to create a client review." }, { status: 401, headers: noStoreJsonHeaders() });
     if (!await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is no longer on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+    const reviewControl = await getOperationalControl("REVIEWS");
+    if (reviewControl.paused) return operationalPauseResponse(reviewControl);
     const quota = await consumeRateLimit(request, "review-packet-day", 20, 86_400, owner.userId);
     if (!quota.allowed) return rateLimitedResponse(quota);
     const { data: record, error: recordError } = await database.from("transaction_records").select("*").eq("id", parsed.data.recordId).single();
@@ -54,6 +60,8 @@ export async function POST(request: Request) {
       invoicePlan = assertFrozenInvoicePlan({ enabled: true, billingName: planRow.billing_name, billingEmail: planRow.billing_email, daysUntilDue: planRow.days_until_due, memo: planRow.memo, autoSend: planRow.auto_send, stripeCustomerId: planRow.stripe_customer_id, amountMinor: planRow.amount_minor, currency: planRow.currency, criteriaRevision: planRow.criteria_revision, planSha256: planRow.plan_sha256 });
       if (invoicePlan.amountMinor !== record.amount_minor || invoicePlan.currency !== record.currency || invoicePlan.criteriaRevision !== record.criteria_revision) return NextResponse.json({ error: "Invoice details are stale. Review and save them again before creating the client review." }, { status: 409, headers: noStoreJsonHeaders() });
       if (invoicePlan.autoSend) {
+        const invoiceControl = await getOperationalControl("INVOICES");
+        if (invoiceControl.paused) return operationalPauseResponse(invoiceControl);
         const { data: connection } = await database.from("stripe_connections").select("status,livemode").eq("owner_user_id", owner.userId).maybeSingle();
         if (!connection || connection.status !== "CONNECTED") return NextResponse.json({ error: "Reconnect Stripe before creating a review with automatic invoice sending." }, { status: 409, headers: noStoreJsonHeaders() });
         if (connection.livemode && process.env.STRIPE_ALLOW_LIVE_MODE !== "true") return NextResponse.json({ error: "Live-mode invoicing is disabled during the beta." }, { status: 409, headers: noStoreJsonHeaders() });

@@ -6,10 +6,24 @@ import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { signRunnerRequest } from "@/lib/hmac";
 import { deliverNotification, type NotificationPayload } from "@/lib/notifications";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
+import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
+import { readLimitedJsonResult } from "@/lib/request-security";
+import { deauthorizeStripeAccount } from "@/lib/stripe-api";
 
 async function authorize() {
   const auth = await getAdminAuthorization();
   return auth.aal2 ? auth.user : null;
+}
+
+async function authUserIdForEmail(database: ReturnType<typeof requireSupabaseAdmin>, email: string) {
+  for (let page = 1; page <= 5; page += 1) {
+    const { data, error } = await database.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(`The privacy subject account could not be resolved: ${error.message}`);
+    const matched = data.users.find((account) => account.email?.toLowerCase() === email.toLowerCase());
+    if (matched) return matched.id;
+    if (data.users.length < 200) break;
+  }
+  return null;
 }
 
 export async function GET() {
@@ -18,12 +32,13 @@ export async function GET() {
   try {
     const database = requireSupabaseAdmin();
     const since = new Date(Date.now() - 86_400_000).toISOString();
+    const staleNotificationBefore = new Date(Date.now() - 10 * 60_000).toISOString();
     const [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs] = await Promise.all([
       database.from("beta_feedback").select("id, public_id, email, category, message, page_path, status, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operational_events").select("id, severity, service, event_type, record_id, details, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("verification_jobs_v2").select("id, record_id, status, build_label, target_origin, last_error, acknowledged_at, acknowledged_by, retry_of, created_at, completed_at").in("status", ["QUEUED", "LEASED", "RUNNING", "FAILED"]).order("created_at", { ascending: false }).limit(100),
       database.from("privacy_requests_v2").select("id, public_id, request_type, email, details, status, assigned_to, internal_notes, identity_verified_at, response_summary, response_sent_at, updated_at, created_at").order("created_at", { ascending: false }).limit(100),
-      database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, delivery_status, delivery_attempts, delivery_error, last_delivery_at, created_at").in("delivery_status", ["PENDING_EMAIL", "FAILED"]).order("created_at", { ascending: false }).limit(100),
+      database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, delivery_status, delivery_attempts, delivery_error, delivery_claimed_at, last_delivery_at, created_at").or(`delivery_status.in.(PENDING_EMAIL,FAILED),and(delivery_status.eq.SENDING,delivery_claimed_at.lt.${staleNotificationBefore})`).order("created_at", { ascending: false }).limit(100),
       database.from("verification_jobs_v2").select("id, status, created_at").gte("created_at", since),
       database.from("transaction_records").select("id, public_id, project_name, deletion_status, deletion_error, deletion_requested_at").eq("deletion_status", "FAILED").order("deletion_requested_at", { ascending: false }).limit(100),
       database.from("maintenance_runs").select("id, task, status, started_at, completed_at, summary, error").order("started_at", { ascending: false }).limit(20),
@@ -83,7 +98,9 @@ const patchSchema = z.discriminatedUnion("kind", [
 export async function PATCH(request: Request) {
   const operator = await authorize();
   if (!operator) return NextResponse.json({ error: "Operator access required." }, { status: 403, headers: noStoreJsonHeaders() });
-  const parsed = patchSchema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 16_384);
+  if (!limited.ok) return limited.response;
+  const parsed = patchSchema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid operator update." }, { status: 422, headers: noStoreJsonHeaders() });
   const database = requireSupabaseAdmin();
   try {
@@ -100,7 +117,31 @@ export async function PATCH(request: Request) {
       if (error) throw new Error(error.message);
       return NextResponse.json({ updated: true, affected }, { headers: noStoreJsonHeaders() });
     } else if (parsed.data.kind === "privacy_deletion") {
-      const { data: affected, error } = await database.rpc("schedule_privacy_deletion_atomic", { p_request_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
+      const { data: privacyRequest, error: privacyRequestError } = await database
+        .from("privacy_requests_v2")
+        .select("email")
+        .eq("id", parsed.data.id)
+        .single();
+      if (privacyRequestError || !privacyRequest) throw new Error("Privacy request not found.");
+      const subjectUserId = await authUserIdForEmail(database, privacyRequest.email);
+      if (subjectUserId) {
+        const [{ count: processingInvoices, error: invoiceCheckError }, { data: stripeConnection, error: stripeReadError }] = await Promise.all([
+          database.from("invoice_jobs").select("id", { head: true, count: "exact" }).eq("owner_user_id", subjectUserId).eq("status", "PROCESSING"),
+          database.from("stripe_connections").select("stripe_account_id,status").eq("owner_user_id", subjectUserId).maybeSingle(),
+        ]);
+        if (invoiceCheckError || stripeReadError) throw new Error(invoiceCheckError?.message ?? stripeReadError?.message ?? "Privacy deletion prerequisites could not be checked.");
+        if ((processingInvoices ?? 0) > 0) throw new Error("Resolve the processing invoice before scheduling account deletion.");
+        if (stripeConnection?.status === "CONNECTED" && stripeConnection.stripe_account_id) {
+          await deauthorizeStripeAccount(stripeConnection.stripe_account_id);
+          const { error: disconnectError } = await database.rpc("disconnect_stripe_account_atomic", {
+            p_owner_user_id: subjectUserId,
+            p_disconnected_at: new Date().toISOString(),
+            p_reason: "Stripe authorization removed for a verified privacy deletion request.",
+          });
+          if (disconnectError) throw new Error(`Stripe authorization was removed, but the local connection could not be finalized: ${disconnectError.message}`);
+        }
+      }
+      const { data: affected, error } = await database.rpc("schedule_privacy_deletion_with_demo_atomic", { p_request_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
       return NextResponse.json({ updated: true, affected }, { headers: noStoreJsonHeaders() });
     } else if (parsed.data.kind === "privacy_correction") {
@@ -121,7 +162,8 @@ export async function PATCH(request: Request) {
     } else if (parsed.data.kind === "invoice_job") {
       const { data: job, error } = await database.from("invoice_jobs").select("id,owner_user_id,status").eq("id", parsed.data.id).maybeSingle();
       if (error || !job || job.status !== "FAILED") throw new Error(error?.message ?? "Failed invoice job not found.");
-      await processInvoiceJob(job.id, job.owner_user_id);
+      const result = await processInvoiceJob(job.id, job.owner_user_id);
+      if (result.status === "PAUSED") return operationalPauseResponse(result.control);
     } else if (parsed.data.action === "acknowledge") {
       const { error } = await database.rpc("acknowledge_verification_job_atomic", { p_id: parsed.data.id, p_operator_email: operator.email, p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
@@ -129,6 +171,8 @@ export async function PATCH(request: Request) {
       const { error } = await database.rpc("resolve_verification_job_atomic", { p_job_id: parsed.data.id, p_operator_email: operator.email, p_reason: parsed.data.reason || "Closed after operator review.", p_now: new Date().toISOString() });
       if (error) throw new Error(error.message);
     } else {
+      const runControl = await getOperationalControl("RUNS");
+      if (runControl.paused) return operationalPauseResponse(runControl);
       const { data: retried, error: retryError } = await database.rpc("retry_verification_job_atomic", { p_failed_job_id: parsed.data.id, p_operator_email: operator.email }).single();
       if (retryError || !retried) throw new Error(retryError?.message ?? "Retry job could not be created.");
       const job = retried as { jobId: string };

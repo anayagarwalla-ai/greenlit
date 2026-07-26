@@ -8,6 +8,7 @@ import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { pinnedHttpsGet } from "@/lib/pinned-https";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,9 @@ export async function POST(request: Request) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Sign in before connecting a staging origin." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
-  const body = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const body = schema.safeParse(limited.body);
   if (!body.success) return NextResponse.json({ error: "Invalid verification request." }, { status: 422 });
   const validated = validateStagingUrl(body.data.target);
   if (!validated.ok) return NextResponse.json({ error: validated.reason }, { status: 422 });

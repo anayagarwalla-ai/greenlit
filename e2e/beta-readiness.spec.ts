@@ -44,12 +44,12 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("the landing-page CTA starts the guided demo directly", async ({ page }) => {
+test("the landing-page CTA starts the synthetic walkthrough directly", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Keep the last mile from eating the margin." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Separate fixes from new scope" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Put approval on a clock" })).toBeVisible();
-  await page.getByRole("link", { name: /Try the guided demo/ }).click();
+  await page.getByRole("link", { name: /Explore the synthetic walkthrough/ }).click();
   await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
   await expect(page.locator(".demo-badge")).toHaveText(/Guided demo/i);
 });
@@ -60,10 +60,10 @@ test("privacy verification links show success, expired, and invalid outcomes", a
   await expect(page.getByRole("status")).toContainText("PRIV-TEST01");
 
   await page.goto("/privacy-request?verification=expired");
-  await expect(page.getByRole("alert")).toContainText("Verification link expired.");
+  await expect(page.locator(".form-message[role='alert']")).toContainText("Verification link expired.");
 
   await page.goto("/privacy-request?verification=invalid");
-  await expect(page.getByRole("alert")).toContainText("Verification was not completed.");
+  await expect(page.locator(".form-message[role='alert']")).toContainText("Verification was not completed.");
 });
 
 test("a blocked local store shows an honest save-failed state with a working retry", async ({ page }) => {
@@ -241,13 +241,16 @@ test("the final invoice confirmation modal shows the facts, an explicit CTA, and
   await expect(confirmDialog.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0);
   // Initial focus lands on the dialog heading.
   expect(await page.evaluate(() => document.activeElement?.id ?? "")).toContain("invoice-confirm-title");
-  // Reverse tabbing from the initially focused heading also stays inside.
+  const closeButton = confirmDialog.getByRole("button", { name: "Close invoice confirmation" });
+  const cancelButton = confirmDialog.getByRole("button", { name: "Cancel" });
+  const finalButton = confirmDialog.getByRole("button", { name: "Enable automatic $12,000.50 test invoice" });
+  // Reverse tabbing from the initially focused heading wraps to the last control.
   await page.keyboard.press("Shift+Tab");
-  expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".invoice-confirm-dialog")))).toBe(true);
-  // Tab stays trapped inside the dialog.
-  for (let index = 0; index < 8; index += 1) {
+  await expect(finalButton).toBeFocused();
+  // Forward tabbing follows a deterministic cycle and never escapes the dialog.
+  for (const expectedControl of [closeButton, cancelButton, finalButton, closeButton, cancelButton, finalButton]) {
     await page.keyboard.press("Tab");
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".invoice-confirm-dialog")))).toBe(true);
+    await expect(expectedControl).toBeFocused();
   }
   // Escape closes the dialog and restores focus to the opener.
   await page.keyboard.press("Escape");

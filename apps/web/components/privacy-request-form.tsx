@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -16,7 +17,7 @@ export function PrivacyRequestForm() {
     const data = new FormData(form);
     setStatus({ state: "sending" });
     try {
-      const response = await fetch("/api/privacy-requests", {
+      const response = await fetchWithTimeout("/api/privacy-requests", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ requestType: data.get("requestType"), email: data.get("email"), details: data.get("details") }),
@@ -29,7 +30,7 @@ export function PrivacyRequestForm() {
         ? `Request ${payload.requestId} was received and verified through your signed-in session. Keep this number for your records.`
         : `Request ${payload.requestId} was received. Open the verification link sent to ${data.get("email")} before Greenlit can export, correct, or delete data.` });
     } catch (error) {
-      setStatus({ state: "error", message: error instanceof Error ? error.message : "The request could not be submitted." });
+      setStatus({ state: "error", message: clientRequestMessage(error, "The request could not be submitted.") });
     }
   };
 

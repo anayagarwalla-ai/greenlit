@@ -1,9 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
+import { publicPageMetadata } from "@/lib/page-metadata";
 
-export const metadata: Metadata = { title: "Beta terms", robots: { index: true, follow: true } };
+export const metadata = publicPageMetadata({
+  title: "Beta terms",
+  description: "Terms and operating boundaries for Greenlit's invitation-only U.S. web-agency beta.",
+  path: "/terms",
+});
 
 export default function TermsPage() {
   const operator = process.env.NEXT_PUBLIC_OPERATOR_NAME;

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminAuthorization } from "@/lib/admin-auth";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
+import { readLimitedJsonResult } from "@/lib/request-security";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("enroll") }),
@@ -19,7 +21,11 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await getAdminAuthorization();
   if (!auth.user || !auth.client) return NextResponse.json({ error: "Operator access required." }, { status: 403, headers: noStoreJsonHeaders() });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const quota = await consumeRateLimit(request, "admin-mfa-15m", 12, 15 * 60, auth.user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota);
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid six-digit authenticator code." }, { status: 422, headers: noStoreJsonHeaders() });
   if (parsed.data.action === "enroll") {
     const existing = await auth.client.auth.mfa.listFactors();

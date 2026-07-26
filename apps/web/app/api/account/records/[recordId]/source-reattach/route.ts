@@ -7,6 +7,7 @@ import { normalizeSourceText } from "@/lib/analysis";
 import { extractSourceFileText, SourceInputError } from "@/lib/source-extraction";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { readLimitedFormData, readLimitedJson, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -29,13 +30,13 @@ export async function POST(request: Request, context: { params: Promise<{ record
     let sourceText: string;
     let sourceName: string;
     if (contentType.includes("application/json")) {
-      const parsed = pastedSourceSchema.safeParse(await request.json().catch(() => null));
+      const parsed = pastedSourceSchema.safeParse(await readLimitedJson(request, 64_000));
       if (!parsed.success) return NextResponse.json({ error: "Paste the exact original SOW text." }, { status: 422, headers: noStoreJsonHeaders() });
       sourceText = normalizeSourceText(parsed.data.text);
       sourceName = parsed.data.sourceName;
       if (!sourceText) return NextResponse.json({ error: "The pasted source is empty." }, { status: 422, headers: noStoreJsonHeaders() });
     } else {
-      const form = await request.formData();
+      const form = await readLimitedFormData(request, 1_650_000);
       const file = form.get("file");
       if (!(file instanceof File)) return NextResponse.json({ error: "Choose the original PDF, TXT, or Markdown SOW, or paste its text." }, { status: 422, headers: noStoreJsonHeaders() });
       sourceText = await extractSourceFileText(file);
@@ -45,6 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
     if (actualHash !== record.source_sha256) return NextResponse.json({ error: "This source does not match the source frozen into the retained record. Use the exact original SOW revision." }, { status: 409, headers: noStoreJsonHeaders() });
     return NextResponse.json({ sourceText, sourceName, sourceSha256: actualHash }, { headers: noStoreJsonHeaders() });
   } catch (error) {
+    if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes);
     if (error instanceof SourceInputError) return NextResponse.json({ error: error.message }, { status: error.status, headers: noStoreJsonHeaders() });
     console.error("Source reattachment failed", error instanceof Error ? error.message : "unknown");
     return NextResponse.json({ error: "The source could not be reattached right now." }, { status: 503, headers: noStoreJsonHeaders() });

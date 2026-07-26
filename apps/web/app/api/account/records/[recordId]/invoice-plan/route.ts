@@ -5,6 +5,8 @@ import { freezeInvoicePlan, invoicePlanInputSchema } from "@/lib/invoice-plan";
 import { noStoreJsonHeaders, requestActorHash } from "@/lib/recordkeeping";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { getStripeAccessForOwner, retrieveStripeCustomer } from "@/lib/stripe-api";
+import { readLimitedJsonResult } from "@/lib/request-security";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 
 async function contextFor(recordId: string) {
   const user = await getOptionalUser();
@@ -28,10 +30,14 @@ export async function POST(request: Request, context: { params: Promise<{ record
   const { recordId } = await context.params;
   const found = await contextFor(recordId);
   if ("error" in found) return NextResponse.json({ error: found.error }, { status: found.status ?? 401, headers: noStoreJsonHeaders() });
+  const quota = await consumeRateLimit(request, "invoice-plan-hour", 30, 3_600, found.user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota);
   if (found.record.status === "IN_REVIEW") return NextResponse.json({ error: "Invoice details are frozen while the client review is active." }, { status: 409, headers: noStoreJsonHeaders() });
   if (!["READY_FOR_REVIEW", "APPROVED"].includes(found.record.status)) return NextResponse.json({ error: "Finish verification before configuring an invoice." }, { status: 409, headers: noStoreJsonHeaders() });
   if (found.record.amount_minor <= 0) return NextResponse.json({ error: "This is a no-charge milestone. There is no invoice amount to send." }, { status: 409, headers: noStoreJsonHeaders() });
-  const parsed = invoicePlanInputSchema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 16_384);
+  if (!limited.ok) return limited.response;
+  const parsed = invoicePlanInputSchema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Enter a billing name, valid email, and due date between 1 and 365 days." }, { status: 422, headers: noStoreJsonHeaders() });
   if (found.record.status === "APPROVED" && parsed.data.autoSend) return NextResponse.json({ error: "Automatic sending must be configured before client review. You can send this approved invoice manually." }, { status: 409, headers: noStoreJsonHeaders() });
   if (parsed.data.autoSend) {
@@ -59,6 +65,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ reco
   const { recordId } = await context.params;
   const found = await contextFor(recordId);
   if ("error" in found) return NextResponse.json({ error: found.error }, { status: found.status ?? 401, headers: noStoreJsonHeaders() });
+  const quota = await consumeRateLimit(request, "invoice-plan-hour", 30, 3_600, found.user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota);
   if (found.record.status === "IN_REVIEW") return NextResponse.json({ error: "Invoice details are frozen while the client review is active." }, { status: 409, headers: noStoreJsonHeaders() });
   const { error } = await found.database.rpc("remove_invoice_plan_atomic", { p_record_id: recordId, p_owner_user_id: found.user.id, p_actor_hash: requestActorHash(request) });
   if (error) return NextResponse.json({ error: "Invoice details could not be removed." }, { status: 503, headers: noStoreJsonHeaders() });

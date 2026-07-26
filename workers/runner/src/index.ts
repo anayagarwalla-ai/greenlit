@@ -4,15 +4,19 @@ import { z } from "zod";
 import axe from "axe-core";
 import { addressMatchesFrozenSet, pathWithQueryAndHash, perCheckBudgetMs } from "./security";
 import { installNetworkIsolation } from "./network-isolation";
+import { leaseResponseDisposition } from "./lease-response";
+import { maintenanceRouteForCron } from "./scheduled-maintenance";
 
 type Env = {
   BROWSER: BrowserWorker;
   JOB_QUEUE: Queue<JobMessage>;
   WEB_APP_URL: string;
   RUNNER_HMAC_SECRET: string;
+  CRON_SECRET: string;
 };
 
 type JobMessage = { jobId: string; attempt: number; leaseId: string };
+type JobDisposition = { action: "ack"; reason?: string } | { action: "retry"; delaySeconds: number; reason: string };
 
 type EvidenceArtifact = {
   criterionId: string;
@@ -159,6 +163,26 @@ async function authenticatedFetch(env: Env, path: string, payload: unknown, time
   }
 }
 
+async function runScheduledMaintenance(env: Env, cron: string): Promise<void> {
+  const path = maintenanceRouteForCron(cron);
+  if (!path) throw new Error(`Unknown scheduled maintenance trigger: ${cron}`);
+  if (!env.CRON_SECRET) throw new Error("CRON_SECRET is not configured on the runner.");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 55_000);
+  try {
+    const response = await fetch(`${env.WEB_APP_URL}${path}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${env.CRON_SECRET}` },
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}.`);
+    console.info("Scheduled maintenance completed", path);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function remainingBudget(deadline: number, maximum: number, label: string): number {
   const remaining = deadline - Date.now();
   if (remaining < 1_000) throw new Error(`The job exhausted its execution budget before ${label}.`);
@@ -286,10 +310,13 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
   }
 }
 
-async function runJob(env: Env, message: JobMessage): Promise<void> {
+async function runJob(env: Env, message: JobMessage): Promise<JobDisposition> {
   const deadline = Date.now() + JOB_DEADLINE_MS;
   const leaseResponse = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/lease`, { attempt: message.attempt, leaseId: message.leaseId }, remainingBudget(deadline, INTERNAL_REQUEST_TIMEOUT_MS, "leasing"));
-  if (!leaseResponse.ok) throw new Error(`Lease failed with ${leaseResponse.status}`);
+  const leaseDisposition = await leaseResponseDisposition(leaseResponse);
+  if (leaseDisposition.action === "retry") return leaseDisposition;
+  if (leaseDisposition.action === "ack") return leaseDisposition;
+  if (leaseDisposition.action === "fail") throw new Error(leaseDisposition.reason);
   const lease = leaseSchema.parse(await leaseResponse.json());
   if (lease.leaseId !== message.leaseId) throw new Error("The web service returned a mismatched runner lease.");
   const browser = await withinBudget(launchWithBackoff(env.BROWSER), remainingBudget(deadline, 15_000, "browser launch"), "Browser launch");
@@ -301,7 +328,8 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
     for (const [checkIndex, check] of lease.checks.entries()) {
       if (Date.now() >= deadline) throw new Error("The job reached the free-browser execution deadline before every check completed.");
       const safety = await authenticatedFetch(env, `/api/internal/jobs/${encodeURIComponent(message.jobId)}/validate-origin`, { leaseId: message.leaseId }, remainingBudget(deadline, 5_000, "origin validation"));
-      if (!safety.ok) throw new Error(`Origin safety revalidation failed with ${safety.status}`);
+      const safetyDisposition = await leaseResponseDisposition(safety);
+      if (safetyDisposition.action !== "continue") throw new Error(safetyDisposition.reason);
       const initialOriginValidation = originValidationSchema.parse(await safety.json());
       if (initialOriginValidation.origin !== lease.targetOrigin) throw new Error("Origin safety validation returned a mismatched origin.");
       let validatedAddresses = initialOriginValidation.addresses;
@@ -399,6 +427,7 @@ async function runJob(env: Env, message: JobMessage): Promise<void> {
     artifacts,
   }, INTERNAL_REQUEST_TIMEOUT_MS);
   if (!completion.ok) throw new Error(`Completion failed with ${completion.status}`);
+  return { action: "ack" };
 }
 
 export default {
@@ -432,7 +461,16 @@ export default {
   },
   async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      try { await runJob(env, message.body); message.ack(); }
+      try {
+        const disposition = await runJob(env, message.body);
+        if (disposition.action === "retry") {
+          console.warn("Runner lease deferred", message.body.jobId, disposition.reason);
+          message.retry({ delaySeconds: disposition.delaySeconds });
+        } else {
+          if (disposition.reason) console.info("Runner lease already resolved", message.body.jobId, disposition.reason);
+          message.ack();
+        }
+      }
       catch (error) {
         const reason = error instanceof Error ? error.message : "unknown";
         console.error("Runner job failed", message.body.jobId, reason);
@@ -448,5 +486,8 @@ export default {
         else message.retry({ delaySeconds: 5 });
       }
     }
+  },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    await runScheduledMaintenance(env, controller.cron);
   },
 };

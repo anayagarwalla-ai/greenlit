@@ -5,6 +5,7 @@ import { getOptionalUser } from "@/lib/supabase-server";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { sanitizeWorkspaceState } from "@/lib/workspace-state";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const patchSchema = z.object({
   workspaceState: z.record(z.string(), z.unknown()).refine((value) => JSON.stringify(value).length <= 1_000_000, "Workspace snapshot is too large."),
@@ -45,11 +46,13 @@ export async function GET(_request: Request, context: { params: Promise<{ record
 
 export async function PATCH(request: Request, context: { params: Promise<{ recordId: string }> }) {
   const { recordId } = await context.params;
-  const parsed = patchSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "The workspace snapshot is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const owned = await ownerRecord(recordId);
   if (!owned.user) return NextResponse.json({ error: "Sign in with an invited account." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!owned.record || !owned.database) return NextResponse.json({ error: "This milestone was not found in your account." }, { status: 404, headers: noStoreJsonHeaders() });
+  const limited = await readLimitedJsonResult(request, 1_100_000);
+  if (!limited.ok) return limited.response;
+  const parsed = patchSchema.safeParse(limited.body);
+  if (!parsed.success) return NextResponse.json({ error: "The workspace snapshot is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const { error } = await owned.database.from("transaction_records").update({ workspace_state: sanitizeWorkspaceState(parsed.data.workspaceState) }).eq("id", recordId).eq("owner_user_id", owned.user.id);
   if (error) return NextResponse.json({ error: "The workspace could not be saved. Retry shortly." }, { status: 503, headers: noStoreJsonHeaders() });
   return NextResponse.json({ saved: true }, { headers: noStoreJsonHeaders() });

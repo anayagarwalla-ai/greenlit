@@ -1,9 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { PrivacyRequestForm } from "@/components/privacy-request-form";
+import { publicPageMetadata } from "@/lib/page-metadata";
 
-export const metadata: Metadata = { title: "Privacy request", robots: { index: true, follow: true } };
+export const metadata = publicPageMetadata({
+  title: "Privacy request",
+  description: "Request access, export, correction, or deletion review for personal information in a Greenlit record.",
+  path: "/privacy-request",
+});
 
 type VerificationStatus = "success" | "expired" | "invalid";
 

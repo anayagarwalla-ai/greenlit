@@ -8,6 +8,8 @@ import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { assertReviewSnapshotIntegrity, RECEIPT_SESSION_TTL_SECONDS, receiptSessionCookieName, receiptSessionExpiry, reviewSessionAuthorized, reviewSessionCookieName } from "@/lib/review-session";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
+import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({
   decision: z.enum(["APPROVED", "CHANGES_REQUESTED"]),
@@ -29,7 +31,9 @@ const schema = z.object({
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "review-decision-hour", 10, 3_600);
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 16_384);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Name, change classification, authority, Terms acceptance, and electronic-record consent are required." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
   const session = (await cookies()).get(reviewSessionCookieName(packetId))?.value;
@@ -38,10 +42,17 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     const database = requireSupabaseAdmin();
     const { data: packet, error } = await database.from("review_packets_v2").select("id, record_id, snapshot, snapshot_sha256, intended_reviewer_email, expires_at, revoked_at, decision").eq("public_id", packetId).single();
     if (error || !packet || !await reviewSessionAuthorized(database, packet.id, session)) return NextResponse.json({ error: "The secure review session is invalid." }, { status: 401, headers: noStoreJsonHeaders() });
+    const reviewControl = await getOperationalControl("REVIEWS");
+    if (reviewControl.paused) return operationalPauseResponse(reviewControl);
     assertReviewSnapshotIntegrity(packet.snapshot, packet.snapshot_sha256);
     if (packet.decision) return NextResponse.json({ error: "A final decision has already been recorded for this packet." }, { status: 409, headers: noStoreJsonHeaders() });
     if (packet.revoked_at) return NextResponse.json({ error: "This review link was revoked. Ask the agency for a new link." }, { status: 410, headers: noStoreJsonHeaders() });
     if (new Date(packet.expires_at).getTime() <= Date.now()) return NextResponse.json({ error: "This review packet has expired." }, { status: 410, headers: noStoreJsonHeaders() });
+    const frozenInvoicePlan = (packet.snapshot as { invoicePlan?: { autoSend?: boolean } }).invoicePlan;
+    if (parsed.data.decision === "APPROVED" && frozenInvoicePlan?.autoSend) {
+      const invoiceControl = await getOperationalControl("INVOICES");
+      if (invoiceControl.paused) return operationalPauseResponse(invoiceControl);
+    }
 
     const decidedAt = new Date().toISOString();
     const actorHash = requestActorHash(request);

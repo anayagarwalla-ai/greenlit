@@ -5,6 +5,7 @@ import { noStoreJsonHeaders, randomToken, requestActorHash, sha256 } from "@/lib
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { assertDecisionReceiptIntegrity, assertReviewSnapshotIntegrity, hydrateReviewEvidence, reviewSessionCookieName, reviewSessionExpiry } from "@/lib/review-session";
 import { logProductEvent } from "@/lib/operations";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({
   token: z.string().min(20).max(200),
@@ -15,7 +16,9 @@ const schema = z.object({
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "review-redeem-hour", 12, 3_600, null, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "The review token is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
   try {
@@ -23,7 +26,7 @@ export async function POST(request: Request, context: { params: Promise<{ packet
     const { data: packet, error } = await database.from("review_packets_v2").select("id, record_id, snapshot, snapshot_sha256, expires_at, revoked_at, decision, reviewer_name, reviewer_email, reviewer_note, intended_reviewer_email, redeemed_at, decided_at, receipt_sha256, decision_event_hash").eq("public_id", packetId).single();
     if (error || !packet) return NextResponse.json({ error: "This review link is invalid." }, { status: 404, headers: noStoreJsonHeaders() });
     if (packet.revoked_at) return NextResponse.json({ error: "This review link was revoked. Ask the agency for a new link." }, { status: 410, headers: noStoreJsonHeaders() });
-    if (new Date(packet.expires_at).getTime() <= Date.now()) return NextResponse.json({ error: "This review link has expired. Ask the agency for a new authorized receipt link if access is still required." }, { status: 410, headers: noStoreJsonHeaders() });
+    if (new Date(packet.expires_at).getTime() <= Date.now()) return NextResponse.json({ error: "This review link has expired. Ask the agency for a new secure review link if access is still required." }, { status: 410, headers: noStoreJsonHeaders() });
     assertReviewSnapshotIntegrity(packet.snapshot, packet.snapshot_sha256);
     await assertDecisionReceiptIntegrity(database, packet);
 

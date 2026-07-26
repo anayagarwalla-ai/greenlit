@@ -10,13 +10,20 @@ test("guided transaction reaches a client decision and printable receipt", async
   await page.getByRole("button", { name: /Open the guided demo/ }).click();
   await page.getByRole("button", { name: /verify sample/i }).click();
   await expect(page.getByText(/automated check needs work/i)).toBeVisible();
+  await expect(page.getByAltText("Synthetic fixture frame for AC-04")).toBeVisible();
   await page.getByRole("button", { name: "Verify fixed build" }).click();
   await expect(page.getByText(/every automated check passes/i)).toBeVisible();
+  await expect(page.getByAltText("Synthetic fixture frame for AC-01")).toBeVisible();
   await page.getByRole("button", { name: "Create client review" }).click();
   await expect(page.getByText("This reliable presentation path shows Acme Outdoors’s 6-criterion decision experience without creating or implying a retained transaction.")).toBeVisible();
   await page.getByRole("link", { name: "Open as the client" }).click();
   await expect(page).toHaveURL(/\/review\/demo/);
   await expect(page.getByRole("button", { name: "Beta feedback" })).toHaveCount(0);
+  await page.getByText(/Inspect evidence for AC-04/).click();
+  await expect(page.getByAltText(/Captured evidence for AC-04/)).toBeVisible();
+  const evidenceDownload = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download evidence" }).click();
+  await expect((await evidenceDownload).suggestedFilename()).toMatch(/^AC-04-evidence/);
   await page.getByRole("button", { name: "Approve milestone" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("Your full name").fill("Sample Reviewer");
@@ -31,6 +38,21 @@ test("guided transaction reaches a client decision and printable receipt", async
   await expect(page.getByRole("button", { name: "Print / Save as PDF" })).toBeVisible();
   await expect(page.getByText("Sample Reviewer").first()).toBeVisible();
   expect(runtimeErrors.filter((message) => /hydration|Minified React error #418/i.test(message))).toEqual([]);
+});
+
+test("a blocked clipboard exposes the complete review URL for manual copying", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard blocked"); } },
+    });
+  });
+  await page.goto("/workspace?demo=guided");
+  await page.getByRole("button", { name: /verify sample/i }).click();
+  await page.getByRole("button", { name: "Verify fixed build" }).click();
+  await page.getByRole("button", { name: "Create client review" }).click();
+  await page.getByRole("button", { name: "Copy link" }).click();
+  await expect(page.getByLabel("Review URL")).toHaveValue(/\/review\/demo$/);
 });
 
 test("review decision controls remain reachable on a short mobile screen", async ({ page }) => {

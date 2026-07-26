@@ -46,6 +46,10 @@ psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
   -f supabase/tests/01_atomic_rpc_functional_checks.sql
 psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
   -f supabase/tests/02_beta_blocker_regression_checks.sql
+psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
+  -f supabase/tests/03_atomic_evidence_artifact_regression_checks.sql
+psql -h /tmp/mp-pg-sock -p 5544 -U postgres -d mptest -v ON_ERROR_STOP=1 \
+  -f supabase/tests/04_release_integrity_regression_checks.sql
 
 # 6. Tear down
 pg_ctl -D /tmp/mp-pgdata stop
@@ -88,3 +92,13 @@ idempotent run creation, current-plan manual invoicing, recoverable Stripe
 customer correction, receipt-link sessions, legal-hold/deletion mutual
 exclusion, material milestone revision hashing, privacy/invoice serialization,
 and complete offboarding of run, review, receipt, and financial workflows.
+
+`03_atomic_evidence_artifact_regression_checks.sql` verifies immutable,
+criterion-wide artifact slots, idempotent duplicate recording, stable stale
+lease and completion rejection codes, zero-byte rejection, canonical retention
+metadata, and internal-only function permissions.
+
+`04_release_integrity_regression_checks.sql` verifies end-to-end immutable
+evidence retry behavior, rejection of late evidence after completion, durable
+Stripe webhook failure recovery, retry-payload binding, and the shared final
+schema-version markers.

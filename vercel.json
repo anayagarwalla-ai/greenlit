@@ -4,11 +4,5 @@
   "devCommand": "pnpm dev",
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "crons": [
-    {
-      "path": "/api/internal/retention",
-      "schedule": "17 4 * * *"
-    }
-  ]
+  "outputDirectory": "apps/web/.next"
 }

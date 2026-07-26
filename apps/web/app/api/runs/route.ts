@@ -17,6 +17,8 @@ import { sanitizeWorkspaceState } from "@/lib/workspace-state";
 import { validateVerificationManifest } from "@/lib/verification-manifest";
 import { dispatchRunnerJob } from "@/lib/runner-dispatch";
 import { EXPECTED_RUNNER_VERSION } from "@/lib/runner-version";
+import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -55,9 +57,13 @@ export async function POST(request: Request) {
   const owner = await getOwnerIdentity();
   if (!owner.userId) return NextResponse.json({ error: "Sign in before creating a retained verification run." }, { status: 401, headers: noStoreJsonHeaders() });
   if (!owner.user || !await betaAccessAllowedFresh(owner.user)) return NextResponse.json({ error: "This account is not on the closed-beta invite list." }, { status: 403, headers: noStoreJsonHeaders() });
+  const runControl = await getOperationalControl("RUNS");
+  if (runControl.paused) return operationalPauseResponse(runControl);
   const intakeQuota = await consumeRateLimit(request, "verification-run-request-hour", 20, 3_600, owner.userId, { failClosed: true });
   if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 1_100_000);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "The verified run request is incomplete.", issues: parsed.error.issues }, { status: 422, headers: noStoreJsonHeaders() });
 
   const runnerUrl = process.env.RUNNER_URL;
@@ -161,6 +167,10 @@ export async function POST(request: Request) {
     const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
     const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "greenlit-global-browser-capacity", { failClosed: true });
     if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
+    const evidenceLimit = positiveIntegerSetting(process.env.BETA_EVIDENCE_STORAGE_LIMIT_BYTES, 850_000_000);
+    const { data: evidenceBytes, error: evidenceError } = await database.rpc("evidence_storage_usage_bytes");
+    if (evidenceError) return NextResponse.json({ error: "Storage capacity could not be confirmed, so retained verification is paused safely.", code: "CAPACITY_CHECK_UNAVAILABLE" }, { status: 503, headers: noStoreJsonHeaders() });
+    if (Number(evidenceBytes ?? 0) >= evidenceLimit) return NextResponse.json({ error: "Evidence storage has reached the beta safety limit. The synthetic walkthrough remains available while the operator restores capacity.", code: "EVIDENCE_CAPACITY_REACHED" }, { status: 503, headers: noStoreJsonHeaders() });
 
     const workspaceState = sanitizeWorkspaceState(body.workspaceState ?? { criteria: body.criteria, checks, buildLabel, targetOrigin, business: { agency: body.agencyName, client: body.clientName, project: body.projectName, milestone: body.milestoneTitle, amountMinor: body.amountMinor, currency: body.currency }, sourceName: body.sourceName, sourceSha256: sourceHash });
     const { data: queued, error: queueError } = await database.rpc("queue_verification_job_idempotent_atomic", {

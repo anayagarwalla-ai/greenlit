@@ -21,18 +21,28 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm demo:preflight
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm audit --prod --audit-level=high
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
       - run: pnpm test:e2e
+      - name: Cross-browser company-demo smoke gate
+        env:
+          CROSS_BROWSER: "1"
+        run: pnpm exec playwright test e2e/company-demo-readiness.spec.ts e2e/accessibility.spec.ts --project=firefox --project=webkit
+      - name: Cross-browser billing keyboard gate
+        env:
+          CROSS_BROWSER: "1"
+        run: pnpm exec playwright test e2e/beta-readiness.spec.ts --grep "final invoice confirmation" --project=firefox --project=webkit
 
   migrations:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -62,3 +72,9 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -c "grant usage on schema auth,storage,extensions,public to service_role; grant all on all tables in schema auth,storage,public to service_role; grant all on all sequences in schema public to service_role; grant execute on all functions in schema auth,storage,public to service_role;"
       - name: Run state-machine assertions
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/01_atomic_rpc_functional_checks.sql
+      - name: Run beta-blocker regression assertions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/02_beta_blocker_regression_checks.sql
+      - name: Run atomic evidence-artifact regression assertions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/03_atomic_evidence_artifact_regression_checks.sql
+      - name: Run final release-integrity regression assertions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/04_release_integrity_regression_checks.sql

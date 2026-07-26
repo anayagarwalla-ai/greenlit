@@ -17,10 +17,31 @@ function trustedImageOrigin(): string {
   }
 }
 
-function contentSecurityPolicy(nonce: string): string {
+function forwardedValue(request: NextRequest, name: string) {
+  return request.headers.get(name)?.split(",")[0]?.trim() ?? "";
+}
+
+function effectiveRequestOrigin(request: NextRequest) {
+  const protocol = forwardedValue(request, "x-forwarded-proto")
+    || request.nextUrl.protocol.replace(/:$/, "");
+  const host = forwardedValue(request, "x-forwarded-host")
+    || request.headers.get("host")?.trim()
+    || request.nextUrl.host;
+  try {
+    return new URL(`${protocol}://${host}`).origin;
+  } catch {
+    return request.nextUrl.origin;
+  }
+}
+
+function contentSecurityPolicy(nonce: string, request: NextRequest): string {
   const developmentScripts = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : "";
   const developmentConnections = process.env.NODE_ENV === "development" ? " ws: wss:" : "";
-  return `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${developmentScripts}; style-src 'self' 'unsafe-inline'; connect-src 'self'${developmentConnections}; img-src 'self' data: blob:${trustedImageOrigin()}; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'${process.env.NODE_ENV === "production" ? "; upgrade-insecure-requests" : ""}`;
+  const isSecureRequest = effectiveRequestOrigin(request).startsWith("https://");
+  const upgradeInsecureRequests = process.env.NODE_ENV === "production" && isSecureRequest
+    ? "; upgrade-insecure-requests"
+    : "";
+  return `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${developmentScripts}; style-src 'self' 'unsafe-inline'; connect-src 'self'${developmentConnections}; img-src 'self' data: blob:${trustedImageOrigin()}; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'${upgradeInsecureRequests}`;
 }
 
 function isMachineEndpoint(pathname: string) {
@@ -29,7 +50,7 @@ function isMachineEndpoint(pathname: string) {
 
 export function proxy(request: NextRequest) {
   const nonce = crypto.randomUUID().replaceAll("-", "");
-  const policy = contentSecurityPolicy(nonce);
+  const policy = contentSecurityPolicy(nonce, request);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", policy);
@@ -61,7 +82,7 @@ export function proxy(request: NextRequest) {
   if (origin) {
     let originValue = "";
     try { originValue = new URL(origin).origin; } catch { /* invalid Origin is rejected below */ }
-    if (originValue !== request.nextUrl.origin) {
+    if (originValue !== effectiveRequestOrigin(request)) {
       return reject({ error: "Request origin is not accepted.", code: "INVALID_ORIGIN" }, 403);
     }
   }

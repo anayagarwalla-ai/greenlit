@@ -1,8 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
+import { publicPageMetadata } from "@/lib/page-metadata";
 
-export const metadata: Metadata = { title: "Recordkeeping", robots: { index: true, follow: true } };
+export const metadata = publicPageMetadata({
+  title: "Recordkeeping",
+  description: "How Greenlit records verification evidence, client decisions, audit events, retention, and transaction exports.",
+  path: "/records",
+});
 
 export default function RecordsPage() {
   return (

@@ -48,6 +48,22 @@ test("unsigned intake survives sign-in navigation and a new import asks before e
   await expect(page.getByLabel("Paste SOW text")).toHaveValue(source);
 });
 
+test("opening the guided demo keeps the live anonymous draft recoverable", async ({ page }) => {
+  await page.goto("/workspace");
+  await page.getByLabel("Paste SOW text").fill(source);
+  await page.getByLabel("Agency or vendor").fill("Draft-safe Agency");
+  const liveDraftUrl = page.url();
+
+  await page.getByRole("button", { name: /Open the guided demo/ }).click();
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await page.getByRole("button", { name: "New import" }).click();
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue("");
+
+  await page.goto(liveDraftUrl);
+  await expect(page.getByLabel("Paste SOW text")).toHaveValue(source);
+  await expect(page.getByLabel("Agency or vendor")).toHaveValue("Draft-safe Agency");
+});
+
 test("Gemini import validates business fields and supports criteria CRUD", async ({ page }) => {
   await mockSignedIn(page);
   await page.route("**/api/analyze", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({

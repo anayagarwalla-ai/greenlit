@@ -125,3 +125,14 @@ export function seededDemoResults(version: "rc1" | "rc2", timestamp = new Date()
     timestamp,
   }));
 }
+
+export function seededDemoArtifacts(version: "rc1" | "rc2") {
+  return demoCriteria.map((criterion) => ({
+    criterionId: criterion.id,
+    kind: "WALKTHROUGH_FRAME",
+    sha256: "synthetic-walkthrough-no-hash",
+    url: version === "rc1" && criterion.id === "AC-04"
+      ? "/demo-evidence/fixture-rc1-false-success.png"
+      : `/demo-evidence/fixture-${version}.png`,
+  }));
+}

@@ -26,8 +26,20 @@ export async function deliverNotification(notification: NotificationPayload) {
   try {
     const response = await fetch(target, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(process.env.NOTIFICATION_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.NOTIFICATION_WEBHOOK_SECRET}` } : {}) },
-      body: JSON.stringify({ event: "greenlit.client-decision", notification }),
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": `greenlit-notification-${notification.id}`,
+        "x-greenlit-notification-id": notification.id,
+        ...(process.env.NOTIFICATION_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.NOTIFICATION_WEBHOOK_SECRET}` } : {}),
+      },
+      body: JSON.stringify({
+        event: notification.event_type === "DEMO_REQUEST_RECEIVED"
+          ? "greenlit.demo-request"
+          : "greenlit.client-decision",
+        deliveryId: notification.id,
+        notification,
+      }),
+      redirect: "error",
       signal: AbortSignal.timeout(5_000),
     });
     httpStatus = response.status;
@@ -41,9 +53,29 @@ export async function deliverNotification(notification: NotificationPayload) {
 export async function deliverPendingNotifications(limit = 20) {
   if (!process.env.NOTIFICATION_WEBHOOK_URL) return { delivered: 0, attempted: 0, configured: false };
   const database = requireSupabaseAdmin();
-  const { data, error } = await database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, created_at").in("delivery_status", ["PENDING_EMAIL", "FAILED"]).order("created_at", { ascending: true }).limit(limit);
+  const selection = "id, owner_user_id, record_id, event_type, title, body, payload, created_at";
+  const { data: retryable, error } = await database
+    .from("operator_notifications")
+    .select(selection)
+    .in("delivery_status", ["PENDING_EMAIL", "FAILED"])
+    .order("created_at", { ascending: true })
+    .limit(limit);
   if (error) throw new Error(error.message);
-  let delivered = 0;
-  for (const notification of (data ?? []) as NotificationPayload[]) if (await deliverNotification(notification)) delivered += 1;
-  return { delivered, attempted: data?.length ?? 0, configured: true };
+  const remaining = Math.max(0, limit - (retryable?.length ?? 0));
+  const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data: staleSending, error: staleError } = remaining > 0
+    ? await database
+      .from("operator_notifications")
+      .select(selection)
+      .eq("delivery_status", "SENDING")
+      .lt("delivery_claimed_at", staleBefore)
+      .order("delivery_claimed_at", { ascending: true })
+      .limit(remaining)
+    : { data: [], error: null };
+  if (staleError) throw new Error(staleError.message);
+  const data = [...(retryable ?? []), ...(staleSending ?? [])];
+  const deliveries = await Promise.all(
+    (data as NotificationPayload[]).map((notification) => deliverNotification(notification)),
+  );
+  return { delivered: deliveries.filter(Boolean).length, attempted: data.length, configured: true };
 }

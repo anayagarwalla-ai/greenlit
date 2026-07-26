@@ -60,13 +60,21 @@ pnpm build
 - **Web/API:** import this repository into Vercel with the repository root as the project root. `vercel.json` contains the monorepo build settings.
 - **Database/storage:** create a Supabase project and apply all migrations in `supabase/migrations/` in filename order. Configure Supabase Auth Site URL and redirect URLs for `/auth/callback`. Application data remains server-only; authenticated browser sessions are used only for account identity.
 - **Runner:** create the queue with `wrangler queues create greenlit-jobs`, set `RUNNER_HMAC_SECRET`, then run `pnpm runner:deploy`.
-- **Retention:** set `CRON_SECRET`; the daily Vercel cron purges expired evidence, privacy requests, and transaction records unless a legal hold applies.
+- **Scheduled recovery:** set the same distinct `CRON_SECRET` on the web app and runner. Cloudflare Cron Triggers run daily retention and hourly invoice/outbox recovery without requiring a paid Vercel plan. Retention purges expired evidence, privacy requests, and transaction records unless a legal hold applies.
 - **AI:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in Vercel. The default is the latency-optimized `gemini-3.1-flash-lite`; calls have an 8-second deadline and fall back to a local, source-grounded draft when Gemini is unavailable. Free-tier use requires the non-confidential-data, provider-use, and 18+/business/terms acknowledgments.
 - **Stripe invoicing (optional):** create a backend-only Stripe App with customer, invoice, and event access; set `STRIPE_APP_CLIENT_ID`, its external-test `STRIPE_APP_INSTALL_URL`, a test-mode `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and a random base64 32-byte `STRIPE_TOKEN_ENCRYPTION_KEY`. Keep `STRIPE_ALLOW_LIVE_MODE=false` for beta testing. Register `/api/stripe/callback` as the OAuth callback and `/api/stripe/webhook` for invoice and deauthorization events.
 - **Closed beta:** set `BETA_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`. Daily defaults are 8 retained browser runs and 100 analyses globally; tune them with `BETA_DAILY_RUN_LIMIT` and `BETA_DAILY_ANALYSIS_LIMIT` without enabling paid services.
-- **Notifications:** every client decision appears in-app. Optionally set a webhook URL/secret for immediate external delivery; failed deliveries remain in the outbox and are retried by daily maintenance.
+- **Notifications:** every client decision appears in-app. Optionally set a public HTTPS webhook URL, a webhook secret, and the disclosed provider name for immediate external delivery; failed deliveries remain in the outbox and are retried by the bounded hourly notification job.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough. Beta operators should also use [docs/BETA_OPERATIONS.md](docs/BETA_OPERATIONS.md) and [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md).
+
+## Agency resources
+
+The public `/resources` center contains the agency quick-start, client reviewer guide, milestone templates, acceptance-criteria guide, approval email pack, beta handbook, FAQ, integration and troubleshooting playbooks, and an approval-delay calculator. Founder-only sales, case-study, and demo-production materials remain in the internal beta and company-demo kits. `/trust` provides the plain-language security and beta-boundary overview.
+
+The internal [beta operating kit](docs/beta-kit/README.md) contains onboarding, interview, weekly reporting, severity triage, success measurement, case-study permission, office-hours, pricing, inactivity follow-up, and video-production templates. It must not contain client SOW text, credentials, review access codes, or regulated data.
+
+The internal [company-demo kit](docs/company-demo/README.md) contains the 20-minute runbook, design-partner offer draft, reset and production-smoke checklists, trust brief, follow-up copy, fallback-video shot list, and founder-required action list. Run `pnpm demo:preflight` before rehearsals and run it with `DEMO_PREFLIGHT_PRODUCTION=1` inside the production environment before external invitations.
 
 ## Data policy
 

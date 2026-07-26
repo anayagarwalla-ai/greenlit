@@ -1,0 +1,6 @@
+outputs/
+docs/audits/
+artifacts/
+test-results/
+coverage/
+supabase/tests/

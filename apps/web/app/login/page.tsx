@@ -17,6 +17,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     ? "This sign-in link is expired, invalid, or has already been used. Request a new link below."
     : params.error === "configuration"
       ? "Agency sign-in is not configured. Contact the beta operator."
+      : params.error === "stripe-session-expired"
+        ? "Your sign-in expired before Stripe returned. Request a new sign-in link; after you sign in, the dashboard will explain the unchanged Stripe connection."
       : params.error === "not-invited"
         ? "This email is not on the closed-beta invite list. Ask the beta operator for access."
       : params.error

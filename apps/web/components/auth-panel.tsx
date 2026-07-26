@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { ArrowRight, CheckCircle2, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { bindPendingAnonymousDraftClaim } from "@/lib/client-storage";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
 
 export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { nextPath?: string; initialError?: string }) {
   const [email, setEmail] = useState("");
@@ -17,7 +18,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
     setBusy(true);
     setError("");
     try {
-      const inviteResponse = await fetch("/api/auth/invite", {
+      const inviteResponse = await fetchWithTimeout("/api/auth/invite", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, nextPath }),
@@ -27,7 +28,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
       bindPendingAnonymousDraftClaim(email);
       setSent(true);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "The sign-in link could not be sent.");
+      setError(clientRequestMessage(submitError, "The sign-in link could not be sent."));
     } finally {
       setBusy(false);
     }
@@ -40,7 +41,7 @@ export function AuthPanel({ nextPath = "/dashboard", initialError = "" }: { next
         {sent ? <>
           <span className="auth-mark"><CheckCircle2 size={30} /></span>
           <h1>Check your email</h1>
-          <p role="status">We sent a secure sign-in link to <strong>{email}</strong>. It returns you to {nextPath.startsWith("/workspace") ? "your workspace" : "your agency dashboard"}.</p>
+          <p role="status">If <strong>{email}</strong> is invited, that address will receive a secure sign-in link. The link returns to {nextPath.startsWith("/workspace") ? "your workspace" : "your agency dashboard"}.</p>
         </> : <>
           <span className="auth-mark"><ShieldCheck size={30} /></span>
           <div className="legal-kicker">Invite-only agency beta</div>

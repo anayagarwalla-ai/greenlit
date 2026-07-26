@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, CircleDot, Clipboard, ExternalLink, LoaderCircle, LockKeyhole, Play, ShieldCheck } from "lucide-react";
 import { checkSpecSchema, type CheckSpec } from "@greenlit/contracts";
 import type { AnalysisCriterion } from "@/lib/analysis";
+import { clientRequestMessage, fetchWithTimeout } from "../lib/client-request";
 
 export type CheckDraft = {
   path: string;
@@ -226,7 +227,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/verify-origin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, token }) });
+      const response = await fetchWithTimeout("/api/verify-origin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, token }) }, 20_000);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "The staging origin could not be verified.");
       setReceipt(payload.receipt);
@@ -234,7 +235,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
     } catch (cause) {
       setReceipt("");
       setVerifiedOrigin("");
-      setError(cause instanceof Error ? cause.message : "The staging origin could not be verified.");
+      setError(clientRequestMessage(cause, "The staging origin could not be verified."));
     } finally { setBusy(false); }
   };
 
@@ -274,7 +275,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
         <div className="setup-section">
           <div className="setup-section__head"><span>1</span><div><h3>Prove staging ownership</h3><p>Only public HTTPS staging sites are supported. Login screens, localhost, and private networks are blocked.</p></div></div>
           <div className="setup-fields"><label>Staging URL<input type="url" value={target} onChange={(event) => { setTarget(event.target.value); setReceipt(""); setVerifiedOrigin(""); }} placeholder="https://staging.example.com" /></label><label>Build label<input value={buildLabel} onChange={(event) => setBuildLabel(event.target.value)} placeholder="client-launch-rc3" /></label></div>
-          <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/greenlit.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" onClick={async () => { try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>
+          <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/greenlit.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" disabled={!token} onClick={async () => { if (!token) return; try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>
           <button className="button button--outline" type="button" disabled={busy || !signedInEmail || !target || !token} onClick={() => void verify()}>{busy ? <LoaderCircle className="spin" size={15} /> : <ShieldCheck size={15} />}{busy ? "Checking token…" : "Verify staging origin"}</button>
           {verifiedOrigin && <div className="origin-verified"><CheckCircle2 size={15} /><span><strong>{verifiedOrigin}</strong> verified for this account for 30 minutes.</span></div>}
           <label className="mapping-consent evidence-consent"><input type="checkbox" checked={evidenceConsent} onChange={(event) => setEvidenceConsent(event.target.checked)} /><span>I am authorized to capture this public staging build. It contains no confidential data or real personal data. Screenshots will be shared with the reviewer and retained privately for 90 days. Cross-origin scripts, images, and fonts are blocked, so this staging build must render with same-origin resources.</span></label>

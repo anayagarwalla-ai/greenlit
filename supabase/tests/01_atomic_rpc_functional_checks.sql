@@ -322,7 +322,11 @@ begin
   assert v_count = 1, 'one failed evidence deletion should be recorded';
   assert (select deletion_status from evidence_artifacts_v2 where id = v_evidence_id2) = 'FAILED', 'storage failure should leave a visible retryable FAILED row';
 
-  perform stage_expired_evidence_deletion(100, now());
+  perform stage_expired_evidence_deletion(
+    100,
+    (select deletion_next_attempt_at+interval '1 second'
+      from evidence_artifacts_v2 where id=v_evidence_id2)
+  );
   assert (select deletion_status from evidence_artifacts_v2 where id = v_evidence_id2) = 'PENDING', 'failed deletion should be stageable for retry';
   v_count := finalize_evidence_deletion_atomic(array[v_evidence_id2], v_record_id, now());
   assert v_count = 1, 'one staged artifact should finalize';

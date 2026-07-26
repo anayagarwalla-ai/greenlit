@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, MessageSquareText, X } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -25,12 +26,12 @@ export function FeedbackWidget() {
     if (!event.currentTarget.reportValidity()) return;
     setBusy(true); setStatus(null);
     try {
-      const response = await fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category, message, email, pagePath: window.location.pathname }) });
+      const response = await fetchWithTimeout("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category, message, email, pagePath: window.location.pathname }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Feedback could not be sent.");
       setStatus({ kind: "success", message: `Received as ${payload.feedbackId}. Thank you—we saved your report.` }); setMessage("");
       window.setTimeout(() => successHeadingRef.current?.focus({ preventScroll: true }), 0);
-    } catch (error) { setStatus({ kind: "error", message: error instanceof Error ? error.message : "Feedback could not be sent." }); }
+    } catch (error) { setStatus({ kind: "error", message: clientRequestMessage(error, "Feedback could not be sent.") }); }
     finally { setBusy(false); }
   };
 

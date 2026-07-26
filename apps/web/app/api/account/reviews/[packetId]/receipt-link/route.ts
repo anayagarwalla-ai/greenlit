@@ -6,6 +6,7 @@ import { getOptionalUser } from "@/lib/supabase-server";
 import { receiptSessionExpiry } from "@/lib/review-session";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { z } from "zod";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({ recipientEmail: z.string().trim().email().max(320) });
 
@@ -14,7 +15,9 @@ export async function POST(request: Request, context: { params: Promise<{ packet
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with the active beta account that owns this record." }, { status: 401, headers: noStoreJsonHeaders() });
   const quota = await consumeRateLimit(request, "receipt-link-day", 20, 86_400, user.id, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Enter the business email that should receive this receipt." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
   try {

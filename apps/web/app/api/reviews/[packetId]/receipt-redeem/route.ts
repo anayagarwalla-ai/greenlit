@@ -5,6 +5,7 @@ import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { randomToken, sha256 } from "@/lib/recordkeeping";
 import { RECEIPT_SESSION_TTL_SECONDS, receiptSessionCookieName, receiptSessionExpiry } from "@/lib/review-session";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({
   token: z.string().min(32).max(512),
@@ -15,7 +16,9 @@ const schema = z.object({
 export async function POST(request: Request, context: { params: Promise<{ packetId: string }> }) {
   const quota = await consumeRateLimit(request, "receipt-redeem-hour", 12, 3_600, null, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "This receipt link is invalid." }, { status: 422, headers: noStoreJsonHeaders() });
   const { packetId } = await context.params;
   const database = requireSupabaseAdmin();

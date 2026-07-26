@@ -8,6 +8,29 @@ import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/li
 type StripeEvent = { id: string; type: string; account?: string; livemode: boolean; created: number; data?: { object?: Record<string, unknown> } };
 const invoiceEvents = new Set(["invoice.created", "invoice.finalized", "invoice.sent", "invoice.updated", "invoice.paid", "invoice.payment_failed", "invoice.voided", "invoice.marked_uncollectible"]);
 
+async function persistFailedWebhook(
+  database: ReturnType<typeof requireSupabaseAdmin>,
+  event: StripeEvent,
+  rawBody: string,
+  objectId: string | null,
+  error: string,
+) {
+  const { error: persistenceError } = await database
+    .from("stripe_webhook_events")
+    .upsert({
+      event_id: event.id,
+      stripe_account_id: event.account ?? null,
+      event_type: event.type,
+      object_id: objectId,
+      livemode: event.livemode,
+      payload_sha256: sha256(rawBody),
+      status: "FAILED",
+      error: error.slice(0, 1_000),
+      processed_at: null,
+    }, { onConflict: "event_id", ignoreDuplicates: true });
+  return persistenceError?.message ?? null;
+}
+
 export async function POST(request: Request) {
   let rawBody: string;
   try { rawBody = await readLimitedBody(request, 512_000); }
@@ -23,7 +46,8 @@ export async function POST(request: Request) {
     if (!event.account) return NextResponse.json({ error: "Deauthorization event is missing its Stripe account." }, { status: 400, headers: noStoreJsonHeaders() });
     const { error } = await database.rpc("record_stripe_deauthorization_atomic", { p_event_id: event.id, p_stripe_account_id: event.account, p_livemode: event.livemode, p_payload_sha256: sha256(rawBody), p_occurred_at: new Date(event.created * 1000).toISOString() });
     if (error) {
-      await logOperationalEvent({ severity: "ERROR", service: "stripe", eventType: "STRIPE_DEAUTHORIZATION_FAILED", details: { eventId: event.id, accountId: event.account, message: error.message } });
+      const persistenceError = await persistFailedWebhook(database, event, rawBody, event.account, error.message);
+      await logOperationalEvent({ severity: "ERROR", service: "stripe", eventType: "STRIPE_DEAUTHORIZATION_FAILED", details: { eventId: event.id, accountId: event.account, message: error.message, persistenceError } });
       return NextResponse.json({ error: "Stripe deauthorization could not be recorded." }, { status: 503, headers: noStoreJsonHeaders() });
     }
     return NextResponse.json({ received: true }, { headers: noStoreJsonHeaders() });
@@ -60,7 +84,9 @@ export async function POST(request: Request) {
     if (error) throw new Error(error.message);
     return NextResponse.json({ received: true }, { headers: noStoreJsonHeaders() });
   } catch (error) {
-    await logOperationalEvent({ severity: "ERROR", service: "stripe", eventType: "STRIPE_WEBHOOK_FAILED", details: { eventId: event.id, eventType: event.type, message: error instanceof Error ? error.message : "Unknown webhook failure" } });
+    const message = error instanceof Error ? error.message : "Unknown webhook failure";
+    const persistenceError = await persistFailedWebhook(database, event, rawBody, invoiceId, message);
+    await logOperationalEvent({ severity: "ERROR", service: "stripe", eventType: "STRIPE_WEBHOOK_FAILED", details: { eventId: event.id, eventType: event.type, message, persistenceError } });
     return NextResponse.json({ error: "Stripe event processing failed." }, { status: 503, headers: noStoreJsonHeaders() });
   }
 }

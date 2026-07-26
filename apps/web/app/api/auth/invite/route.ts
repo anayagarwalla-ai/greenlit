@@ -7,13 +7,16 @@ import { requireSupabaseAdmin } from "@/lib/database";
 import { logOperationalEvent } from "@/lib/operations";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { safeAuthNext } from "@/lib/auth-next";
+import { readLimitedJsonResult } from "@/lib/request-security";
 
 const schema = z.object({ email: z.string().trim().email().max(320), nextPath: z.string().max(1_000).optional() });
 
 export async function POST(request: Request) {
   const quota = await consumeRateLimit(request, "invite-check-hour", 30, 3_600);
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const limited = await readLimitedJsonResult(request, 8_192);
+  if (!limited.ok) return limited.response;
+  const parsed = schema.safeParse(limited.body);
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid business email." }, { status: 422, headers: noStoreJsonHeaders() });
   try {
     const database = requireSupabaseAdmin();

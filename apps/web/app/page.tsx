@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { ArrowRight, CalendarClock, Check, CreditCard, FileCheck2, GitCompareArrows, MousePointerClick, Play, ScanSearch, ShieldCheck } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
@@ -18,12 +19,12 @@ export default function Home() {
         <SiteHeader />
         <div className="hero-grid">
           <div className="hero-copy">
-            <div className="eyebrow"><span className="eyebrow-dot" /> Acceptance-to-invoice proof</div>
+            <div className="eyebrow"><span className="eyebrow-dot" /> For U.S. web agencies · design-partner beta</div>
             <h1>Turn your SOW{" "}<br />into <em>proof.</em></h1>
-            <p className="hero-lede">Greenlit turns fuzzy acceptance criteria into verified browser evidence, a one-click client approval, and an invoice-ready record.</p>
+            <p className="hero-lede">Greenlit turns fuzzy acceptance criteria into verified browser evidence, a focused client decision, and an invoice-ready record.</p>
             <div className="hero-actions">
-              <Link className="button button--lime" href="/workspace?demo=guided">Try the guided demo <ArrowRight size={18} /></Link>
-              <a className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See how it works</a>
+              <Link className="button button--lime" href="/workspace?demo=guided">Explore the synthetic walkthrough <ArrowRight size={18} /></Link>
+              <Link className="text-link" href={"/request-demo" as Route}><Play size={16} fill="currentColor" /> Request a conversation</Link>
             </div>
             <div className="trust-line">
               <span><ShieldCheck size={16} /> Human-confirmed checks</span>
@@ -97,8 +98,11 @@ export default function Home() {
       </section>
 
       <section className="cta-strip">
-        <div><span>Closed agency beta</span><h2>One milestone. Clear promises.{" "}<br />Proof before the invoice.</h2></div>
-        <Link className="button button--lime" href="/workspace">Run the proof flow <ArrowRight size={18} /></Link>
+        <div><span>Invitation-only design-partner beta</span><h2>One milestone. Clear promises.{" "}<br />Proof before the invoice.</h2></div>
+        <div className="cta-strip__actions">
+          <Link className="text-link text-link--inverse" href={"/resources" as Route}>Browse agency resources</Link>
+          <Link className="button button--lime" href={"/request-demo" as Route}>Request a conversation <ArrowRight size={18} /></Link>
+        </div>
       </section>
     </main>
   );
