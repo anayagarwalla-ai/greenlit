@@ -32,9 +32,13 @@ jobs:
           NEXT_PUBLIC_SECURITY_EMAIL: security@example.test
           SITE_SMOKE_BASE_URL: http://127.0.0.1:3008
         run: |
-          pnpm --filter @greenlit/web start --port 3008 &
-          server_pid=$!
-          trap 'kill "$server_pid"' EXIT
+          setsid pnpm --filter @greenlit/web start --port 3008 &
+          server_group=$!
+          cleanup() {
+            kill -- "-$server_group" 2>/dev/null || true
+            wait "$server_group" 2>/dev/null || true
+          }
+          trap cleanup EXIT
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:3008/api/health >/dev/null; then
               break
