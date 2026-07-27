@@ -9,7 +9,7 @@ type OriginProof = {
 };
 
 function secret() {
-  const value = process.env.RECORD_HASH_SECRET ?? process.env.RUNNER_HMAC_SECRET;
+  const value = process.env.RECORD_HASH_SECRET;
   if (!value) throw new Error("Origin verification signing is not configured.");
   return value;
 }

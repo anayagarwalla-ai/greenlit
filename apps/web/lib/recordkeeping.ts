@@ -33,7 +33,7 @@ export function publicRecordId(prefix: string): string {
 }
 
 export function requestActorHash(request: Request): string {
-  const secret = process.env.RECORD_HASH_SECRET ?? process.env.RUNNER_HMAC_SECRET;
+  const secret = process.env.RECORD_HASH_SECRET;
   if (!secret) throw new Error("Record attribution secret is not configured.");
   // Rate-limit and audit attribution must not change when an attacker merely
   // changes User-Agent or country headers. Vercel replaces x-forwarded-for at

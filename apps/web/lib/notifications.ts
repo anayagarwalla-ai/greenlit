@@ -1,4 +1,5 @@
 import { requireSupabaseAdmin } from "./database";
+import { strongPrivateSecret, validPublicWebhookUrl } from "./launch-readiness";
 
 export type NotificationPayload = {
   id: string;
@@ -11,9 +12,18 @@ export type NotificationPayload = {
   created_at: string;
 };
 
+function notificationWebhookConfiguration() {
+  const target = process.env.NOTIFICATION_WEBHOOK_URL?.trim();
+  if (!target) return null;
+  if (!validPublicWebhookUrl(target)) throw new Error("Notification delivery URL is invalid.");
+  const secret = process.env.NOTIFICATION_WEBHOOK_SECRET?.trim();
+  if (!strongPrivateSecret(secret)) throw new Error("Notification delivery authentication is invalid.");
+  return { target, secret };
+}
+
 export async function deliverNotification(notification: NotificationPayload) {
-  const target = process.env.NOTIFICATION_WEBHOOK_URL;
-  if (!target) return false;
+  const configuration = notificationWebhookConfiguration();
+  if (!configuration) return false;
   const database = requireSupabaseAdmin();
   const startedAt = new Date().toISOString();
   const { data: claimed, error: claimError } = await database.rpc("begin_notification_delivery_atomic", { p_id: notification.id, p_now: startedAt }).maybeSingle();
@@ -24,13 +34,13 @@ export async function deliverNotification(notification: NotificationPayload) {
   let deliveryError = "";
   let httpStatus: number | null = null;
   try {
-    const response = await fetch(target, {
+    const response = await fetch(configuration.target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "idempotency-key": `greenlit-notification-${notification.id}`,
         "x-greenlit-notification-id": notification.id,
-        ...(process.env.NOTIFICATION_WEBHOOK_SECRET ? { authorization: `Bearer ${process.env.NOTIFICATION_WEBHOOK_SECRET}` } : {}),
+        authorization: `Bearer ${configuration.secret}`,
       },
       body: JSON.stringify({
         event: notification.event_type === "DEMO_REQUEST_RECEIVED"
@@ -51,7 +61,7 @@ export async function deliverNotification(notification: NotificationPayload) {
   return sent;
 }
 export async function deliverPendingNotifications(limit = 20) {
-  if (!process.env.NOTIFICATION_WEBHOOK_URL) return { delivered: 0, attempted: 0, configured: false };
+  if (!notificationWebhookConfiguration()) return { delivered: 0, attempted: 0, configured: false };
   const database = requireSupabaseAdmin();
   const selection = "id, owner_user_id, record_id, event_type, title, body, payload, created_at";
   const { data: retryable, error } = await database

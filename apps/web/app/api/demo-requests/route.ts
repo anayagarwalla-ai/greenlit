@@ -13,7 +13,7 @@ const requestSchema = z.object({
   email: z.string().trim().email().max(320),
   agencyName: z.string().trim().min(2).max(160),
   role: z.string().trim().min(2).max(120),
-  agencySize: z.enum(["1", "2-10", "11-25", "26-50", "51+"]),
+  agencySize: z.enum(["2-10", "11-25", "26-50"]),
   location: z.string().trim().min(2).max(120),
   monthlyMilestoneVolume: z.enum(["1-2", "3-5", "6-10", "11-25", "26+"]),
   approvalDelayDays: z.coerce.number().int().min(0).max(365),

@@ -2,6 +2,8 @@
 
 This runbook is the minimum operating cadence for inviting web agencies. Assign one named operator and one backup before sending invitations.
 
+Use [OBSERVABILITY.md](OBSERVABILITY.md) for the liveness/readiness distinction, request IDs, alert thresholds, release evidence, and meeting-day monitoring gate.
+
 ## Before the first invitation
 
 - Set `BETA_ALLOWED_EMAILS` to the exact business emails invited to use the retained workflow.

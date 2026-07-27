@@ -3,9 +3,9 @@ import { requestActorHash, sha256 } from "./recordkeeping";
 
 export type RateLimitResult = { allowed: boolean; retryAfterSeconds: number; unavailable?: boolean };
 
-export function positiveIntegerSetting(value: string | undefined, fallback: number): number {
+export function positiveIntegerSetting(value: string | undefined, fallback: number, maximum = Number.MAX_SAFE_INTEGER): number {
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= maximum ? parsed : fallback;
 }
 
 export async function consumeRateLimit(

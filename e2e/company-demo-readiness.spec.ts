@@ -43,6 +43,7 @@ test("a qualified agency can submit a demo request and receives a retained refer
   await page.getByLabel("Business email").fill("alex@northstar.example");
   await page.getByLabel("Agency name").fill("Northstar Studio");
   await page.getByLabel("Your role").fill("Head of Delivery");
+  await page.getByRole("button", { name: "Continue to workflow fit" }).click();
   await page.getByLabel("Agency size").selectOption("11-25");
   await page.getByLabel("Primary location").fill("Denver, Colorado, United States");
   await page.getByLabel("Client milestones per month").selectOption("6-10");

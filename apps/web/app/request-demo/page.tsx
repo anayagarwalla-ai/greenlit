@@ -16,7 +16,7 @@ export default function RequestDemoPage() {
       <ResourceHeader />
       <section className="request-demo-hero">
         <div>
-          <span className="resource-kicker">For U.S. web agencies</span>
+          <span className="resource-kicker">For 2–50 person U.S. web agencies</span>
           <h1>See whether one milestone can move with <em>less chasing.</em></h1>
           <p>Greenlit is looking for a small number of design partners with a real approval bottleneck, a suitable public staging workflow, and one accountable client reviewer.</p>
           <ul>

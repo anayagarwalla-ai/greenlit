@@ -36,6 +36,14 @@ export const requiredOperationalConfirmations = [
 ];
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const weakSecretMarkers = /(?:change[-_ ]?me|replace[-_ ]?me|example|placeholder|password|secret|test|development|local)/i;
+
+function strongPrivateSecret(value) {
+  const normalized = value?.trim() ?? "";
+  return normalized.length >= 32
+    && new Set(normalized).size >= 12
+    && !weakSecretMarkers.test(normalized);
+}
 
 function validPublicWebhookUrl(value) {
   try {
@@ -85,12 +93,22 @@ export function productionReadinessMissing(environment = process.env) {
     if (!hasValidEmail) missing.push(key);
   }
   for (const key of ["RUNNER_HMAC_SECRET", "RECORD_HASH_SECRET", "CRON_SECRET"]) {
-    if (!environment[key]?.trim()) missing.push(key);
+    if (!strongPrivateSecret(environment[key])) missing.push(key);
   }
   const secrets = ["RUNNER_HMAC_SECRET", "RECORD_HASH_SECRET", "CRON_SECRET"]
     .map((key) => environment[key]?.trim())
     .filter(Boolean);
   if (secrets.length === 3 && new Set(secrets).size !== 3) missing.push("SECRET_SEPARATION");
+  for (const [key, maximum] of [
+    ["BETA_DAILY_RUN_LIMIT", 20],
+    ["BETA_DAILY_ANALYSIS_LIMIT", 500],
+    ["BETA_EVIDENCE_STORAGE_LIMIT_BYTES", 900_000_000],
+  ]) {
+    const value = environment[key]?.trim();
+    if (!value) continue;
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) missing.push(key);
+  }
 
   for (const key of requiredOperationalConfirmations) {
     if (environment[key]?.trim().toLowerCase() !== "true") missing.push(key);
@@ -98,8 +116,27 @@ export function productionReadinessMissing(environment = process.env) {
   const notificationWebhookUrl = environment.NOTIFICATION_WEBHOOK_URL?.trim() ?? "";
   if (notificationWebhookUrl) {
     if (!validPublicWebhookUrl(notificationWebhookUrl)) missing.push("NOTIFICATION_WEBHOOK_URL");
-    if (!environment.NOTIFICATION_WEBHOOK_SECRET?.trim()) missing.push("NOTIFICATION_WEBHOOK_SECRET");
+    if (!strongPrivateSecret(environment.NOTIFICATION_WEBHOOK_SECRET)) missing.push("NOTIFICATION_WEBHOOK_SECRET");
     if (!environment.NEXT_PUBLIC_NOTIFICATION_PROVIDER?.trim()) missing.push("NEXT_PUBLIC_NOTIFICATION_PROVIDER");
+  }
+  const stripeKeys = [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_APP_CLIENT_ID",
+    "STRIPE_APP_INSTALL_URL",
+    "STRIPE_TOKEN_ENCRYPTION_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_API_VERSION",
+  ];
+  if (stripeKeys.some((key) => Boolean(environment[key]?.trim()))) {
+    for (const key of stripeKeys) if (!environment[key]?.trim()) missing.push(key);
+    const installUrl = environment.STRIPE_APP_INSTALL_URL?.trim() ?? "";
+    if (installUrl && !validPublicWebhookUrl(installUrl)) missing.push("STRIPE_APP_INSTALL_URL");
+    const apiVersion = environment.STRIPE_API_VERSION?.trim() ?? "";
+    if (apiVersion && !/^\d{4}-\d{2}-\d{2}\.[a-z]+$/.test(apiVersion)) missing.push("STRIPE_API_VERSION");
+    const encryptionKey = environment.STRIPE_TOKEN_ENCRYPTION_KEY?.trim() ?? "";
+    if (encryptionKey && encryptionKey.length < 32) missing.push("STRIPE_TOKEN_ENCRYPTION_KEY");
+    const webhookSecret = environment.STRIPE_WEBHOOK_SECRET?.trim() ?? "";
+    if (webhookSecret && webhookSecret.length < 20) missing.push("STRIPE_WEBHOOK_SECRET");
   }
   return [...new Set(missing)];
 }

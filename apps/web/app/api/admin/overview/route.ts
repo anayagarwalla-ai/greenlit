@@ -32,10 +32,12 @@ export async function GET() {
   try {
     const database = requireSupabaseAdmin();
     const since = new Date(Date.now() - 86_400_000).toISOString();
+    const scorecardSince = new Date(Date.now() - 30 * 86_400_000).toISOString();
     const staleNotificationBefore = new Date(Date.now() - 10 * 60_000).toISOString();
-    const [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs] = await Promise.all([
+    const [feedback, events, productEvents, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs] = await Promise.all([
       database.from("beta_feedback").select("id, public_id, email, category, message, page_path, status, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operational_events").select("id, severity, service, event_type, record_id, details, created_at").order("created_at", { ascending: false }).limit(100),
+      database.from("product_events").select("id,event_type,record_id,properties,created_at").gte("created_at", scorecardSince).order("created_at", { ascending: false }).limit(500),
       database.from("verification_jobs_v2").select("id, record_id, status, build_label, target_origin, last_error, acknowledged_at, acknowledged_by, retry_of, created_at, completed_at").in("status", ["QUEUED", "LEASED", "RUNNING", "FAILED"]).order("created_at", { ascending: false }).limit(100),
       database.from("privacy_requests_v2").select("id, public_id, request_type, email, details, status, assigned_to, internal_notes, identity_verified_at, response_summary, response_sent_at, updated_at, created_at").order("created_at", { ascending: false }).limit(100),
       database.from("operator_notifications").select("id, owner_user_id, record_id, event_type, title, body, payload, delivery_status, delivery_attempts, delivery_error, delivery_claimed_at, last_delivery_at, created_at").or(`delivery_status.in.(PENDING_EMAIL,FAILED),and(delivery_status.eq.SENDING,delivery_claimed_at.lt.${staleNotificationBefore})`).order("created_at", { ascending: false }).limit(100),
@@ -47,11 +49,12 @@ export async function GET() {
       database.from("privacy_account_deletions").select("id,request_id,email,status,attempts,last_error,requested_at,completed_at").eq("status", "FAILED").order("requested_at", { ascending: false }).limit(100),
       database.from("invoice_jobs").select("id,record_id,owner_user_id,status,attempts,last_error,claimed_at,created_at,updated_at").in("status", ["FAILED", "PROCESSING"]).order("created_at", { ascending: false }).limit(100),
     ]);
-    const firstError = [feedback, events, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs].find((result) => result.error)?.error;
+    const firstError = [feedback, events, productEvents, jobs, privacy, notifications, recentRuns, deletionFailures, maintenance, invites, holds, accountDeletionFailures, invoiceJobs].find((result) => result.error)?.error;
     if (firstError) throw new Error(firstError.message);
     const staleBefore = Date.now() - 10 * 60_000;
     const jobIssues = (jobs.data ?? []).filter((job) => !job.acknowledged_at && (job.status === "FAILED" || new Date(job.created_at).getTime() < staleBefore));
     const openPrivacyRequests = (privacy.data ?? []).filter((item) => !["COMPLETED", "DENIED"].includes(item.status)).length;
+    const productEventCount = (eventType: string) => (productEvents.data ?? []).filter((item) => item.event_type === eventType).length;
     const usersByEmail = new Map<string, string>();
     for (let page = 1; page <= 5; page += 1) {
       const { data: users, error: usersError } = await database.auth.admin.listUsers({ page, perPage: 200 });
@@ -74,8 +77,13 @@ export async function GET() {
         activeJobIssues: jobIssues.length + (invoiceJobs.data ?? []).length,
         openPrivacyRequests,
         runsLast24Hours: (recentRuns.data ?? []).length,
+        scorecardDays: 30,
+        demoRequests: productEventCount("DEMO_REQUEST_RECEIVED"),
+        analysesCompleted: productEventCount("ANALYSIS_COMPLETED"),
+        verificationsCompleted: productEventCount("VERIFICATION_COMPLETED"),
+        reviewDecisions: productEventCount("REVIEW_DECIDED"),
       },
-      feedback: feedback.data ?? [], events: events.data ?? [], jobs: jobIssues, invoiceJobs: invoiceJobs.data ?? [], privacy: privacyWithRecords, notifications: notifications.data ?? [], deletionFailures: deletionFailures.data ?? [], accountDeletionFailures: accountDeletionFailures.data ?? [], maintenance: maintenance.data ?? [], invites: invites.data ?? [],
+      feedback: feedback.data ?? [], events: events.data ?? [], productEvents: productEvents.data ?? [], jobs: jobIssues, invoiceJobs: invoiceJobs.data ?? [], privacy: privacyWithRecords, notifications: notifications.data ?? [], deletionFailures: deletionFailures.data ?? [], accountDeletionFailures: accountDeletionFailures.data ?? [], maintenance: maintenance.data ?? [], invites: invites.data ?? [],
     }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Operator overview unavailable." }, { status: 503, headers: noStoreJsonHeaders() });

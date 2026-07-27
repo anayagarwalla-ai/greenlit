@@ -6,6 +6,7 @@ import { addressMatchesFrozenSet, pathWithQueryAndHash, perCheckBudgetMs } from 
 import { installNetworkIsolation } from "./network-isolation";
 import { leaseResponseDisposition } from "./lease-response";
 import { maintenanceRouteForCron } from "./scheduled-maintenance";
+import runnerPackage from "../package.json";
 
 type Env = {
   BROWSER: BrowserWorker;
@@ -28,7 +29,7 @@ type EvidenceArtifact = {
 
 type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: number; storagePath: string; expiresAt: string };
 
-const RUNNER_VERSION = "0.9.0";
+const RUNNER_VERSION = runnerPackage.version;
 const JOB_DEADLINE_MS = 48_000;
 const MAX_CONTROL_BODY_BYTES = 8_192;
 const INTERNAL_REQUEST_TIMEOUT_MS = 8_000;
@@ -168,7 +169,10 @@ async function runScheduledMaintenance(env: Env, cron: string): Promise<void> {
   if (!path) throw new Error(`Unknown scheduled maintenance trigger: ${cron}`);
   if (!env.CRON_SECRET) throw new Error("CRON_SECRET is not configured on the runner.");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 55_000);
+  // The web maintenance routes have a 60-second platform budget. Keep the
+  // caller alive beyond that ceiling so it cannot abandon a route that is
+  // still recording its durable completion heartbeat.
+  const timer = setTimeout(() => controller.abort(), 70_000);
   try {
     const response = await fetch(`${env.WEB_APP_URL}${path}`, {
       method: "GET",

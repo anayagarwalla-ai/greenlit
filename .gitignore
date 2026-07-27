@@ -12,9 +12,11 @@ test-results
 artifacts/playwright-report
 artifacts/stripe-integration-audit-2026-07-21
 tmp/
+.tmp/
 *.log
 *.tsbuildinfo
 .DS_Store
 .env*
 docs/operations/*.json
+artifacts/release/
 supabase/.temp/

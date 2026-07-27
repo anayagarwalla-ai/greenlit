@@ -5,6 +5,7 @@ import { verifyRunnerRequest } from "@/lib/hmac";
 import { requireSupabaseAdmin } from "@/lib/database";
 import { canonicalJson, noStoreJsonHeaders, sha256 } from "@/lib/recordkeeping";
 import { readLimitedBody, RequestSizeError, requestTooLargeResponse } from "@/lib/request-security";
+import { logProductEvent } from "@/lib/operations";
 
 const artifactSchema = z.object({
   criterionId: z.string().min(1).max(80),
@@ -67,6 +68,19 @@ export async function POST(request: Request, context: { params: Promise<{ jobId:
     const manifestSha256 = sha256(canonicalJson(manifest));
     const { data: outcome, error: completionError } = await database.rpc("complete_verification_job_atomic", { p_job_id: jobId, p_attempt: parsed.data.attempt, p_lease_id: parsed.data.leaseId, p_results: parsed.data.results, p_artifacts: artifactMetadata, p_browser_version: parsed.data.browserVersion, p_runner_version: parsed.data.runnerVersion, p_manifest_sha256: manifestSha256, p_started_at: parsed.data.startedAt, p_completed_at: parsed.data.completedAt });
     if (completionError) throw new Error(completionError.message);
+    if (outcome !== "DUPLICATE") {
+      const durationMs = new Date(parsed.data.completedAt).getTime() - new Date(parsed.data.startedAt).getTime();
+      const durationBucket = durationMs < 30_000 ? "under-30s" : durationMs < 60_000 ? "30-60s" : "over-60s";
+      await logProductEvent({
+        eventType: "VERIFICATION_COMPLETED",
+        recordId: job.record_id,
+        properties: {
+          status: parsed.data.results.every((result) => result.status === "PASS") ? "PASSED" : "NEEDS_WORK",
+          resultCount: parsed.data.results.length,
+          durationBucket,
+        },
+      });
+    }
     return NextResponse.json({ jobId, accepted: true, status: outcome === "DUPLICATE" ? "COMPLETED" : outcome, manifestSha256, duplicate: outcome === "DUPLICATE" }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     console.error("Runner completion callback failed", error instanceof Error ? error.message : "unknown");

@@ -21,8 +21,25 @@ test("skip link moves focus to the page's main landmark", async ({ page, browser
   await expect(page.locator("main")).toBeFocused();
 });
 
-for (const route of ["/", "/request-demo", "/resources", "/trust", "/workspace?demo=guided", "/review/demo", "/receipt/demo"]) {
-  test(`${route} has no serious or critical automated accessibility violations`, async ({ page }) => {
+for (const route of [
+  "/",
+  "/request-demo",
+  "/resources",
+  "/resources/changelog",
+  "/resources/roi-calculator",
+  "/trust",
+  "/privacy",
+  "/privacy-request",
+  "/terms",
+  "/records",
+  "/contact",
+  "/login",
+  "/workspace?demo=guided",
+  "/review/demo",
+  "/receipt/demo",
+  "/page-that-does-not-exist",
+]) {
+  test(`${route} has no moderate, serious, or critical WCAG 2.2 automated violations`, async ({ page }) => {
     await page.goto(route);
     await page.addScriptTag({ path: axePath });
     const violations = await page.evaluate(async () => {
@@ -30,10 +47,10 @@ for (const route of ["/", "/request-demo", "/resources", "/trust", "/workspace?d
         axe: { run: (context: Document, options: object) => Promise<{ violations: AxeViolation[] }> };
       }).axe;
       const result = await axe.run(document, {
-        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] },
       });
       return result.violations
-        .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
+        .filter((violation) => ["moderate", "serious", "critical"].includes(violation.impact ?? ""))
         .map((violation) => ({
           id: violation.id,
           impact: violation.impact,

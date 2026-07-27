@@ -9,6 +9,7 @@ import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { pinnedHttpsGet } from "@/lib/pinned-https";
 import { readLimitedJsonResult } from "@/lib/request-security";
+import { logProductEvent } from "@/lib/operations";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
     const response = await pinnedHttpsGet(proofUrl, addresses);
     if (response.location || response.status < 200 || response.status >= 300 || response.text !== body.data.token) return NextResponse.json({ error: "The ownership token did not match." }, { status: 409 });
     const verifiedAt = new Date().toISOString();
+    await logProductEvent({ eventType: "ORIGIN_VERIFIED", ownerUserId: user.id, properties: { status: "VERIFIED" } });
     return NextResponse.json({ verified: true, origin: validated.url.origin, verifiedAt, receipt: createOriginProof(validated.url.origin, user.id) }, { headers: noStoreJsonHeaders() });
   } catch {
     return NextResponse.json({ error: "Origin verification failed. Check DNS, TLS, and the token file." }, { status: 422 });

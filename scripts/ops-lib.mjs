@@ -49,11 +49,25 @@ export async function downloadStorageObject(bucket, name, destination, config) {
 }
 
 export async function restRows(table, select, config) {
-  const response = await fetch(`${config.url}/rest/v1/${table}?select=${encodeURIComponent(select)}`, {
-    headers: { ...config.headers, Prefer: "count=exact" },
-  });
-  if (!response.ok) throw new Error(`Could not read ${table}: ${response.status} ${await response.text()}`);
-  return { rows: await response.json(), count: Number(response.headers.get("content-range")?.split("/")[1] || 0) };
+  const rows = [];
+  let count = 0;
+  for (let offset = 0; ; offset += 1_000) {
+    const response = await fetch(`${config.url}/rest/v1/${table}?select=${encodeURIComponent(select)}&order=id.asc`, {
+      headers: {
+        ...config.headers,
+        Prefer: offset === 0 ? "count=exact" : "count=none",
+        Range: `${offset}-${offset + 999}`,
+        "Range-Unit": "items",
+      },
+    });
+    if (!response.ok) throw new Error(`Could not read ${table}: ${response.status} ${await response.text()}`);
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error(`Could not read ${table}: response was not a row array.`);
+    rows.push(...page);
+    if (offset === 0) count = Number(response.headers.get("content-range")?.split("/")[1] || page.length);
+    if (page.length < 1_000) break;
+  }
+  return { rows, count };
 }
 
 export function safeTimestamp() {
@@ -61,9 +75,105 @@ export function safeTimestamp() {
 }
 
 export function resolveInside(root, relative) {
-  const destination = join(root, ...relative.split("/").filter(Boolean));
+  if (
+    typeof relative !== "string"
+    || !relative
+    || relative.includes("\\")
+    || relative.includes("\0")
+    || relative.startsWith("/")
+    || relative.split("/").some((part) => !part || part === "." || part === "..")
+  ) throw new Error("Unsafe backup path.");
+  const destination = join(root, ...relative.split("/"));
   if (!destination.startsWith(`${root}/`)) throw new Error("Unsafe backup path.");
   return destination;
+}
+
+export function validateBackupManifest(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("Backup manifest must be an object.");
+  if (manifest.schemaVersion !== 2) throw new Error("Unsupported backup manifest version.");
+  if (!Number.isFinite(Date.parse(manifest.createdAt))) throw new Error("Backup manifest createdAt is invalid.");
+  if (typeof manifest.supabaseHost !== "string" || !manifest.supabaseHost) throw new Error("Backup manifest host is invalid.");
+  if (
+    !manifest.database
+    || manifest.database.file !== "database.dump"
+    || !Number.isSafeInteger(manifest.database.bytes)
+    || manifest.database.bytes <= 0
+    || !/^[a-f0-9]{64}$/.test(manifest.database.sha256 ?? "")
+  ) throw new Error("Backup manifest database entry is invalid.");
+  if (!Array.isArray(manifest.evidence)) throw new Error("Backup manifest evidence inventory is invalid.");
+  const seen = new Set();
+  for (const artifact of manifest.evidence) {
+    resolveInside("/manifest-validation", artifact?.path);
+    if (seen.has(artifact.path)) throw new Error(`Backup manifest contains duplicate evidence path: ${artifact.path}`);
+    seen.add(artifact.path);
+    if (!Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0 || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {
+      throw new Error(`Backup manifest evidence entry is invalid: ${artifact.path}`);
+    }
+  }
+  const reconciliation = manifest.evidenceReconciliation;
+  if (
+    !reconciliation
+    || !Number.isSafeInteger(reconciliation.databaseArtifacts)
+    || !Number.isSafeInteger(reconciliation.storageObjects)
+    || !Array.isArray(reconciliation.missingStoragePaths)
+    || !Array.isArray(reconciliation.untrackedStoragePaths)
+    || !Array.isArray(reconciliation.metadataMismatches)
+    || reconciliation.missingStoragePaths.length > 0
+    || reconciliation.metadataMismatches.length > 0
+  ) throw new Error("Backup manifest evidence reconciliation is invalid.");
+  return manifest;
+}
+
+export function compareEvidenceInventory(evidence, databaseRows) {
+  const stored = new Map(evidence.map((item) => [item.path, item]));
+  const referenced = new Map(
+    databaseRows.flatMap((row) => typeof row.storage_path === "string" && row.storage_path
+      ? [[row.storage_path, row]]
+      : []),
+  );
+  const missingStoragePaths = [...referenced.keys()].filter((path) => !stored.has(path)).sort();
+  const untrackedStoragePaths = [...stored.keys()].filter((path) => !referenced.has(path)).sort();
+  const metadataMismatches = [...referenced].flatMap(([path, row]) => {
+    const artifact = stored.get(path);
+    if (!artifact) return [];
+    return (
+      Number(row.byte_size) !== artifact.bytes
+      || String(row.sha256).toLowerCase() !== artifact.sha256
+    ) ? [path] : [];
+  }).sort();
+  return {
+    databaseArtifacts: referenced.size,
+    storageObjects: stored.size,
+    missingStoragePaths,
+    untrackedStoragePaths,
+    metadataMismatches,
+  };
+}
+
+export function assertSafeArchiveEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) throw new Error("Backup archive is empty.");
+  const roots = new Set();
+  for (const entry of entries) {
+    if (typeof entry !== "string" || !entry) throw new Error("Backup archive contains an invalid entry.");
+    const normalized = entry.replace(/\/$/, "");
+    if (!normalized) throw new Error("Backup archive contains an invalid entry.");
+    const parts = normalized.split("/");
+    if (parts.some((part) => !part || part === "." || part === "..") || entry.startsWith("/") || entry.includes("\\") || entry.includes("\0")) {
+      throw new Error(`Backup archive contains an unsafe path: ${entry}`);
+    }
+    roots.add(parts[0]);
+  }
+  if (roots.size !== 1) throw new Error("Backup archive must contain exactly one bundle directory.");
+  return [...roots][0];
+}
+
+export function assertSafeArchiveTypes(verboseListing) {
+  const lines = String(verboseListing).split("\n").filter(Boolean);
+  if (lines.length === 0) throw new Error("Backup archive type listing is empty.");
+  for (const line of lines) {
+    const type = line[0];
+    if (type !== "-" && type !== "d") throw new Error(`Backup archive contains a non-file entry type: ${type || "unknown"}`);
+  }
 }
 
 function pgPassField(value) {

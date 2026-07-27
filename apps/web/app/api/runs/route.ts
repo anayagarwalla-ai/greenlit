@@ -164,10 +164,10 @@ export async function POST(request: Request) {
     }
     const quota = await consumeRateLimit(request, "verification-run-day", 3, 86_400, owner.userId, { failClosed: true });
     if (!quota.allowed) return rateLimitedResponse(quota);
-    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8);
+    const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8, 20);
     const capacity = await consumeRateLimit(request, "verification-capacity-day", globalLimit, 86_400, "greenlit-global-browser-capacity", { failClosed: true });
     if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta browser capacity has been used. The guided demo remains available; retained runs reopen after the daily reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { ...noStoreJsonHeaders(), "Retry-After": String(capacity.retryAfterSeconds) } });
-    const evidenceLimit = positiveIntegerSetting(process.env.BETA_EVIDENCE_STORAGE_LIMIT_BYTES, 850_000_000);
+    const evidenceLimit = positiveIntegerSetting(process.env.BETA_EVIDENCE_STORAGE_LIMIT_BYTES, 850_000_000, 900_000_000);
     const { data: evidenceBytes, error: evidenceError } = await database.rpc("evidence_storage_usage_bytes");
     if (evidenceError) return NextResponse.json({ error: "Storage capacity could not be confirmed, so retained verification is paused safely.", code: "CAPACITY_CHECK_UNAVAILABLE" }, { status: 503, headers: noStoreJsonHeaders() });
     if (Number(evidenceBytes ?? 0) >= evidenceLimit) return NextResponse.json({ error: "Evidence storage has reached the beta safety limit. The synthetic walkthrough remains available while the operator restores capacity.", code: "EVIDENCE_CAPACITY_REACHED" }, { status: 503, headers: noStoreJsonHeaders() });

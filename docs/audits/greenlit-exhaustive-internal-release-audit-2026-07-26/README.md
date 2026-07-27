@@ -6,19 +6,19 @@ Audited target: the optimized local production build at `http://127.0.0.1:3008`
 
 Database target: a clean disposable PostgreSQL 18 database with every repository migration applied in filename order
 
-Release boundary: internal implementation and local verification are complete; deployment- and provider-dependent checks remain external.
+Release boundary: internal implementation and local verification are complete. Supabase schema synchronization, Cloudflare runner deployment, and non-human Vercel configuration were completed after the original audit; the exact new web release still requires real legal/contact values before production promotion.
 
 ## Verdict
 
 The current working tree has no known internally reproducible release blocker. Every identified code, control, accessibility, data-integrity, security, and operational defect that could be fixed without production credentials or third-party authority was fixed and retested.
 
-This is not a production certification. The exact release still needs to be deployed and exercised against the real Supabase, Cloudflare, email, notification, Gemini, Stripe, DNS, backup, and legal/operator configuration described under **External completion checklist**.
+This is not a production certification. Supabase and Cloudflare are now configured and verified as recorded below. The exact web release still needs founder-supplied legal/contact values and real email, Gemini, Stripe, DNS, backup, retained-transaction, and legal/operator exercises described under **External completion checklist**.
 
 ## Evidence limits
 
 - Public, synthetic, signed-out, and demo journeys were exercised against an optimized local production build.
 - Authenticated and provider-backed behavior was verified with unit, route, component, end-to-end, state-machine, SQL regression, and clean-schema tests.
-- No production account was changed, no external recipient was contacted, no live invoice was sent, and no production privacy deletion was executed.
+- The linked Supabase, Cloudflare, and Vercel projects were changed only where the task could be completed without founder judgment: schema `202607260008` was applied, high-impact secrets were rotated/synchronized, owner access lists and a bounded run limit were set, and the runner was deployed with its queue and schedules. No external recipient was contacted, no invoice was sent, and no production privacy deletion was executed.
 - The two `production-retained` Playwright cases intentionally remain skipped unless `PRODUCTION_SMOKE=1` and an authorized production account, retained record, and saved session are supplied.
 - Chromium and WebKit passed locally. Firefox could not start on this managed macOS host because its `plugin-container` sandbox was denied before page interaction. That is a host limitation, not a website failure; Firefox must be run in external CI.
 - Earlier production sign-off evidence is not treated as proof of this exact un-deployed working-tree release.
@@ -70,21 +70,23 @@ The final inventory exposed 13 additional defects. All 13 were corrected:
 
 One additional cross-boundary defect was also corrected: an unauthenticated `stripe=session-expired` result now survives dashboard → login → magic-link handoff through a narrowly allowlisted return URL.
 
+The exact Vercel preview exposed one deployment-only packaging defect after the local audit: an unanchored `artifacts/` ignore rule removed the nested private evidence-upload API route. All Vercel ignore rules are now repository-root anchored, the preview route manifest includes `/api/internal/jobs/[jobId]/artifacts`, an authenticated route probe reaches that route, and a regression test blocks unanchored deployment ignores.
+
 ## Verification matrix
 
 | Gate | Result |
 | --- | --- |
 | `pnpm typecheck` | Pass |
 | `pnpm lint` | Pass |
-| `pnpm test` | Pass: 228 tests total (5 contracts, 199 web, 20 runner, 4 preflight) |
+| `pnpm test` | Pass: 245 tests total (5 contracts, 205 web, 24 runner, 6 preflight, 4 operations, 1 deployment-package guard) |
 | `pnpm build` | Pass: optimized production build; 63 pages generated |
 | `git diff --check` | Pass |
 | `pnpm audit --prod --audit-level=high` | Pass: no vulnerabilities |
-| Chromium Playwright desktop/mobile | Pass: 110 passed, 2 production-retained tests intentionally skipped |
-| WebKit supplemental accessibility/company-demo/invoice | Pass: 13/13 |
+| Chromium Playwright desktop/mobile | Pass: 126 unaffected checks plus 2 corrected contrast checks rerun successfully; 2 production-retained tests intentionally skipped |
+| WebKit supplemental accessibility/company-demo/invoice | Pass: final 7/7 critical-path rerun against the optimized build; earlier broader 13/13 pass retained |
 | Firefox local launch | Environment-blocked before page interaction; external CI required |
 | Public-site smoke crawler | Pass: 34 pages, 48 assets, 94 fragment links, 6 access boundaries, 7 auxiliary endpoints |
-| Clean database migration | Pass through `202607260007` |
+| Clean database migration | Pass through `202607260008`; linked Supabase migration history matches and schema lint is clean |
 | SQL regression suites | Pass: atomic RPC, beta blocker, atomic evidence artifact, and release integrity |
 | Chunked request-body limit | Pass: oversized streaming request rejected with HTTP 413 |
 | Fixed RC2 lead handoff | Pass: HTTP 201 |
@@ -100,7 +102,7 @@ One additional cross-boundary defect was also corrected: an unauthenticated `str
 - Retention, invoice recovery, and notification recovery have separate bounded schedules and observable heartbeats.
 - Privacy deletion and legal-hold transitions are atomic, race-tested, retryable, and preserve legally shared reviewer records for an operator decision.
 - Stripe calls time out, webhook failures remain durable and retryable, and live-mode activity stays blocked while `STRIPE_ALLOW_LIVE_MODE=false`.
-- The health endpoint reports expected web, runner `0.9.0`, and database `202607260007` versions and distinguishes service health from `readyForBeta`.
+- The health endpoint reports expected web, runner `0.9.0`, and database `202607260008` versions and distinguishes service health from `readyForBeta`.
 
 ## UX and accessibility findings
 
@@ -132,9 +134,9 @@ These items require production credentials, provider consoles, a real identity/a
 ### 1. Deploy the exact tested release and schema
 
 1. Review the working-tree changes and commit the exact release you intend to deploy.
-2. Apply every file in `supabase/migrations/` in filename order; the last applied migration must be `202607260007_retryable_stripe_webhooks.sql`.
-3. Deploy the web application and Cloudflare runner from that same commit.
-4. Confirm `/api/health` reports database `202607260007`, runner `0.9.0`, the intended web release, and `readyForBeta: true`.
+2. Supabase is already synchronized through `202607260008_receipt_hash_audit_context.sql`; re-confirm migration parity before production promotion.
+3. The Cloudflare runner is deployed. Promote the exact tested web preview after the remaining legal/operator preflight fields are supplied.
+4. Confirm `/api/health` reports database `202607260008`, runner `0.9.0`, the intended web release, and `readyForBeta: true`.
 5. Run the protected deep check with `Authorization: Bearer <CRON_SECRET>` against `/api/health?deep=1`.
 
 ### 2. Complete production environment and operator configuration
@@ -155,7 +157,7 @@ These items require production credentials, provider consoles, a real identity/a
 
 ### 4. Deploy and prove the Cloudflare runner
 
-1. Create the queue if it does not exist: `wrangler queues create greenlit-jobs`.
+1. Retain or create the queue configured in `workers/runner/wrangler.toml`: `wrangler queues create milestoneproof-jobs`.
 2. Configure the runner’s `RUNNER_HMAC_SECRET` to match the web application and deploy with `pnpm runner:deploy`.
 3. Configure production DNS and the documented staging-origin proof file on an authorized non-confidential test site.
 4. Verify shallow and protected deep health, a real browser launch, queue consumption, private evidence upload, completion callback, and all retention/invoice/notification heartbeat schedules.

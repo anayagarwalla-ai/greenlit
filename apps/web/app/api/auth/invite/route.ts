@@ -4,7 +4,7 @@ import { betaEmailAllowed } from "@/lib/beta-access";
 import { noStoreJsonHeaders } from "@/lib/recordkeeping";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
 import { requireSupabaseAdmin } from "@/lib/database";
-import { logOperationalEvent } from "@/lib/operations";
+import { logOperationalEvent, logProductEvent } from "@/lib/operations";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { safeAuthNext } from "@/lib/auth-next";
 import { readLimitedJsonResult } from "@/lib/request-security";
@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       options: { emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`, shouldCreateUser: false },
     });
     if (signInError) throw signInError;
+    await logProductEvent({ eventType: "SIGN_IN_REQUESTED", properties: { status: "ACCEPTED" } });
     return NextResponse.json({ accepted: true }, { headers: noStoreJsonHeaders() });
   } catch (error) {
     await logOperationalEvent({ severity: "ERROR", service: "auth", eventType: "INVITE_PROVISION_FAILED", details: { message: error instanceof Error ? error.message : "Unknown invitation provisioning failure" } });

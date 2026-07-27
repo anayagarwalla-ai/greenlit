@@ -24,6 +24,7 @@ const PRODUCT_PROPERTY_ALLOWLIST = new Set([
   "reason",
   "checkCount",
   "criteriaCount",
+  "resultCount",
   "status",
   "durationBucket",
   "sourceMode",
@@ -31,7 +32,21 @@ const PRODUCT_PROPERTY_ALLOWLIST = new Set([
   "milestoneVolume",
   "nextStep",
   "stagingModel",
+  "expiryHours",
+  "changeType",
+  "changeCriterionId",
+  "autoSend",
+  "invoiceMode",
 ]);
+
+export function sanitizedProductProperties(properties: Record<string, unknown> = {}) {
+  return Object.fromEntries(
+    Object.entries(properties).filter(
+      ([key, value]) => PRODUCT_PROPERTY_ALLOWLIST.has(key)
+        && ["string", "number", "boolean"].includes(typeof value),
+    ),
+  );
+}
 
 export async function logProductEvent(input: {
   eventType: string;
@@ -41,7 +56,7 @@ export async function logProductEvent(input: {
 }) {
   const database = getSupabaseAdmin();
   if (!database) return;
-  const properties = Object.fromEntries(Object.entries(input.properties ?? {}).filter(([key, value]) => PRODUCT_PROPERTY_ALLOWLIST.has(key) && ["string", "number", "boolean"].includes(typeof value)));
+  const properties = sanitizedProductProperties(input.properties);
   const { error } = await database.from("product_events").insert({ event_type: input.eventType, owner_user_id: input.ownerUserId ?? null, record_id: input.recordId ?? null, properties });
   if (error) console.error("Product event could not be recorded", input.eventType, error.message);
 }

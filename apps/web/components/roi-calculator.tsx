@@ -85,6 +85,7 @@ export function RoiCalculator() {
           <label>
             Conservative improvement to model
             <span className="roi-input-prefix roi-input-prefix--suffix"><input aria-label="Conservative improvement percentage" type="number" min="0" max="100" step="1" value={improvement} aria-invalid={parsed.improvement === null} aria-describedby={parsed.improvement === null ? "roi-input-error" : undefined} onChange={(event) => setImprovement(event.target.value)} /><span aria-hidden="true">%</span></span>
+            <small>Editable hypothesis only; Greenlit has not established a customer benchmark.</small>
           </label>
         </div>
         <button className="text-action roi-reset" type="button" onClick={reset}><RotateCcw size={14} /> Reset assumptions</button>

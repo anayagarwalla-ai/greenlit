@@ -50,18 +50,22 @@ function isMachineEndpoint(pathname: string) {
 
 export function proxy(request: NextRequest) {
   const nonce = crypto.randomUUID().replaceAll("-", "");
+  const requestId = crypto.randomUUID();
   const policy = contentSecurityPolicy(nonce, request);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("x-request-id", requestId);
   requestHeaders.set("Content-Security-Policy", policy);
   const proceed = () => {
     const response = NextResponse.next({ request: { headers: requestHeaders } });
     response.headers.set("Content-Security-Policy", policy);
+    response.headers.set("x-request-id", requestId);
     return response;
   };
   const reject = (body: Record<string, string>, status: number) => {
     const response = NextResponse.json(body, { status });
     response.headers.set("Content-Security-Policy", policy);
+    response.headers.set("x-request-id", requestId);
     return response;
   };
 

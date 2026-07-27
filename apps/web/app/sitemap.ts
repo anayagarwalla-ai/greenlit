@@ -3,7 +3,7 @@ import { publicResourceGuides } from "@/lib/resource-library";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://greenlitproof.vercel.app").replace(/\/$/, "");
-  const lastModified = new Date("2026-07-24T00:00:00-07:00");
+  const lastModified = new Date("2026-07-26T00:00:00-06:00");
   const publicPages = [
     { path: "", priority: 1, changeFrequency: "weekly" as const },
     { path: "/resources", priority: 0.9, changeFrequency: "weekly" as const },

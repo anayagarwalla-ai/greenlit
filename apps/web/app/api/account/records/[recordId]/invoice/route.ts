@@ -5,10 +5,14 @@ import { noStoreJsonHeaders, requestActorHash } from "@/lib/recordkeeping";
 import { processInvoiceJob } from "@/lib/stripe-invoicing";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { getOperationalControl, operationalPauseResponse } from "@/lib/operational-controls";
+import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { logProductEvent } from "@/lib/operations";
 
 export async function POST(request: Request, context: { params: Promise<{ recordId: string }> }) {
   const user = await getOptionalUser();
   if (!user || !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "Sign in with an invited account to continue." }, { status: 401, headers: noStoreJsonHeaders() });
+  const quota = await consumeRateLimit(request, "invoice-create-hour", 10, 3_600, user.id, { failClosed: true });
+  if (!quota.allowed) return rateLimitedResponse(quota);
   const invoiceControl = await getOperationalControl("INVOICES");
   if (invoiceControl.paused) return operationalPauseResponse(invoiceControl);
   const { recordId } = await context.params;
@@ -23,6 +27,7 @@ export async function POST(request: Request, context: { params: Promise<{ record
   try {
     const result = await processInvoiceJob(job.id, user.id);
     if (result.status === "PAUSED") return operationalPauseResponse(result.control);
+    await logProductEvent({ eventType: "INVOICE_CREATED", ownerUserId: user.id, recordId, properties: { status: result.status, invoiceMode: "manual" } });
     return NextResponse.json(result, { headers: noStoreJsonHeaders() });
   } catch {
     return NextResponse.json({ error: "Stripe could not finish the invoice. The failed job is retained for a safe retry.", jobId: job.id }, { status: 502, headers: noStoreJsonHeaders() });

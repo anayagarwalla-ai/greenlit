@@ -1,0 +1,145 @@
+{
+  "template": "one-page-report",
+  "locale": "en-US",
+  "direction": "ltr",
+  "content": {
+    "title": "Turn your SOW into proof.",
+    "subtitle": "Greenlit helps U.S. web agencies move a completed milestone from “the staging link is ready” to a focused client decision and an invoice-ready record.",
+    "eyebrow": "Greenlit · company brief · July 2026",
+    "authors": ["Greenlit"],
+    "sections": [
+      {
+        "type": "hero-metrics",
+        "items": [
+          { "label": "Best fit", "value": "2–50", "delta": "person U.S. agencies" },
+          { "label": "Pilot format", "value": "30 days", "delta": "bounded research pilot" },
+          { "label": "Starting scope", "value": "1", "delta": "milestone at a time" }
+        ]
+      },
+      {
+        "type": "two-column",
+        "columns": [
+          [
+            {
+              "type": "prose",
+              "heading": "The problem",
+              "markdown": "Agency teams prepare proof in one place, chase approval in another, and hand billing a decision with little connected context. Genuine fixes can blur into new scope."
+            },
+            {
+              "type": "list",
+              "title": "The workflow",
+              "ordered": true,
+              "items": [
+                "Import the relevant SOW section.",
+                "Confirm measurable criteria tied to exact source language.",
+                "Verify supported promises against an authorized public staging build.",
+                "Give one named reviewer the promise, result, evidence, and deadline.",
+                "Retain the decision and hand the milestone into billing."
+              ]
+            }
+          ],
+          [
+            {
+              "type": "callout",
+              "title": "Why it is different",
+              "body": "Greenlit keeps scope, browser observation, client decision, and the billing handoff connected. It does not treat a polished success message as proof when the underlying request failed."
+            },
+            {
+              "type": "list",
+              "title": "Good first milestone",
+              "ordered": false,
+              "items": [
+                "Recurring approval bottleneck",
+                "One named client reviewer",
+                "Public HTTPS staging with same-origin assets",
+                "Synthetic or authorized non-confidential content"
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type": "two-column",
+        "columns": [
+          [
+            {
+              "type": "list",
+              "title": "Current boundaries",
+              "ordered": false,
+              "items": [
+                "No regulated or confidential data",
+                "No protected-preview or VPN bypass",
+                "No signature, compliance, or payment guarantee"
+              ]
+            }
+          ],
+          [
+            {
+              "type": "callout",
+              "title": "Next step",
+              "body": "Request a focused conversation at **greenlitproof.vercel.app/request-demo**. No confidential SOW is required for the first meeting."
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  "theme": {
+    "fontFamilies": {
+      "body": "Arial, sans-serif",
+      "ui": "Arial, sans-serif",
+      "mono": "Menlo, monospace"
+    },
+    "fontSizes": {
+      "body": "9.6pt",
+      "small": "8pt",
+      "h1": "30pt",
+      "h2": "13.5pt",
+      "h3": "11pt"
+    },
+    "lineHeights": {
+      "body": 1.42,
+      "heading": 1.12,
+      "tight": 1.05
+    },
+    "colors": {
+      "text": "#12241C",
+      "muted": "#556159",
+      "accent": "#126B46",
+      "accent2": "#AFD12F",
+      "warm": "#8B5E11",
+      "surface": "#F4F1E9",
+      "surface2": "#E3F6E9",
+      "rule": "#D5D2C8",
+      "tableHeader": "#12241C"
+    },
+    "spacingScale": ["1.5mm", "3mm", "5.5mm", "8mm", "12mm"],
+    "radius": "1.5mm"
+  },
+  "layout": {
+    "pageSize": "Letter",
+    "margins": {
+      "top": "13mm",
+      "right": "15mm",
+      "bottom": "14mm",
+      "left": "15mm"
+    },
+    "columns": 1,
+    "header": false,
+    "footer": true
+  },
+  "output": {
+    "profile": "screen",
+    "taggedPdf": true,
+    "pdfUa": false,
+    "pdfA": false,
+    "linearize": false,
+    "metadata": {
+      "title": "Greenlit company brief",
+      "author": "Greenlit",
+      "subject": "Acceptance-to-invoice evidence for U.S. web agencies",
+      "keywords": ["web agencies", "milestone approval", "design partner"],
+      "language": "en-US"
+    }
+  }
+}

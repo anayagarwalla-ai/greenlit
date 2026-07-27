@@ -21,7 +21,16 @@ const REQUIRED_PRIVATE_SETTINGS = [
   "CRON_SECRET",
 ] as const;
 
-function validPublicWebhookUrl(value: string) {
+const WEAK_SECRET_MARKERS = /(?:change[-_ ]?me|replace[-_ ]?me|example|placeholder|password|secret|test|development|local)/i;
+
+export function strongPrivateSecret(value: string | undefined) {
+  const normalized = value?.trim() ?? "";
+  return normalized.length >= 32
+    && new Set(normalized).size >= 12
+    && !WEAK_SECRET_MARKERS.test(normalized);
+}
+
+export function validPublicWebhookUrl(value: string) {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -70,20 +79,50 @@ export function operationalLaunchReadiness(environment: Readonly<Record<string, 
     if (!(environment[name] ?? "").split(",").some((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()))) missing.push(name);
   }
   for (const name of REQUIRED_PRIVATE_SETTINGS) {
-    if (!environment[name]?.trim()) missing.push(name);
+    if (!strongPrivateSecret(environment[name])) missing.push(name);
   }
   const privateValues = REQUIRED_PRIVATE_SETTINGS
     .map((name) => environment[name]?.trim())
     .filter((value): value is string => Boolean(value));
   if (new Set(privateValues).size !== privateValues.length) missing.push("SECRET_SEPARATION");
+  const boundedSettings = [
+    ["BETA_DAILY_RUN_LIMIT", 20],
+    ["BETA_DAILY_ANALYSIS_LIMIT", 500],
+    ["BETA_EVIDENCE_STORAGE_LIMIT_BYTES", 900_000_000],
+  ] as const;
+  for (const [name, maximum] of boundedSettings) {
+    const value = environment[name]?.trim();
+    if (!value) continue;
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) missing.push(name);
+  }
   for (const name of REQUIRED_OPERATIONAL_CONFIRMATIONS) {
     if (environment[name]?.trim().toLowerCase() !== "true") missing.push(name);
   }
   const notificationWebhookUrl = environment.NOTIFICATION_WEBHOOK_URL?.trim() ?? "";
   if (notificationWebhookUrl) {
     if (!validPublicWebhookUrl(notificationWebhookUrl)) missing.push("NOTIFICATION_WEBHOOK_URL");
-    if (!environment.NOTIFICATION_WEBHOOK_SECRET?.trim()) missing.push("NOTIFICATION_WEBHOOK_SECRET");
+    if (!strongPrivateSecret(environment.NOTIFICATION_WEBHOOK_SECRET)) missing.push("NOTIFICATION_WEBHOOK_SECRET");
     if (!environment.NEXT_PUBLIC_NOTIFICATION_PROVIDER?.trim()) missing.push("NEXT_PUBLIC_NOTIFICATION_PROVIDER");
+  }
+  const stripeKeys = [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_APP_CLIENT_ID",
+    "STRIPE_APP_INSTALL_URL",
+    "STRIPE_TOKEN_ENCRYPTION_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_API_VERSION",
+  ] as const;
+  if (stripeKeys.some((name) => Boolean(environment[name]?.trim()))) {
+    for (const name of stripeKeys) if (!environment[name]?.trim()) missing.push(name);
+    const installUrl = environment.STRIPE_APP_INSTALL_URL?.trim() ?? "";
+    if (installUrl && !validPublicWebhookUrl(installUrl)) missing.push("STRIPE_APP_INSTALL_URL");
+    const apiVersion = environment.STRIPE_API_VERSION?.trim() ?? "";
+    if (apiVersion && !/^\d{4}-\d{2}-\d{2}\.[a-z]+$/.test(apiVersion)) missing.push("STRIPE_API_VERSION");
+    const encryptionKey = environment.STRIPE_TOKEN_ENCRYPTION_KEY?.trim() ?? "";
+    if (encryptionKey && encryptionKey.length < 32) missing.push("STRIPE_TOKEN_ENCRYPTION_KEY");
+    const webhookSecret = environment.STRIPE_WEBHOOK_SECRET?.trim() ?? "";
+    if (webhookSecret && webhookSecret.length < 20) missing.push("STRIPE_WEBHOOK_SECRET");
   }
   return {
     ok: missing.length === 0,

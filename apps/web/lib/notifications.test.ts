@@ -25,7 +25,7 @@ const notification: NotificationPayload = {
 describe("notification delivery", () => {
   beforeEach(() => {
     process.env.NOTIFICATION_WEBHOOK_URL = "https://hooks.example.test/greenlit";
-    process.env.NOTIFICATION_WEBHOOK_SECRET = "notification-secret";
+    process.env.NOTIFICATION_WEBHOOK_SECRET = "N8v!k2P#t7Q@w4X$z9M&c6R*e3L_h5Y+";
     databaseMock.rpc.mockReset();
     databaseMock.from.mockReset();
     databaseMock.rpc.mockImplementation((name: string) => {
@@ -56,7 +56,7 @@ describe("notification delivery", () => {
     const init = request.mock.calls[0]?.[1] as RequestInit;
     expect(init.redirect).toBe("error");
     expect(init.headers).toMatchObject({
-      authorization: "Bearer notification-secret",
+      authorization: "Bearer N8v!k2P#t7Q@w4X$z9M&c6R*e3L_h5Y+",
       "idempotency-key": `greenlit-notification-${notification.id}`,
       "x-greenlit-notification-id": notification.id,
     });

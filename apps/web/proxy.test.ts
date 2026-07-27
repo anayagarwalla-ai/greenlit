@@ -53,4 +53,16 @@ describe("request proxy security", () => {
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toMatchObject({ code: "REQUEST_TOO_LARGE" });
   });
+
+  it("assigns an opaque request id to accepted and rejected requests", () => {
+    const accepted = proxy(new NextRequest("https://proof.example.test/"));
+    const rejected = proxy(mutatingRequest("https://proof.example.test/api/feedback", {
+      host: "proof.example.test",
+      origin: "https://attacker.example.test",
+      "sec-fetch-site": "cross-site",
+    }));
+    expect(accepted.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(rejected.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(rejected.headers.get("x-request-id")).not.toBe(accepted.headers.get("x-request-id"));
+  });
 });

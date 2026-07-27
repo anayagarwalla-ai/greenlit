@@ -187,7 +187,7 @@ export async function POST(request: Request) {
   }
   const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
-  const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100);
+  const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100, 500);
   const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "greenlit-global-analysis-capacity", { failClosed: true });
   if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 

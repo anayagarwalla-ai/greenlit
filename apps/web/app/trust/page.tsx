@@ -24,12 +24,12 @@ export default function TrustPage() {
         <span className="resource-kicker"><ShieldCheck size={15} /> Trust center</span>
         <h1>Proof needs<br /><em>boundaries.</em></h1>
         <p>Greenlit is designed to keep an agreed milestone, authorized staging observation, named reviewer decision, and retained record connected without pretending the beta proves more than it does.</p>
-        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Closed beta</span><span>Updated July 24, 2026</span></div>
+        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Closed beta</span><span>Updated July 26, 2026</span></div>
       </section>
 
       <section className="trust-grid" aria-label="Security overview">
         <article><LockKeyhole /><h2>Access</h2><p>Invitation-only agency accounts, owner-scoped records, recipient-bound client reviews, expiring sessions, revocable links, and a separately shared access code.</p></article>
-        <article><Server /><h2>Infrastructure</h2><p>Vercel serves the web application, Cloudflare runs queued browser verification, Supabase stores private retained data, Google provides eligible analysis, and Stripe handles configured invoicing.</p></article>
+        <article><Server /><h2>Infrastructure</h2><p>Vercel serves the web application, Supabase stores private retained data, Google provides eligible analysis, and configured Cloudflare and Stripe services handle queued browser verification and invoicing when those integrations are deployed and healthy.</p></article>
         <article><UserCheck /><h2>Human control</h2><p>AI drafts are tied to source quotes. The agency confirms criteria and mappings. The client, not the model, makes the milestone decision.</p></article>
         <article><TimerReset /><h2>Retention</h2><p>Current defaults retain screenshot evidence for 90 days and approval and audit records for four years, with privacy requests and legal-hold-aware deletion.</p></article>
       </section>
@@ -76,7 +76,7 @@ export default function TrustPage() {
                 <thead><tr><th>Provider</th><th>Purpose</th><th>Data boundary</th></tr></thead>
                 <tbody>
                   <tr><td>Vercel</td><td>Web and API hosting</td><td>Application requests and operational delivery data</td></tr>
-                  <tr><td>Cloudflare</td><td>Queued browser verification</td><td>Authorized staging targets, typed checks, and result callbacks</td></tr>
+                  <tr><td>Cloudflare</td><td>Configured queued browser verification</td><td>Authorized staging targets, typed checks, and result callbacks when the runner is deployed and healthy</td></tr>
                   <tr><td>Supabase</td><td>Authentication, database, and private evidence storage</td><td>Agency, review, record, evidence, and operations data</td></tr>
                   <tr><td>Google</td><td>Gemini analysis when eligible</td><td>The submitted source text and generated response under the displayed service mode</td></tr>
                   <tr><td>Stripe</td><td>Configured invoice creation and status</td><td>Agency authorization, customer and invoice metadata; no card or bank details are stored by Greenlit</td></tr>

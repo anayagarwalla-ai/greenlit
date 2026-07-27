@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { postgresClientEnvironment, required, resolveInside } from "./ops-lib.mjs";
+import { assertSafeArchiveEntries, assertSafeArchiveTypes, postgresClientEnvironment, required, resolveInside, validateBackupManifest } from "./ops-lib.mjs";
 
 function run(command, args, capture = false, environment = process.env) {
   return new Promise((resolvePromise, reject) => {
@@ -25,14 +25,19 @@ if (!/(restore|test|scratch)/i.test(databaseName)) throw new Error("RESTORE_DATA
 try {
   const archive = join(temporary, basename(encryptedBackup).replace(/\.gpg$/, ""));
   await run("gpg", ["--batch", "--yes", "--output", archive, "--decrypt", encryptedBackup]);
-  await run("tar", ["-C", temporary, "-xzf", archive]);
+  const archiveListing = await run("tar", ["-tzf", archive], true);
+  const expectedBundleName = assertSafeArchiveEntries(archiveListing.split("\n").filter(Boolean));
+  assertSafeArchiveTypes(await run("tar", ["-tvzf", archive], true));
+  await run("tar", ["-C", temporary, "--no-same-owner", "--no-same-permissions", "-xzf", archive]);
   const extractedDirectories = (await readdir(temporary, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
   if (extractedDirectories.length !== 1) throw new Error("Backup archive must contain exactly one bundle directory.");
   const [bundleName] = extractedDirectories;
+  if (bundleName !== expectedBundleName) throw new Error("Backup archive layout changed during extraction.");
   const bundle = join(temporary, bundleName);
-  const manifest = JSON.parse(await readFile(join(bundle, "manifest.json"), "utf8"));
+  const manifest = validateBackupManifest(JSON.parse(await readFile(join(bundle, "manifest.json"), "utf8"));
+  if (manifest.supabaseHost !== required("EXPECTED_SUPABASE_HOST")) throw new Error("Backup manifest host does not match EXPECTED_SUPABASE_HOST.");
   const database = await readFile(join(bundle, manifest.database.file));
   if (createHash("sha256").update(database).digest("hex") !== manifest.database.sha256) throw new Error("Database dump hash mismatch.");
   for (const artifact of manifest.evidence) {

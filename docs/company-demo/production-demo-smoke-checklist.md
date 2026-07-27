@@ -15,7 +15,7 @@ pnpm test:e2e
 pnpm demo:preflight
 ```
 
-Run the database migration jobs on PostgreSQL 17, including both SQL regression suites.
+Run the database migration job on PostgreSQL 17, including all four numbered SQL regression suites.
 
 ## Public surfaces
 
@@ -60,7 +60,7 @@ Verify one database record, queued run, private artifact, review packet, decisio
 
 ## Operator and recovery
 
-- `/api/health?deep=1` is healthy and reports schema `202607260007`.
+- `/api/health?deep=1` is healthy and reports schema `202607260008`.
 - Runner deep health is healthy and matches the deployed runner version.
 - RUNS, REVIEWS, and INVOICES can each be paused and resumed with a recorded reason.
 - Backup completes and restore verification succeeds.

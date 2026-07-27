@@ -90,6 +90,7 @@ function securityHeaders(response, url) {
     "referrer-policy": null,
     "permissions-policy": null,
     "content-security-policy": null,
+    "x-request-id": null,
   };
   for (const [name, expected] of Object.entries(required)) {
     const actual = response.headers.get(name);
@@ -191,6 +192,7 @@ const boundaryChecks = [
   { path: "/api/admin/overview", statuses: [403] },
   { path: "/review/not-a-real-packet", statuses: [200, 404] },
   { path: "/receipt/not-a-real-packet", statuses: [200, 404] },
+  { path: "/page-that-does-not-exist", statuses: [404], contains: "This path is not part of the proof." },
 ];
 
 for (const boundary of boundaryChecks) {
@@ -206,6 +208,9 @@ for (const boundary of boundaryChecks) {
       failures.push(`${boundary.path}: expected redirect to ${boundary.location}`);
     }
   }
+  if (boundary.contains && !await response.text().then((body) => body.includes(boundary.contains))) {
+    failures.push(`${boundary.path}: missing expected recovery copy`);
+  }
 }
 
 const auxiliaryChecks = [
@@ -216,6 +221,7 @@ const auxiliaryChecks = [
   { path: "/icon.png", contentType: "image/png" },
   { path: "/apple-icon.png", contentType: "image/png" },
   { path: "/api/demo", contentType: "application/json", contains: "\"mode\":\"seeded-demo\"" },
+  { path: "/api/health", contentType: "application/json", contains: "\"healthType\":\"liveness\"" },
 ];
 
 for (const auxiliary of auxiliaryChecks) {

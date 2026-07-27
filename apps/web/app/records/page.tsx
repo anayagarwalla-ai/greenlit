@@ -13,7 +13,7 @@ export default function RecordsPage() {
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
       <article>
-        <div className="legal-kicker">Record integrity · version 2026-07-20</div>
+        <div className="legal-kicker">Record integrity · version 2026-07-26</div>
         <h1>How transaction records work</h1>
         <p className="legal-lede">Greenlit keeps the minimum record needed to reproduce who confirmed the scope, what build was checked, what the browser observed, and what decision the reviewer made.</p>
 

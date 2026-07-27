@@ -12,9 +12,9 @@ const readyEnvironment = {
   NEXT_PUBLIC_SECURITY_EMAIL: "security@example.com",
   BETA_ALLOWED_EMAILS: "tester@example.com",
   ADMIN_EMAILS: "operator@example.com",
-  RUNNER_HMAC_SECRET: "runner-secret",
-  RECORD_HASH_SECRET: "record-secret",
-  CRON_SECRET: "cron-secret",
+  RUNNER_HMAC_SECRET: "rUnner-9PDg3jMe7cVQ4hK2xT8zN6wB5sLa",
+  RECORD_HASH_SECRET: "rec0rd-Vt7qL4mK9xN2cP8sW6jD5hF3bZa",
+  CRON_SECRET: "cr0n-A8mR5xQ2pV9kL7sD4wN6jH3cBtY",
   CUSTOM_SMTP_CONFIRMED: "true",
   LINK_SCANNER_TEST_CONFIRMED: "true",
   BACKUP_SCHEDULE_CONFIRMED: "true",
@@ -56,7 +56,7 @@ test("a monitored security contact is mandatory and notification-provider disclo
     productionReadinessMissing({
       ...readyEnvironment,
       NOTIFICATION_WEBHOOK_URL: "https://hooks.example.com/greenlit",
-      NOTIFICATION_WEBHOOK_SECRET: "notification-secret",
+      NOTIFICATION_WEBHOOK_SECRET: "n0tify-Q7mV4xP9kL2sD8wN5jH3cBt6aRz",
       NEXT_PUBLIC_NOTIFICATION_PROVIDER: "Example Notifications",
     }),
     [],
@@ -68,7 +68,7 @@ test("production notification delivery rejects unsafe webhook targets", () => {
     productionReadinessMissing({
       ...readyEnvironment,
       NOTIFICATION_WEBHOOK_URL: "http://127.0.0.1:8787/greenlit",
-      NOTIFICATION_WEBHOOK_SECRET: "notification-secret",
+      NOTIFICATION_WEBHOOK_SECRET: "n0tify-Q7mV4xP9kL2sD8wN5jH3cBt6aRz",
       NEXT_PUBLIC_NOTIFICATION_PROVIDER: "Example Notifications",
     }),
     ["NOTIFICATION_WEBHOOK_URL"],
@@ -77,9 +77,43 @@ test("production notification delivery rejects unsafe webhook targets", () => {
     productionReadinessMissing({
       ...readyEnvironment,
       NOTIFICATION_WEBHOOK_URL: "https://user:password@hooks.example.com/greenlit",
-      NOTIFICATION_WEBHOOK_SECRET: "notification-secret",
+      NOTIFICATION_WEBHOOK_SECRET: "n0tify-Q7mV4xP9kL2sD8wN5jH3cBt6aRz",
       NEXT_PUBLIC_NOTIFICATION_PROVIDER: "Example Notifications",
     }),
     ["NOTIFICATION_WEBHOOK_URL"],
+  );
+});
+
+test("production preflight rejects weak secrets and invalid capacity settings", () => {
+  assert.deepEqual(
+    productionReadinessMissing({
+      ...readyEnvironment,
+      RUNNER_HMAC_SECRET: "a",
+      BETA_DAILY_RUN_LIMIT: "21",
+      BETA_DAILY_ANALYSIS_LIMIT: "501",
+      BETA_EVIDENCE_STORAGE_LIMIT_BYTES: "900000001",
+    }),
+    [
+      "RUNNER_HMAC_SECRET",
+      "BETA_DAILY_RUN_LIMIT",
+      "BETA_DAILY_ANALYSIS_LIMIT",
+      "BETA_EVIDENCE_STORAGE_LIMIT_BYTES",
+    ],
+  );
+});
+
+test("production preflight requires a complete pinned Stripe configuration when enabled", () => {
+  assert.deepEqual(
+    productionReadinessMissing({
+      ...readyEnvironment,
+      STRIPE_SECRET_KEY: "sk_test_example",
+    }),
+    [
+      "STRIPE_APP_CLIENT_ID",
+      "STRIPE_APP_INSTALL_URL",
+      "STRIPE_TOKEN_ENCRYPTION_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_API_VERSION",
+    ],
   );
 });

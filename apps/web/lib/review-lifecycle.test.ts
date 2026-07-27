@@ -19,10 +19,13 @@ describe("canCreateReviewLink", () => {
   it("allows expired or revoked undecided links to be replaced", () => {
     expect(canCreateReviewLink("READY_FOR_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-20T12:00:00.000Z" }, now)).toBe(true);
     expect(canCreateReviewLink("READY_FOR_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-22T12:00:00.000Z", revoked_at: "2026-07-21T10:00:00.000Z" }, now)).toBe(true);
+    expect(canCreateReviewLink("IN_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-20T12:00:00.000Z" }, now)).toBe(true);
+    expect(canCreateReviewLink("IN_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-22T12:00:00.000Z", revoked_at: "2026-07-21T10:00:00.000Z" }, now)).toBe(true);
   });
 
   it("blocks duplicate active and approved reviews", () => {
     expect(canCreateReviewLink("READY_FOR_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-22T12:00:00.000Z" }, now)).toBe(false);
+    expect(canCreateReviewLink("IN_REVIEW", "COMPLETED", { decision: null, expires_at: "2026-07-22T12:00:00.000Z" }, now)).toBe(false);
     expect(canCreateReviewLink("APPROVED", "COMPLETED", { decision: "APPROVED", expires_at: "2026-07-22T12:00:00.000Z" }, now)).toBe(false);
   });
 });

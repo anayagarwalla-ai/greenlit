@@ -1683,6 +1683,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
 }
 
 function SharedReview({ copied, manualCopy, onCopy, reviewUrl, accessCode, reviewerEmail, expiresAt, packetId, clientName, criteriaCount, resultCount, demo }: { copied: boolean; manualCopy: boolean; onCopy: () => void; reviewUrl: string; accessCode: string; reviewerEmail: string; expiresAt: string; packetId: string; clientName: string; criteriaCount: number; resultCount: number; demo: boolean }) {
+  const manualPromiseCount = criteriaCount - resultCount;
   return (
     <div className="report-grid">
       <section className="panel approval-success">
@@ -1699,7 +1700,7 @@ function SharedReview({ copied, manualCopy, onCopy, reviewUrl, accessCode, revie
         <div className="receipt-id">{demo ? "DEMO-NOT-RETAINED · NO SECURE TOKEN" : `PACKET ${packetId} · SECURE TOKEN KEPT IN URL FRAGMENT`}</div>
       </section>
       <aside className="run-side">
-        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{resultCount} automated results</strong>Observed outcome and timestamp for each; {criteriaCount - resultCount} manual {criteriaCount - resultCount === 1 ? "promise is" : "promises are"} clearly labeled for client judgment.</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
+        <div className="panel audit-card"><h3>What the client sees</h3><div className="audit-item"><strong>{criteriaCount} acceptance promises</strong>Source-backed language, not test jargon.</div><div className="audit-item"><strong>{resultCount} automated results</strong>{manualPromiseCount === 0 ? "Every confirmed promise has an observed outcome and timestamp." : <>Observed outcome and timestamp for each; {manualPromiseCount} manual {manualPromiseCount === 1 ? "promise is" : "promises are"} clearly labeled for client judgment.</>}</div><div className="audit-item"><strong>One clear decision</strong>Approve the milestone or request changes.</div></div>
         <div className="panel evidence-body"><Bot size={19} /><strong>Trust boundary</strong><p>{demo ? "This walkthrough uses seeded outcomes and a local-only decision. The real path requires browser evidence before a retained client decision." : "The AI drafted the criteria. A human confirmed the checks. The browser produced the evidence. The client owns the decision."}</p></div>
       </aside>
     </div>

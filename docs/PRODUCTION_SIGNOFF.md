@@ -20,7 +20,7 @@ Complete this with the adult operator before inviting an agency. Never paste sec
 
 - [ ] `RECORD_HASH_SECRET` is separate from `RUNNER_HMAC_SECRET`; web and runner HMAC values match.
 - [ ] Gemini billing is active for the same API project/key, the provider console marks it Paid with usable balance, and both `NEXT_PUBLIC_GEMINI_SERVICE_TIER=paid` and server-only `GEMINI_PAID_TIER_CONFIRMED=true` are set; until all of those are true the product must continue blocking confidential SOW use.
-- [ ] `/api/health?deep=1` is green, `readyForBeta` is true, and it reports the exact deployed web SHA, runner `0.9.0`, and database `202607260007` versions.
+- [ ] `/api/health?deep=1` is green, `readyForBeta` is true, and it reports the exact deployed web SHA, runner `0.9.0`, and database `202607260008` versions.
 - [ ] The operator console shows Runs, Reviews, and Invoices available; each pause/resume control has been exercised safely.
 - [ ] Evidence-storage admission has been tested below and at the configured beta safety limit.
 - [ ] GitHub release-gate CI passes typecheck, lint, unit tests, build, and migration/state-machine tests.

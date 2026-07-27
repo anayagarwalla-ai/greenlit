@@ -135,6 +135,8 @@ begin
     'atomic evidence schema version was not recorded';
   assert exists(select 1 from app_schema_versions where version='202607260007'),
     'retryable Stripe webhook schema version was not recorded';
+  assert exists(select 1 from app_schema_versions where version='202607260008'),
+    'receipt hash audit-context schema version was not recorded';
   raise notice '=== DURABLE STRIPE WEBHOOK REGRESSIONS PASSED ===';
 end;
 $$;

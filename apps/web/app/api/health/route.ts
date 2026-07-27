@@ -7,6 +7,7 @@ import { legalLaunchReadiness, operationalLaunchReadiness } from "@/lib/launch-r
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
 import { EXPECTED_RUNNER_VERSION } from "@/lib/runner-version";
 import { getOperationalControl } from "@/lib/operational-controls";
+import { positiveIntegerSetting } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -17,8 +18,8 @@ export async function GET(request: Request) {
   const deep = url.searchParams.get("deep") === "1";
   if (!deep) {
     return NextResponse.json(
-      { ok: true, service: "greenlit-web" },
-      { headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300", "X-Robots-Tag": "noindex, nofollow, noarchive" } },
+      { ok: true, healthType: "liveness", service: "greenlit-web", version: WEB_VERSION },
+      { headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300", "X-Greenlit-Health-Type": "liveness", "X-Robots-Tag": "noindex, nofollow, noarchive" } },
     );
   }
   const cronSecret = process.env.CRON_SECRET;
@@ -128,8 +129,12 @@ export async function GET(request: Request) {
           : "successful heartbeat missing",
     };
     const evidenceBytes = Number(evidence.data ?? 0);
-    checks.evidenceStorage = { ok: !evidence.error && evidenceBytes < 850_000_000, detail: evidence.error ? "query failed" : evidenceBytes < 850_000_000 ? "within beta guardrail" : "approaching free storage limit" };
-    const dailyLimit = Math.max(1, Math.min(20, Number(process.env.BETA_DAILY_RUN_LIMIT || 8)));
+    const evidenceLimit = positiveIntegerSetting(process.env.BETA_EVIDENCE_STORAGE_LIMIT_BYTES, 850_000_000, 900_000_000);
+    checks.evidenceStorage = {
+      ok: !evidence.error && evidenceBytes < evidenceLimit,
+      detail: evidence.error ? "query failed" : evidenceBytes < evidenceLimit ? `${evidenceBytes}/${evidenceLimit} bytes used` : "beta evidence limit reached",
+    };
+    const dailyLimit = positiveIntegerSetting(process.env.BETA_DAILY_RUN_LIMIT, 8, 20);
     checks.dailyCapacity = { ok: !dailyRuns.error && (dailyRuns.count ?? 0) < dailyLimit, detail: dailyRuns.error ? "query failed" : `${dailyRuns.count ?? 0}/${dailyLimit} runs used today` };
   }
 

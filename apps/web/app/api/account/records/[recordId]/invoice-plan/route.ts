@@ -7,6 +7,7 @@ import { getOptionalUser } from "@/lib/supabase-server";
 import { getStripeAccessForOwner, retrieveStripeCustomer } from "@/lib/stripe-api";
 import { readLimitedJsonResult } from "@/lib/request-security";
 import { consumeRateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { logProductEvent } from "@/lib/operations";
 
 async function contextFor(recordId: string) {
   const user = await getOptionalUser();
@@ -58,6 +59,12 @@ export async function POST(request: Request, context: { params: Promise<{ record
     p_criteria_revision: plan.criteriaRevision, p_plan_sha256: plan.planSha256, p_actor_hash: requestActorHash(request),
   });
   if (error) return NextResponse.json({ error: "Invoice details could not be saved." }, { status: 503, headers: noStoreJsonHeaders() });
+  await logProductEvent({
+    eventType: "INVOICE_PLAN_SAVED",
+    ownerUserId: found.user.id,
+    recordId,
+    properties: { autoSend: plan.autoSend, invoiceMode: plan.autoSend ? "automatic" : "manual" },
+  });
   return NextResponse.json({ plan }, { headers: noStoreJsonHeaders() });
 }
 

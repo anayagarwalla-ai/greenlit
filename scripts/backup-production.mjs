@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { downloadStorageObject, listStorageObjects, postgresClientEnvironment, required, resolveInside, safeTimestamp, supabaseConfig } from "./ops-lib.mjs";
+import { compareEvidenceInventory, downloadStorageObject, listStorageObjects, postgresClientEnvironment, required, resolveInside, restRows, safeTimestamp, supabaseConfig } from "./ops-lib.mjs";
 
 function run(command, args, environment) {
   return new Promise((resolvePromise, reject) => {
@@ -34,13 +34,19 @@ try {
     const result = await downloadStorageObject("evidence", object.name, resolveInside(join(bundle, "evidence"), object.name), supabase);
     evidence.push({ path: object.name, ...result });
   }
+  const evidenceRows = await restRows("evidence_artifacts_v2", "id,storage_path,byte_size,sha256", supabase);
+  const reconciliation = compareEvidenceInventory(evidence, evidenceRows.rows);
+  if (reconciliation.missingStoragePaths.length > 0 || reconciliation.metadataMismatches.length > 0) {
+    throw new Error(`Evidence backup reconciliation failed: ${reconciliation.missingStoragePaths.length} missing object(s), ${reconciliation.metadataMismatches.length} metadata mismatch(es).`);
+  }
   const databaseBytes = await readFile(databaseFile);
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: new Date().toISOString(),
     supabaseHost: new URL(supabase.url).host,
     database: { file: "database.dump", bytes: databaseBytes.length, sha256: createHash("sha256").update(databaseBytes).digest("hex") },
     evidence,
+    evidenceReconciliation: reconciliation,
   };
   await writeFile(join(bundle, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 
@@ -48,7 +54,7 @@ try {
   await run("tar", ["-C", temporary, "-czf", archive, basename(bundle)]);
   await mkdir(outputDir, { recursive: true, mode: 0o700 });
   await run("gpg", ["--batch", "--yes", "--trust-model", "always", "--recipient", recipient, "--output", encryptedOutput, "--encrypt", archive]);
-  console.log(JSON.stringify({ ok: true, encryptedBackup: encryptedOutput, evidenceObjects: evidence.length, createdAt: manifest.createdAt }, null, 2));
+  console.log(JSON.stringify({ ok: true, encryptedBackup: encryptedOutput, evidenceObjects: evidence.length, evidenceReconciliation: reconciliation, createdAt: manifest.createdAt }, null, 2));
 } finally {
   if (temporary.startsWith(`${tmpdir()}/greenlit-backup-`)) await rm(temporary, { recursive: true, force: true });
 }

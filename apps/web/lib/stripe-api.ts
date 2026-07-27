@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { requireSupabaseAdmin } from "./database";
 import { decryptStripeSecret, encryptStripeSecret } from "./stripe-crypto";
+import { validPublicWebhookUrl } from "./launch-readiness";
 
 const STRIPE_API = "https://api.stripe.com/v1";
 const STRIPE_REQUEST_TIMEOUT_MS = 6_000;
@@ -35,13 +36,29 @@ function secretKey(): string {
   return value;
 }
 
+function stripeApiVersion() {
+  const value = process.env.STRIPE_API_VERSION?.trim() ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}\.[a-z]+$/.test(value)) throw new Error("Stripe API version is not configured.");
+  return value;
+}
+
 export function stripeConfigured(): boolean {
-  return Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_APP_CLIENT_ID && process.env.STRIPE_APP_INSTALL_URL && process.env.STRIPE_TOKEN_ENCRYPTION_KEY && process.env.STRIPE_WEBHOOK_SECRET);
+  const installUrl = process.env.STRIPE_APP_INSTALL_URL?.trim() ?? "";
+  const version = process.env.STRIPE_API_VERSION?.trim() ?? "";
+  return Boolean(
+    process.env.STRIPE_SECRET_KEY
+      && process.env.STRIPE_APP_CLIENT_ID
+      && installUrl
+      && validPublicWebhookUrl(installUrl)
+      && process.env.STRIPE_TOKEN_ENCRYPTION_KEY
+      && process.env.STRIPE_WEBHOOK_SECRET
+      && /^\d{4}-\d{2}-\d{2}\.[a-z]+$/.test(version),
+  );
 }
 
 export function stripeInstallUrl(origin: string, state: string): string {
   const configured = process.env.STRIPE_APP_INSTALL_URL;
-  if (!configured) throw new Error("The Stripe install link is not configured.");
+  if (!configured || !validPublicWebhookUrl(configured)) throw new Error("The Stripe install link is not configured safely.");
   const url = new URL(configured);
   url.searchParams.set("state", state);
   url.searchParams.set("redirect_uri", `${origin}/api/stripe/callback`);
@@ -135,9 +152,9 @@ async function stripeRequest<T>(accessToken: string, path: string, init?: { meth
     method: init?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      "Stripe-Version": stripeApiVersion(),
       ...(init?.method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
       ...(init?.idempotencyKey ? { "Idempotency-Key": init.idempotencyKey } : {}),
-      ...(process.env.STRIPE_API_VERSION ? { "Stripe-Version": process.env.STRIPE_API_VERSION } : {}),
     },
     ...(init?.method === "POST" ? { body: form } : {}),
     cache: "no-store",
