@@ -15,12 +15,17 @@
   --amber: #8b5e11;
   --amber-soft: #fff5d7;
   --shadow: 0 18px 50px rgba(18, 36, 28, 0.12);
+  --motion-fast: 150ms;
+  --motion-base: 210ms;
+  --motion-slow: 280ms;
+  --ease-standard: cubic-bezier(.2, .8, .2, 1);
+  --ease-exit: cubic-bezier(.4, 0, 1, 1);
   --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --display: Georgia, "Times New Roman", serif;
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 button, input, textarea, select { font: inherit; }
@@ -297,6 +302,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
    dialogs) get extra clearance so the floating trigger never sits on top of
    that action, especially at short/narrow viewports. */
 .feedback-widget--login,.feedback-widget--offset { bottom: 84px; }
+.feedback-widget--demo-request { right: auto; bottom: 18px; left: 18px; }
+.feedback-widget--demo-request .feedback-trigger { gap: 0; padding: 0 13px; }
+.feedback-widget--demo-request .feedback-trigger span {
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width var(--motion-base) var(--ease-standard),margin-left var(--motion-fast) ease,opacity var(--motion-fast) ease;
+}
+.feedback-widget--demo-request .feedback-trigger:hover span,.feedback-widget--demo-request .feedback-trigger:focus-visible span {
+  max-width: 90px;
+  margin-left: 7px;
+  opacity: 1;
+}
 @media (max-width: 680px) { .feedback-widget { right: 10px; bottom: 10px; }.feedback-widget--landing { bottom:56px; }.feedback-widget--login,.feedback-widget--offset { bottom: 76px; }.feedback-card { max-height: calc(100vh - 75px); overflow: auto; } }
 .operator-summary { margin: 28px 0 17px; display: grid; grid-template-columns: repeat(4,1fr); border: 1px solid var(--line); background: var(--white); }.operator-summary div { padding: 17px; }.operator-summary div+div { border-left: 1px solid var(--line); }.operator-summary span,.operator-summary strong { display: block; }.operator-summary span { color: var(--muted); font-size: 8px; font-weight: 850; text-transform: uppercase; }.operator-summary strong { margin-top: 7px; font: 500 28px/1 var(--display); }.operator-section { margin-top: 17px; overflow: hidden; }.operator-section > h2 { margin: 0; padding: 16px 18px; font: 500 22px/1 var(--display); }.operator-section > p { margin: 0; padding: 16px 18px; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; border-top: 1px solid var(--line); }.operator-section article { padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; border-top: 1px solid var(--line); }.operator-section article > div { flex: 1; }.operator-section article strong,.operator-section article small { display: block; }.operator-section article strong { margin-top: 5px; font-size: 10px; }.operator-section article p { margin: 6px 0; color: var(--muted); font-size: 10px; line-height: 1.5; }.operator-section article small { color: #818881; font-size: 8px; }.operator-section select { min-height: 36px; padding: 6px 8px; border: 1px solid var(--line); background: white; font-size: 9px; }
 .operator-subheading { margin: 28px 0 -19px; color: var(--muted); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
@@ -597,7 +617,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 /* Narrow-screen controls use document flow instead of covering core actions. */
 @media (max-width: 680px) {
-  .feedback-widget,.feedback-widget--landing,.feedback-widget--login,.feedback-widget--offset,.app-shell .feedback-widget {
+  .feedback-widget,.feedback-widget--landing,.feedback-widget--login,.feedback-widget--offset,.feedback-widget--demo-request,.app-shell .feedback-widget {
     position: static;
     width: 100%;
     padding: 12px 14px 18px;
@@ -605,6 +625,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
     justify-items: stretch;
   }
   .feedback-trigger { width: 100%; min-height: 44px; justify-content: center; }
+  .feedback-widget--demo-request .feedback-trigger { gap: 7px; }
+  .feedback-widget--demo-request .feedback-trigger span { max-width: none; margin-left: 0; overflow: visible; opacity: 1; }
   .feedback-backdrop { position: fixed; }
   .operator-work-item { display: grid!important; grid-template-columns: 1fr; }
   .operator-controls { min-width: 0; }
@@ -835,4 +857,188 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .demo-request-fields__wide { grid-column: auto; }
   .demo-request-success > div { width: 100%; align-items: stretch; flex-direction: column; }
   .demo-request-success .button { width: 100%; }
+}
+
+/* Interaction polish: one restrained motion language across public, app, and
+   client-review surfaces. Motion reinforces state changes and never delays
+   the underlying action. */
+body:has([aria-modal="true"]) { overflow: hidden; }
+#main-content > main { animation: page-enter var(--motion-base) var(--ease-standard) backwards; }
+
+.button {
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+}
+.button:not(:disabled):active { transform: translate(1px,1px); }
+.button--ink:not(:disabled):active { box-shadow: 1px 1px 0 var(--lime); }
+.button--lime:not(:disabled):active { box-shadow: 2px 2px 0 var(--ink); }
+.button--outline:not(:disabled):hover { border-color: #8b958e; background: #fafbf7; }
+.dialog-close,.mini-action,.text-action,.intake-demo-link,.resource-copy__head button {
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+}
+.dialog-close { z-index: 2; }
+.dialog-close:hover { background: var(--paper-2); color: var(--ink); }
+.dialog-close:active,.mini-action:active,.text-action:active,.intake-demo-link:active,.resource-copy__head button:active { transform: scale(.96); }
+.mini-action:hover,.text-action:hover,.intake-demo-link:hover { color: var(--green); }
+
+.site-header nav > a:not(.button),.resource-header nav > a:not(.button),.legal-footer a,.guide-toc a {
+  transition: color var(--motion-fast) ease, opacity var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+.site-header nav > a:not(.button) { position: relative; opacity: 1; }
+.site-header nav > a:not(.button):hover { opacity: 1; color: var(--green); }
+.site-header nav > a:not(.button):after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -7px;
+  left: 0;
+  height: 2px;
+  background: var(--green);
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.site-header nav > a:not(.button):hover:after,.site-header nav > a:not(.button):focus-visible:after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+input,textarea,select,.upload-drop,.attestation,.decision-consent,.criterion-card,.record-card,.resource-card {
+  transition:
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-standard);
+}
+input:hover:not(:disabled),textarea:hover:not(:disabled),select:hover:not(:disabled) { border-color: #89958d; }
+input:focus-visible,textarea:focus-visible,select:focus-visible { border-color: var(--green); }
+.upload-drop:active { transform: scale(.995); }
+.criterion-card:focus-within,.record-card:focus-within { border-color: #9aa39d; box-shadow: 0 8px 24px rgba(18,36,28,.08); }
+
+.dialog-backdrop {
+  animation: modal-backdrop-in var(--motion-base) ease-out backwards;
+}
+.dialog {
+  transform-origin: center;
+  animation: modal-surface-in var(--motion-base) var(--ease-standard) backwards;
+}
+.dialog h2 { padding-right: 42px; }
+
+.feedback-trigger {
+  min-width: 44px;
+  min-height: 44px;
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
+}
+.feedback-trigger:hover { transform: translateY(-2px); box-shadow: 5px 5px 0 var(--lime-dark); }
+.feedback-trigger:active { transform: translate(1px,1px); box-shadow: 1px 1px 0 var(--lime-dark); }
+.feedback-widget.is-mounted .feedback-trigger { pointer-events: none; opacity: 0; transform: translateY(5px) scale(.96); }
+.feedback-backdrop {
+  opacity: 0;
+  transition: opacity var(--motion-base) ease-out;
+}
+.feedback-backdrop.is-open { opacity: 1; }
+.feedback-backdrop.is-closing { opacity: 0; transition-duration: 180ms; transition-timing-function: var(--ease-exit); }
+.feedback-card {
+  opacity: 0;
+  transform: translate3d(0,18px,0) scale(.985);
+  transform-origin: right bottom;
+  transition:
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-base) var(--ease-standard);
+  will-change: transform,opacity;
+}
+.feedback-backdrop.is-open .feedback-card { opacity: 1; transform: translate3d(0,0,0) scale(1); }
+.feedback-backdrop.is-closing .feedback-card {
+  opacity: 0;
+  transform: translate3d(0,10px,0) scale(.99);
+  transition-duration: 150ms,180ms;
+  transition-timing-function: var(--ease-exit);
+}
+.feedback-card h2 { max-width: calc(100% - 52px); padding-right: 0; }
+.feedback-content,.feedback-success { animation: content-enter var(--motion-base) var(--ease-standard) backwards; }
+.feedback-content > p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.feedback-card form { gap: 8px; }
+.feedback-card form > label { margin-top: 2px; }
+.feedback-field-meta {
+  min-height: 16px;
+  margin-top: -4px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+.feedback-field-meta.is-error { color: var(--red); }
+.feedback-field-meta span:only-child { margin-right: auto; }
+.feedback-card input[aria-invalid="true"] { border-color: var(--red); }
+.feedback-card textarea::placeholder { color: #79837c; opacity: 1; }
+.feedback-card .button[type="submit"] { margin-top: 3px; }
+
+.demo-request-progress span {
+  transition: color var(--motion-base) ease, border-color var(--motion-base) ease, background-color var(--motion-base) ease;
+}
+.demo-request-fields fieldset:not([hidden]),.demo-request-consent,.demo-request-actions,.demo-request-success {
+  animation: content-enter var(--motion-base) var(--ease-standard) backwards;
+}
+
+@keyframes page-enter {
+  from { opacity: .01; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes content-enter {
+  from { opacity: .01; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-surface-in {
+  from { opacity: .01; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 412px) {
+  .site-header {
+    min-height: 72px;
+    padding: 0;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .site-header > .brand { width: auto; }
+  .brand-logo { width: 126px; }
+  .site-header nav { width: auto; margin-left: auto; justify-content: flex-end; gap: 7px; }
+  .site-header nav > a:nth-child(2) { padding: 0 2px; }
+  .site-header .button { padding: 0 9px; }
+  .feedback-card { padding: 22px; }
+  .feedback-card h2 { font-size: 24px; }
+}
+
+@media (max-width: 340px) {
+  .site-header nav > a:nth-child(2) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #main-content > main,.dialog-backdrop,.dialog,.feedback-content,.feedback-success,
+  .demo-request-fields fieldset:not([hidden]),.demo-request-consent,.demo-request-actions,.demo-request-success {
+    animation: none !important;
+  }
+  .feedback-backdrop,.feedback-card { transition: none !important; }
+  .feedback-card { opacity: 1; transform: none; }
 }

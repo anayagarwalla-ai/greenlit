@@ -71,14 +71,14 @@ export function DemoRequestForm() {
   }
 
   return (
-    <form ref={formRef} className="demo-request-form" onSubmit={submit}>
+    <form ref={formRef} className="demo-request-form" aria-busy={submitting} onSubmit={submit}>
       <div className="demo-request-form__head">
         <span className="resource-kicker"><ShieldCheck size={14} /> Invitation-only design-partner beta</span>
         <h2>Tell us where approval gets stuck.</h2>
         <p>Use business information only. Do not paste a SOW, credentials, client data, access codes, or regulated information.</p>
         <div className="demo-request-progress" aria-label={`Step ${step} of 2`}>
-          <span className={step >= 1 ? "is-active" : ""}>1. About you</span>
-          <span className={step >= 2 ? "is-active" : ""}>2. Workflow fit</span>
+          <span className={step >= 1 ? "is-active" : ""} aria-current={step === 1 ? "step" : undefined}>1. About you</span>
+          <span className={step >= 2 ? "is-active" : ""} aria-current={step === 2 ? "step" : undefined}>2. Workflow fit</span>
         </div>
       </div>
       <div className="demo-request-fields">

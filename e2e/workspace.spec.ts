@@ -102,8 +102,13 @@ test("magic-link failures are explained on the login page", async ({ page }) => 
 
 test("feedback distinguishes failure and success and allows another report", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Beta feedback" }).click();
-  await expect(page.getByRole("dialog", { name: /Tell us what got in your way/ })).toBeVisible();
+  const feedbackTrigger = page.getByRole("button", { name: "Beta feedback" });
+  await feedbackTrigger.click();
+  const feedbackDialog = page.getByRole("dialog", { name: /Tell us what got in your way/ });
+  await expect(feedbackDialog).toBeVisible();
+  await expect(feedbackDialog.getByRole("heading", { name: "Tell us what got in your way." })).toBeFocused();
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await expect(page.locator("#feedback-message-help")).toContainText("10 characters minimum");
   await page.route("**/api/feedback", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Temporary feedback outage" }) }));
   await page.getByLabel("What happened?").fill("The expected action did not work.");
   await page.getByRole("button", { name: "Send feedback" }).click();
@@ -114,6 +119,11 @@ test("feedback distinguishes failure and success and allows another report", asy
   await expect(page.getByRole("heading", { name: "Feedback received." })).toBeVisible();
   await page.getByRole("button", { name: "Send another" }).click();
   await expect(page.getByLabel("What happened?")).toBeVisible();
+  await expect(page.getByLabel("Category")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(feedbackDialog).toBeHidden();
+  await expect(feedbackTrigger).toBeFocused();
+  await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
 });
 
 test("a retained imported fixture reruns rc2 directly instead of opening custom-origin setup", async ({ page }) => {
