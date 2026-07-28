@@ -48,7 +48,7 @@ jobs:
           pnpm test:site-smoke
       - run: pnpm release:manifest
       - name: Preserve same-commit release evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: greenlit-release-${{ github.sha }}
           path: artifacts/release/release-manifest.json
