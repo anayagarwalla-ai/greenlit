@@ -971,7 +971,7 @@ export function getResourceGuide(slug: string) {
   return resourceGuides.find((guide) => guide.slug === slug);
 }
 
-const internalResourceSlugs = new Set(["agency-playbook", "case-study-kit", "demo-video-script"]);
+const internalResourceSlugs = new Set(["agency-playbook", "beta-handbook", "case-study-kit", "demo-video-script"]);
 
 export const publicResourceGuides = resourceGuides.filter((guide) => !internalResourceSlugs.has(guide.slug));
 

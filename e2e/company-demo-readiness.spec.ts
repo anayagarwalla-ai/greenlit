@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("the public funnel is explicit about audience, synthetic data, and the next step", async ({ page }) => {
+test("the public funnel gives judges a direct walkthrough and a visible build timeline", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText(/For U\.S\. web agencies · design-partner beta/i)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Explore the synthetic walkthrough/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Request a conversation/i }).first()).toBeVisible();
+  await expect(page.getByText(/Blueprint Hackathon · public judge walkthrough/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Start the 3-minute judge walkthrough/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /The build history is part of the submission/i })).toBeVisible();
+  await expect(page.getByText("First repository commit")).toBeVisible();
   await expect(page.getByText(/one-click/i)).toHaveCount(0);
 
   await page.goto("/request-demo");
-  await expect(page.getByRole("heading", { name: /See whether one milestone/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Share where milestone approval gets stuck/i })).toBeVisible();
   await expect(page.getByText(/No confidential SOW required/i)).toBeVisible();
   await expect(page.getByText(/Do not paste a SOW, credentials, client data, access codes, or regulated information/i)).toBeVisible();
 });

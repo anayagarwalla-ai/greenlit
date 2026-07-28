@@ -5,8 +5,8 @@ import { ResourceHeader } from "@/components/resource-header";
 import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
-  title: "Request a Greenlit demo",
-  description: "Request a synthetic Greenlit walkthrough or discuss the invitation-only design-partner beta for U.S. web agencies.",
+  title: "Product research request",
+  description: "Optionally share an agency approval workflow for Greenlit product research. The public judge walkthrough remains available without this form.",
   path: "/request-demo",
 });
 
@@ -16,9 +16,9 @@ export default function RequestDemoPage() {
       <ResourceHeader />
       <section className="request-demo-hero">
         <div>
-          <span className="resource-kicker">For 2–50 person U.S. web agencies</span>
-          <h1>See whether one milestone can move with <em>less chasing.</em></h1>
-          <p>Greenlit is looking for a small number of design partners with a real approval bottleneck, a suitable public staging workflow, and one accountable client reviewer.</p>
+          <span className="resource-kicker">Optional product research</span>
+          <h1>Share where milestone approval gets <em>stuck.</em></h1>
+          <p>This form is not required to evaluate the hackathon submission. Use it only if you want to share an agency workflow for future product research.</p>
           <ul>
             <li><Clock3 size={17} /><span><strong>Twenty focused minutes</strong>Discovery first, then a six-to-eight-minute synthetic product walkthrough.</span></li>
             <li><Users size={17} /><span><strong>Built for agency delivery teams</strong>Owners, operations leads, project managers, and account leads are the best fit.</span></li>

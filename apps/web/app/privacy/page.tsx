@@ -19,9 +19,9 @@ export default function PrivacyPage() {
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
       <article>
-        <div className="legal-kicker">Effective July 26, 2026 · Closed agency beta</div>
+        <div className="legal-kicker">Effective July 28, 2026 · Hackathon prototype</div>
         <h1>Privacy notice</h1>
-        <p className="legal-lede">This notice explains what Greenlit collects, why it is needed, which providers process it, and how long each category is retained. The beta does not sell personal information or use behavioral advertising.</p>
+        <p className="legal-lede">This notice explains what Greenlit collects, why it is needed, which providers process it, and how long each category is retained. The public judge walkthrough uses synthetic data and creates no retained customer record.</p>
 
         <h2>Data you provide</h2>
         <ul>
@@ -30,8 +30,8 @@ export default function PrivacyPage() {
           <li><strong>Reviewer record:</strong> reviewer name, business email, optional note, approval or change request, consent statements, and decision time.</li>
           <li><strong>Agency account:</strong> business email, account identifier, owned milestone records, in-app notifications, and review-link controls.</li>
           <li><strong>Optional invoicing:</strong> billing name and email, due terms, invoice memo, Stripe account/customer/invoice identifiers, hosted-invoice links, amounts, status, and timestamps. Greenlit does not receive or store card or bank-account details.</li>
-          <li><strong>Demo or design-partner request:</strong> your name, business email, agency, role, agency size and location, milestone volume, typical approval delay, staging model, requested next step, current approval process, consent record, and request status. Greenlit uses this information only to evaluate fit, manage beta capacity, and respond to the request.</li>
-          <li><strong>Beta operations:</strong> feedback, page path, service errors, capacity counters, and privacy requests needed to operate and improve the beta.</li>
+          <li><strong>Optional product-research request:</strong> your name, business email, agency, role, agency size and location, milestone volume, typical approval delay, staging model, requested next step, current approval process, consent record, and request status. Greenlit uses this information only to evaluate fit and respond to the request.</li>
+          <li><strong>Prototype operations:</strong> feedback, page path, service errors, capacity counters, and privacy requests needed to operate and improve the build.</li>
           <li><strong>Security context:</strong> country code and a keyed, one-way hash derived from request metadata. The beta does not intentionally retain a raw IP address in its transaction record.</li>
         </ul>
 
@@ -39,7 +39,7 @@ export default function PrivacyPage() {
         <p>{paidGemini ? "Greenlit is configured for Gemini’s paid API service. Google’s current terms state that paid-service prompts and responses are not used to improve its products. The beta still prohibits secrets, regulated data, and material the user is not authorized to process." : "When Gemini’s unpaid API tier is used, Google’s current terms permit Google to use submitted content and generated responses to provide, improve, and develop its services, and human reviewers may process that content. Do not submit confidential, proprietary, sensitive, regulated, or personal information. In regions where Google requires paid API service, Greenlit uses its local source-grounded fallback instead."} See <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Google’s Gemini API terms</a>.</p>
 
         <h2>Purposes and providers</h2>
-        <p>Data is used only to evaluate and respond to demo or design-partner requests, draft acceptance criteria, run confirmed checks, produce evidence, create a review packet, record a decision, optionally create and reconcile an agency-authorized invoice, prevent abuse, and maintain a reproducible audit trail. Infrastructure providers are Google (AI when eligible), Vercel (web hosting), Cloudflare (configured queued browser verification when the runner is deployed and healthy), Supabase (database and private evidence storage), and Stripe when an agency enables invoicing (customer, invoice, hosted payment, and payment-status processing).{notificationProvider ? ` ${notificationProvider} delivers transactional decision notices and receives the agency address, reviewer business email, decision type, packet ID, and decision time needed for that notice. It may also receive a generic new-request alert containing only Greenlit’s request reference, not the requester’s contact or agency details.` : " Decision notices remain in-app, and new requests remain in the operator queue, unless a disclosed notification provider is configured."} Each provider receives only the data needed for its role.</p>
+        <p>Data is used only to evaluate and respond to optional product-research requests, draft acceptance criteria, run confirmed checks, produce evidence, create a review packet, record a decision, optionally create and reconcile an agency-authorized invoice, prevent abuse, and maintain a reproducible audit trail. Infrastructure providers are Google (AI when eligible), Vercel (web hosting), Cloudflare (configured queued browser verification), Supabase (database and private evidence storage), and Stripe when an agency enables invoicing (customer, invoice, hosted payment, and payment-status processing).{notificationProvider ? ` ${notificationProvider} delivers transactional decision notices and receives the agency address, reviewer business email, decision type, packet ID, and decision time needed for that notice. It may also receive a generic new-request alert containing only Greenlit’s request reference, not the requester’s contact or agency details.` : " Decision notices remain in-app, and new requests remain in the operator queue, unless a disclosed notification provider is configured."} Each provider receives only the data needed for its role.</p>
 
         <h2>Synthetic walkthrough</h2>
         <p>The guided walkthrough uses only the included synthetic SOW and seeded outcomes. It does not call the Cloudflare browser runner, create evidence artifacts, append transaction events, send its sample decision to the server, or create a downloadable transaction export. A reviewer name and email entered in that walkthrough remain only in local browser storage for the sample receipt.</p>
@@ -53,7 +53,7 @@ export default function PrivacyPage() {
           <div><strong>Approval and audit record</strong><span>Four years by default, configurable when a different legal or contractual period applies</span></div>
           <div><strong>Invoice metadata and audit events</strong><span>With the related approval record for four years by default; the agency’s Stripe account may retain the underlying invoice under its own settings and obligations</span></div>
           <div><strong>Stripe OAuth credentials</strong><span>Encrypted while connected; cleared when the agency disconnects or the account is deleted</span></div>
-          <div><strong>Demo / design-partner request</strong><span>12 months from submission, or earlier after a verified deletion request</span></div>
+          <div><strong>Optional product-research request</strong><span>12 months from submission, or earlier after a verified deletion request</span></div>
           <div><strong>Privacy-request record</strong><span>24 months, then purged even if the workflow was not closed unless an active legal hold or retained correction record still requires it</span></div>
           <div><strong>Privacy email verification</strong><span>A verification-only account is queued for cleanup when created and becomes eligible for deletion when the 30-minute link expires if it is never used; the minimized cleanup receipt is purged seven days after completion</span></div>
           <div><strong>Account-deletion receipt</strong><span>The plaintext email is erased when Auth deletion completes, and the minimized operational receipt is purged after 30 days</span></div>
@@ -69,10 +69,10 @@ export default function PrivacyPage() {
         <p>Greenlit uses TLS, private storage, server-only credentials, AES-256-GCM encryption for Stripe OAuth tokens, signed Stripe webhooks, HMAC-authenticated runner callbacks, expiring review sessions, restrictive browser headers, and append-only hash-chained audit events. No service can guarantee absolute security. Do not use this beta for health, financial-account, government-identifier, child, employment, or other regulated data.</p>
 
         <h2>Scope and changes</h2>
-        <p>The beta is directed to U.S. business users aged 18 or older. Material changes will update the effective date and be presented before new collection where required.</p>
+        <p>The public judge walkthrough is available without an account and uses synthetic data. Separate source-import, retained-project, and product-research features are directed to adults acting for a business. Material changes will update the effective date and be presented before new collection where required.</p>
 
         <h2>Operator and contact</h2>
-        <p>{operator ? <><strong>{operator}</strong> operates Greenlit{operatorAddress ? ` at ${operatorAddress}` : ""}.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published here.</>} {supportEmail ? <>Privacy and support questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Until a support address is published, use the <Link href="/privacy-request">privacy request form</Link>.</>}</p>
+        <p>{operator && <><strong>{operator}</strong> operates Greenlit{operatorAddress ? ` at ${operatorAddress}` : ""}. </>}Use the <Link href="/privacy-request">privacy request form</Link> for privacy or data questions. {supportEmail && <>Questions may also be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</>}</p>
       </article>
     </main>
   );

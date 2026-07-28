@@ -4,8 +4,8 @@ import { geminiServiceConfiguration } from "@/lib/gemini-service";
 import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
-  title: "Beta terms",
-  description: "Terms and operating boundaries for Greenlit's invitation-only U.S. web-agency beta.",
+  title: "Prototype terms",
+  description: "Terms and operating boundaries for Greenlit's public hackathon walkthrough and separate account-based project features.",
   path: "/terms",
 });
 
@@ -20,12 +20,12 @@ export default function TermsPage() {
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
       <article>
-        <div className="legal-kicker">Effective July 20, 2026 · Closed agency beta</div>
+        <div className="legal-kicker">Effective July 28, 2026 · Hackathon prototype</div>
         <h1>Terms of use</h1>
-        <p className="legal-lede">Greenlit is a limited U.S. business beta for demonstrating evidence-backed milestone approval. By using it, you agree to these boundaries.</p>
+        <p className="legal-lede">Greenlit is a Blueprint Hackathon prototype for demonstrating evidence-backed milestone approval. The public judge walkthrough uses synthetic data and creates no retained customer record.</p>
 
         <h2>Eligibility and authority</h2>
-        <p>You must be at least 18, use the Service for professional or business purposes, and have authority to submit the material and act for the organization you identify. The beta is not offered for consumer, medical, financial, employment, government, or child-directed use.</p>
+        <p>The public judge walkthrough requires no account and uses only included synthetic material. Separate source import, retained project, and product-research features are for adults acting for a business who have authority to submit the material and represent the organization they identify. Those features are not offered for consumer, medical, financial, employment, government, or child-directed use.</p>
 
         <h2>Your data and Gemini</h2>
         <p>Submit only material you are authorized to process and never submit secrets or regulated data. You authorize the disclosed processing needed to provide the Service. {paidGemini ? "This deployment identifies Gemini as a paid API service, whose current terms state prompts and responses are not used to improve Google products." : "Gemini’s unpaid API tier may allow Google to use inputs and outputs to improve its services and permit human review; only synthetic or explicitly non-confidential, non-personal material is allowed."} The analysis screen requires a separate acknowledgment before anything is sent.</p>
@@ -49,19 +49,19 @@ export default function TermsPage() {
         <p>Do not probe third-party sites without authorization, upload secrets or regulated data, bypass origin verification, falsify identity or authority, interfere with the Service, or use generated evidence to mislead another person. Custom verification is limited to public HTTPS staging origins whose one-time ownership token has been verified for the signed-in agency. Potential form mutations require a separate authorization.</p>
 
         <h2>Availability and responsibility</h2>
-        <p>The beta is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoice accuracy and delivery, payments, refunds, disputes, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
+        <p>The prototype is provided as-is and may be changed or withdrawn. You remain responsible for contracts, invoice accuracy and delivery, payments, refunds, disputes, taxes, accessibility compliance, legal notices, and decisions made from the output. To the maximum extent permitted by law, the Service disclaims implied warranties and liability for indirect or consequential losses.</p>
 
-        <h2>Invitation removal</h2>
-        <p>Closed-beta access may be removed at any time. Removing an invitation ends active agency sessions, blocks owner-only routes, revokes undecided client-review links, and cancels work that has not completed; it does not silently delete retained transaction records or legally held evidence. The retention and deletion rules in the <Link href="/records">Records policy</Link> continue to apply, and a former user may still submit a request through the public privacy-request form.</p>
+        <h2>Account access removal</h2>
+        <p>Account-based project access may be removed at any time. Removing access ends active agency sessions, blocks owner-only routes, revokes undecided client-review links, and cancels work that has not completed; it does not silently delete retained transaction records or legally held evidence. The retention and deletion rules in the <Link href="/records">Records policy</Link> continue to apply, and a former user may still submit a request through the public privacy-request form.</p>
 
         <h2>Privacy and requests</h2>
         <p>The <Link href="/privacy">Privacy Notice</Link> describes collection, providers, security, and retention. Submit data-rights requests through the <Link href="/privacy-request">privacy request form</Link>.</p>
 
         <h2>Governing law and venue</h2>
-        <p>{governingLaw && venue ? `These Terms are governed by ${governingLaw}, without regard to conflict-of-law rules, and disputes must be brought in ${venue}, except where applicable law requires otherwise.` : "Governing law and venue are pending adult-operator configuration. External beta invitations must not begin until these terms are completed."}</p>
+        <p>{governingLaw && venue ? `These Terms are governed by ${governingLaw}, without regard to conflict-of-law rules, and disputes must be brought in ${venue}, except where applicable law requires otherwise.` : "The public walkthrough is a synthetic demonstration and creates no retained approval transaction. Separate account-based product access is not offered under incomplete governing-law terms."}</p>
 
         <h2>Operator and contact</h2>
-        <p>{operator ? <><strong>Service provider:</strong> {operator}{operatorAddress ? `, ${operatorAddress}` : ""}.</> : <><strong>Operator legal identity is pending configuration.</strong> External beta invitations must not begin until it is published.</>} {supportEmail ? <>Questions may be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</> : <>Use the <Link href="/privacy-request">privacy request form</Link> until a support address is published.</>}</p>
+        <p>{operator && <><strong>Service provider:</strong> {operator}{operatorAddress ? `, ${operatorAddress}` : ""}. </>}Use the <Link href="/privacy-request">privacy request form</Link> for privacy or data questions. {supportEmail && <>Questions may also be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</>}</p>
       </article>
     </main>
   );

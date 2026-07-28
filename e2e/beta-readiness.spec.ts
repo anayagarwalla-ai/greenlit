@@ -46,10 +46,10 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
 
 test("the landing-page CTA starts the synthetic walkthrough directly", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Keep the last mile from eating the margin." })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Separate fixes from new scope" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Put approval on a clock" })).toBeVisible();
-  await page.getByRole("link", { name: /Explore the synthetic walkthrough/ }).click();
+  await expect(page.getByRole("heading", { name: "The page says success. The network says 500." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Catch the fake success" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Prove the fix" })).toBeVisible();
+  await page.getByRole("link", { name: /Start the 3-minute judge walkthrough/ }).click();
   await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
   await expect(page.locator(".demo-badge")).toHaveText(/Guided demo/i);
 });
@@ -175,7 +175,7 @@ test("client review explains live-email and manual invoicing truthfully", async 
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot: reviewSnapshot({ invoiceDeliveryMode: "MANUAL_AFTER_APPROVAL", invoicePlan: { enabled: true, billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, memo: "", autoSend: false, amountMinor: 1200050, currency: "USD", planSha256: "c".repeat(64) } }), snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: null }) }));
   await page.goto("/review/REVIEW-BETA1");
   await expect(page.getByText("The agency may invoice after approval")).toBeVisible();
-  await expect(page.getByText(/nothing is sent automatically/)).toBeVisible();
+  await expect(page.getByText(/Nothing is sent automatically/)).toBeVisible();
 
   await page.unroute("**/api/reviews/REVIEW-BETA1");
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot: reviewSnapshot({ invoiceDeliveryMode: "MANUAL_AFTER_APPROVAL", invoicePlan: { enabled: true, billingName: "Acme Outdoors LLC", billingEmail: "billing@acme.test", daysUntilDue: 14, memo: "", autoSend: false, amountMinor: 1200050, currency: "USD", planSha256: "c".repeat(64) } }), snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: "APPROVED", reviewerName: "Casey Reviewer", reviewerEmail: "reviewer@example.test", decidedAt: iso, receiptSha256: "e".repeat(64) }) }));

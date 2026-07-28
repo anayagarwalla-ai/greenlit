@@ -1,15 +1,8 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowRight, CalendarClock, Check, CreditCard, FileCheck2, GitCompareArrows, MousePointerClick, Play, ScanSearch, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bug, Check, FileCheck2, FileText, Globe2, Play, ScanSearch, ShieldCheck } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { geminiServiceConfiguration } from "@/lib/gemini-service";
-
-const proofRows = [
-  ["AC-01", "Hero and CTA visible", "Passed"],
-  ["AC-02", "CTA reaches contact section", "Passed"],
-  ["AC-04", "Contact form creates lead", "Passed"],
-  ["AC-06", "No mobile overflow", "Passed"],
-];
 
 export default function Home() {
   const paidGemini = geminiServiceConfiguration().paidService;
@@ -19,89 +12,114 @@ export default function Home() {
         <SiteHeader />
         <div className="hero-grid">
           <div className="hero-copy">
-            <div className="eyebrow"><span className="eyebrow-dot" /> For U.S. web agencies · design-partner beta</div>
-            <h1>Turn your SOW{" "}<br />into <em>proof.</em></h1>
-            <p className="hero-lede">Greenlit turns fuzzy acceptance criteria into verified browser evidence, a focused client decision, and an invoice-ready record.</p>
+            <div className="eyebrow"><span className="eyebrow-dot" /> Blueprint Hackathon · public judge walkthrough</div>
+            <h1>The client says<br /><em>prove it.</em></h1>
+            <p className="hero-lede"><strong>The agency says it&apos;s done. The client says prove it. Greenlit turns the SOW into the proof.</strong> Follow one promise from contract language to browser evidence, approval, and an invoice-ready record.</p>
             <div className="hero-actions">
-              <Link className="button button--lime" href="/workspace?demo=guided">Explore the synthetic walkthrough <ArrowRight size={18} /></Link>
-              <Link className="text-link" href={"/request-demo" as Route}><Play size={16} fill="currentColor" /> Request a conversation</Link>
+              <Link className="button button--lime" href="/workspace?demo=guided">Start the 3-minute judge walkthrough <ArrowRight size={18} /></Link>
+              <Link className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See the story first</Link>
             </div>
             <div className="trust-line">
-              <span><ShieldCheck size={16} /> Human-confirmed checks</span>
-              <span><Check size={16} /> No generated test scripts</span>
+              <span><Globe2 size={16} /> No sign-in required</span>
+              <span><Bug size={16} /> Includes the false-success bug</span>
             </div>
           </div>
 
-          <div className="proof-composition" aria-label="Example verified milestone record">
+          <div className="proof-composition" id="proof-chain" aria-label="One statement of work promise becoming client-approved proof">
             <div className="proof-accent proof-accent--top" />
-            <div className="proof-card">
-              <div className="proof-card__header">
+            <div className="proof-chain-card">
+              <div className="proof-chain-card__header">
                 <div>
-                  <span className="micro-label">Illustrative example · Milestone</span>
-                  <h2>Spring launch</h2>
+                  <span className="micro-label">One promise · complete chain</span>
+                  <h2>SOW to sign-off</h2>
                 </div>
-                <span className="seal"><Check size={17} strokeWidth={3} /> VERIFIED</span>
+                <span className="proof-live-pill"><span /> Judge path</span>
               </div>
-              <div className="proof-meta">
-                <div><span>Client</span><strong>Acme Outdoors</strong></div>
-                <div><span>Value</span><strong>$12,000</strong></div>
-              </div>
-              <div className="proof-list">
-                {proofRows.map(([id, label, status]) => (
-                  <div className="proof-row" key={id}>
-                    <span className="proof-id">{id}</span>
-                    <span>{label}</span>
-                    <span className="pass-pill"><Check size={12} /> {status}</span>
+
+              <div className="proof-chain">
+                <div className="proof-chain__step proof-chain__step--source">
+                  <div className="proof-chain__label"><span>01</span><FileText size={15} /> SOW clause</div>
+                  <blockquote>“Submitting the contact form must create a lead and show a success confirmation.”</blockquote>
+                </div>
+                <div className="proof-chain__connector"><ArrowRight size={15} /></div>
+                <div className="proof-chain__step">
+                  <div className="proof-chain__label"><span>02</span><ShieldCheck size={15} /> Confirmed criterion</div>
+                  <div className="proof-chain__criterion"><strong>AC-04</strong><span>Contact form creates a lead</span></div>
+                </div>
+                <div className="proof-chain__connector"><ArrowRight size={15} /></div>
+                <div className="proof-chain__step proof-chain__step--browser">
+                  <div className="proof-chain__label"><span>03</span><ScanSearch size={15} /> Browser evidence</div>
+                  <div className="mini-browser-proof">
+                    <div><i /><i /><i /><span>/fixture/contact</span></div>
+                    <p><strong>POST /api/fixture/leads</strong><span>200 OK · lead created</span></p>
                   </div>
-                ))}
+                  <span className="pass-pill"><Check size={12} /> Passed</span>
+                </div>
               </div>
-              <div className="proof-card__footer">
+
+              <div className="proof-chain-card__outcome">
                 <div className="avatar-stack" aria-label="Approved by Mara Chen"><span>NS</span><span>MC</span></div>
-                <div><span>Approved by Mara Chen</span><strong>Evidence record MP-2048</strong></div>
-                <FileCheck2 size={29} aria-hidden="true" />
+                <div><span>Client decision</span><strong>Mara approved the milestone</strong></div>
+                <div><span>Billing handoff</span><strong>$12,000 · invoice ready</strong></div>
               </div>
             </div>
-            <div className="proof-note"><MousePointerClick size={18} /><span>Client approved</span><strong>Invoice ready</strong></div>
             <div className="proof-accent proof-accent--bottom" />
           </div>
         </div>
         <div className="hero-ticker" aria-hidden="true">
-          <span>PROVE THE WORK</span><i /> <span>GET THE SIGN-OFF</span><i /> <span>UNLOCK THE INVOICE</span><i /> <span>NO MORE “IS IT DONE?”</span>
+          <span>SOW QUOTE</span><i /> <span>CONFIRMED CRITERION</span><i /> <span>BROWSER EVIDENCE</span><i /> <span>CLIENT APPROVAL</span><i /> <span>INVOICE READY</span>
         </div>
       </section>
 
       <section className="problem-section" id="how-it-works">
-        <div className="section-kicker">The last mile problem</div>
+        <div className="section-kicker">The three-minute story</div>
         <div className="problem-heading">
-          <h2>Finished work should not sit{" "}<br />in <em>approval limbo.</em></h2>
-          <p>Your team knows the milestone is done. Your client sees a staging link and a wall of messages. Greenlit makes “done” concrete, reviewable, and auditable.</p>
+          <h2>Watch “done” become<br /><em>something provable.</em></h2>
+          <p>The walkthrough follows one frozen SOW through AI-assisted criteria, a deceptive staging failure, the fixed build, and the client&apos;s final decision.</p>
         </div>
         <div className="steps-grid">
-          <article><span>01</span><FileCheck2 /><h3>Freeze the promise</h3><p>Paste or upload {paidGemini ? "a SOW section you are authorized to process" : "a redacted, non-confidential SOW section"}. AI drafts measurable criteria with exact source citations; your team confirms the revision.</p></article>
-          <article><span>02</span><Play /><h3>Verify the build</h3><p>Run safe, typed browser checks against a staging site and capture evidence for every supported claim.</p></article>
-          <article><span>03</span><ShieldCheck /><h3>Collect a decision</h3><p>Give one named client reviewer a clear deadline, a focused proof page, and an approve-or-request-changes choice.</p></article>
+          <article><span>01</span><FileCheck2 /><h3>Read the promise</h3><p>{paidGemini ? "Gemini" : "The AI-assisted import"} turns exact SOW language into measurable criteria. A human confirms what “done” means.</p></article>
+          <article><span>02</span><Bug /><h3>Catch the fake success</h3><p>The page shows success, but the lead request returns HTTP 500. Greenlit marks the promise as failed instead of trusting the UI.</p></article>
+          <article><span>03</span><ShieldCheck /><h3>Prove the fix</h3><p>The same frozen criterion passes on the corrected build, then travels to a focused client decision and approval record.</p></article>
         </div>
       </section>
 
-      <section className="agency-pains-section" aria-labelledby="agency-pains-title">
-        <div className="agency-pains-heading">
-          <div><span className="section-kicker">Built around agency bottlenecks</span><h2 id="agency-pains-title">Keep the last mile from eating the margin.</h2></div>
-          <p>Greenlit keeps the agreed scope, staging evidence, client decision, and billing handoff in one traceable workflow.</p>
+      <section className="judge-story-section" aria-labelledby="judge-story-title">
+        <div className="judge-story-heading">
+          <div><span className="section-kicker">The memorable moment</span><h2 id="judge-story-title">The page says success.<br />The network says 500.</h2></div>
+          <p>A screenshot alone can look convincing. Greenlit checks the browser outcome behind it and attaches that observation to the exact promise the client signed.</p>
         </div>
-        <div className="agency-pain-grid">
-          <article><FileCheck2 /><div><h3>Make “done” measurable</h3><p>Exact SOW quotes stay attached to the confirmed acceptance criteria.</p></div></article>
-          <article><GitCompareArrows /><div><h3>Separate fixes from new scope</h3><p>Clients identify whether a request corrects an agreed criterion or adds work outside the frozen milestone.</p></div></article>
-          <article><CalendarClock /><div><h3>Put approval on a clock</h3><p>Assign one reviewer and a visible response deadline instead of chasing decisions across messages.</p></div></article>
-          <article><ScanSearch /><div><h3>Show the proof</h3><p>Expected and observed results, exact source language, screenshots, and hashes travel together.</p></div></article>
-          <article><CreditCard /><div><h3>Move approval into billing</h3><p>An approved record can trigger the configured Stripe invoice or remain ready for the agency’s billing process.</p></div></article>
+        <div className="false-success-comparison">
+          <article className="false-success-comparison__surface">
+            <span>What the page claims</span>
+            <div><Check size={29} /><strong>Thanks! Your trip request was sent.</strong><small>Looks finished</small></div>
+          </article>
+          <article className="false-success-comparison__proof">
+            <span>What Greenlit observes</span>
+            <div><Bug size={29} /><strong>POST /api/fixture/leads</strong><small>HTTP 500 · promise failed</small></div>
+          </article>
         </div>
+        <Link className="button button--lime" href="/workspace?demo=guided">See Greenlit catch it <ArrowRight size={18} /></Link>
+      </section>
+
+      <section className="build-timeline-section" id="build-timeline" aria-labelledby="build-timeline-title">
+        <div>
+          <span className="section-kicker">Eligibility disclosure</span>
+          <h2 id="build-timeline-title">The build history is part of the submission.</h2>
+          <p>Greenlit is presented here as a Blueprint Hackathon project. These dates come directly from the repository history so judges can evaluate the timeline without guessing.</p>
+        </div>
+        <dl>
+          <div><dt>First repository commit</dt><dd>July 19, 2026</dd></div>
+          <div><dt>Current submission build</dt><dd>July 28, 2026</dd></div>
+          <div><dt>Judge access</dt><dd>Public walkthrough · no account</dd></div>
+        </dl>
       </section>
 
       <section className="cta-strip">
-        <div><span>Invitation-only design-partner beta</span><h2>One milestone. Clear promises.{" "}<br />Proof before the invoice.</h2></div>
+        <div><span>Blueprint Hackathon submission</span><h2>One promise. One failure.{" "}<br />One proof a client can approve.</h2></div>
         <div className="cta-strip__actions">
-          <Link className="text-link text-link--inverse" href={"/resources" as Route}>Browse agency resources</Link>
-          <Link className="button button--lime" href={"/request-demo" as Route}>Request a conversation <ArrowRight size={18} /></Link>
+          <Link className="text-link text-link--inverse" href={"/trust" as Route}>What runs live</Link>
+          <Link className="button button--lime" href="/workspace?demo=guided">Start the judge walkthrough <ArrowRight size={18} /></Link>
         </div>
       </section>
     </main>

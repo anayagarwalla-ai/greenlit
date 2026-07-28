@@ -73,7 +73,7 @@ export function DemoRequestForm() {
   return (
     <form ref={formRef} className="demo-request-form" aria-busy={submitting} onSubmit={submit}>
       <div className="demo-request-form__head">
-        <span className="resource-kicker"><ShieldCheck size={14} /> Invitation-only design-partner beta</span>
+        <span className="resource-kicker"><ShieldCheck size={14} /> Optional product research</span>
         <h2>Tell us where approval gets stuck.</h2>
         <p>Use business information only. Do not paste a SOW, credentials, client data, access codes, or regulated information.</p>
         <div className="demo-request-progress" aria-label={`Step ${step} of 2`}>
@@ -147,7 +147,7 @@ export function DemoRequestForm() {
             <select name="desiredNextStep" defaultValue="discovery-call" required>
               <option value="discovery-call">Short discovery call</option>
               <option value="synthetic-demo">Synthetic product demo</option>
-              <option value="design-partner">Discuss design-partner fit</option>
+              <option value="design-partner">Discuss a future pilot</option>
             </select>
           </label>
           <label className="demo-request-fields__wide">

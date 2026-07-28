@@ -12,7 +12,7 @@ export const metadata = publicPageMetadata({
 });
 
 const categoryDescriptions: Record<(typeof publicResourceCategories)[number], string> = {
-  "Start here": "Understand the beta and complete a first proof flow.",
+  "Start here": "Understand the workflow and complete a first proof flow.",
   "Run a milestone": "Write stronger criteria, verify the build, and resolve common problems.",
   "Work with clients": "Introduce the review clearly and make the decision easy.",
 };
@@ -32,7 +32,7 @@ export default function ResourcesPage() {
           </div>
         </div>
         <aside className="resource-kit-card">
-          <span>Beta starter kit</span>
+          <span>Workflow starter kit</span>
           <strong>One real milestone.<br />One named reviewer.<br />One clear decision.</strong>
           <ul>
             <li><BookOpenCheck size={16} /> Agency and client onboarding</li>
@@ -46,7 +46,7 @@ export default function ResourcesPage() {
       <section className="resource-index" aria-labelledby="library-title">
         <div className="resource-index__head">
           <div><span className="resource-kicker">The library</span><h2 id="library-title">Use the piece you need now.</h2></div>
-          <p>Every resource reflects the current closed beta. It does not assume unbuilt integrations, legal certifications, or customer results.</p>
+          <p>Every resource reflects the current hackathon build. It does not assume unbuilt integrations, legal certifications, or customer results.</p>
         </div>
         {publicResourceCategories.map((category) => {
           const guides = publicResourceGuides.filter((guide) => guide.category === category);
@@ -72,7 +72,7 @@ export default function ResourcesPage() {
         <section className="resource-category" aria-labelledby="category-tools-and-updates">
           <div className="resource-category__intro">
             <h3 id="category-tools-and-updates">Tools and updates</h3>
-            <p>Model the cost of approval delay and see what changed in the current beta.</p>
+            <p>Model the cost of approval delay and see what changed in the current build.</p>
           </div>
           <div className="resource-card-grid">
             <Link className="resource-card" href={"/resources/roi-calculator" as Route}>
@@ -82,8 +82,8 @@ export default function ResourcesPage() {
               <strong>Open calculator <ArrowRight size={15} /></strong>
             </Link>
             <Link className="resource-card" href={"/resources/changelog" as Route}>
-              <div><span>Product evaluation</span><span>Current beta</span></div>
-              <h4>Product changelog</h4>
+              <div><span>Product evaluation</span><span>Public timeline</span></div>
+              <h4>Hackathon build log</h4>
               <p>Review meaningful changes to agency setup, client review, evidence, and billing handoff.</p>
               <strong>Read changelog <ArrowRight size={15} /></strong>
             </Link>
@@ -94,11 +94,11 @@ export default function ResourcesPage() {
       <section className="resource-boundary">
         <Sparkles size={25} />
         <div>
-          <span>Considering a design-partner conversation?</span>
-          <h2>Start with your current approval bottleneck.</h2>
-          <p>The first conversation uses business context and a synthetic walkthrough only. Do not send a SOW, client data, credentials, or access codes through the request form.</p>
+          <span>Ready to see the complete story?</span>
+          <h2>Follow one SOW promise all the way to approval.</h2>
+          <p>The public judge walkthrough needs no account and uses synthetic data. It includes the false-success failure, corrected pass, client decision, and approval record.</p>
         </div>
-        <Link className="button button--outline" href={"/request-demo" as Route}>Request a conversation</Link>
+        <Link className="button button--outline" href="/workspace?demo=guided">Start the walkthrough</Link>
       </section>
     </main>
   );

@@ -9,10 +9,10 @@ export function SiteHeader({ dark = false }: { dark?: boolean }) {
       <Brand inverse={dark} />
       <nav aria-label="Primary navigation">
         <Link href="/#how-it-works">How it works</Link>
-        <Link href={"/resources" as Route}>Resources</Link>
-        <Link href={"/login" as Route}>Agency sign in</Link>
-        <Link className="button button--small button--ink" href={"/request-demo" as Route}>
-          Request demo <ArrowUpRight size={15} aria-hidden="true" />
+        <Link href="/#build-timeline">Build timeline</Link>
+        <Link href={"/trust" as Route}>What runs live</Link>
+        <Link className="button button--small button--ink" href="/workspace?demo=guided">
+          Judge walkthrough <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
       </nav>
     </header>

@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("resource center exposes the beta starter library", async ({ page }) => {
+test("resource center exposes the public workflow library", async ({ page }) => {
   await page.goto("/resources");
 
   await expect(page.getByRole("heading", { name: /Get the milestone/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Agency quick-start/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Writing measurable acceptance criteria/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Approval-delay calculator/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Product changelog/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Request a conversation/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Hackathon build log/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Start the walkthrough/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Agency sales and client-introduction playbook/i })).toHaveCount(0);
 });
 
@@ -60,11 +60,12 @@ test("founder-only collateral is not published in the public resource library", 
   await expect(page.getByText("Grow the beta", { exact: true })).toHaveCount(0);
 });
 
-test("trust center names beta limitations and stays within mobile width", async ({ page }) => {
+test("what-runs-live page names prototype boundaries and stays within mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/trust");
 
-  await expect(page.getByRole("heading", { name: /Proof needs/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Clear demo/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /What the judge can run now/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "What Greenlit does not claim" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);

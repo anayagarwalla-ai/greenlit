@@ -5,8 +5,8 @@ import { ResourceHeader } from "@/components/resource-header";
 import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
-  title: "Product changelog",
-  description: "Current Greenlit closed-beta changes and known operating boundaries.",
+  title: "Hackathon build log",
+  description: "Greenlit's public Blueprint Hackathon build timeline and meaningful product changes.",
   path: "/resources/changelog",
 });
 
@@ -24,7 +24,7 @@ const releases = [
   },
   {
     date: "July 22, 2026",
-    title: "Closed beta controls",
+    title: "Account and safety controls",
     state: "Shipped",
     changes: [
       "Added invitation allowlists, agency accounts, revocable review links, privacy-request operations, and beta feedback triage.",
@@ -49,10 +49,10 @@ export default function ChangelogPage() {
       <ResourceHeader back />
       <article className="guide">
         <header className="guide-hero">
-          <span className="resource-kicker">Closed beta</span>
-          <h1>Product changelog</h1>
-          <p>A concise record of meaningful changes that affect agency setup, client review, evidence, or billing handoff.</p>
-          <div className="guide-meta"><span>Current as of July 24, 2026</span><span>Beta releases</span></div>
+          <span className="resource-kicker">Blueprint Hackathon</span>
+          <h1>Build log</h1>
+          <p>A public timeline of the submission, from the first repository commit through the current judge-ready deployment.</p>
+          <div className="guide-meta"><span>First commit July 19, 2026</span><span>Current build July 28, 2026</span></div>
         </header>
         <div className="changelog">
           {releases.map((release) => (
@@ -67,8 +67,8 @@ export default function ChangelogPage() {
           ))}
         </div>
         <section className="resource-callout resource-callout--warning">
-          <strong>Still a closed beta</strong>
-          <p>Current limitations include invitation-only access, deliberately limited verification capacity, restricted staging-origin support, and deployment-specific Gemini and Stripe modes. See the Trust page and in-product notices before using real client material.</p>
+          <strong>Judge path and retained project path are separate</strong>
+          <p>The public walkthrough requires no account and uses deterministic sample outcomes. Retained staging verification is restricted to authorized source material, supported public origins, and account-scoped records. See What runs live for the exact boundary.</p>
         </section>
         <footer className="guide-next"><Link href={"/resources" as Route}><ArrowLeft size={16} /> All resources</Link></footer>
       </article>

@@ -248,7 +248,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
       if (!evidenceConsent) throw new Error("Confirm the staging evidence and retention notice before running checks.");
       if (!buildLabel.trim()) throw new Error("Add a build label so this evidence can be tied to a release.");
       if (automated.length === 0) throw new Error("This scope has no browser-verifiable criteria. Keep the manual items for client review, then add at least one objective browser check before running evidence.");
-      if (automated.length > 6) throw new Error("The closed beta supports at most six browser checks per run. Move additional promises to client review or split the milestone.");
+      if (automated.length > 6) throw new Error("This build supports at most six browser checks per run. Move additional promises to client review or split the milestone.");
       const checks: CheckSpec[] = [];
       const errors: Record<string, string> = {};
       automated.forEach((criterion, index) => {
