@@ -63,8 +63,8 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
 
   // Confirmation-dialog accessibility: initial focus on the heading, Tab
   // trapped inside, Escape closes, and focus returns to the opener. Capture
-  // phase (with stopPropagation) keeps an enclosing dialog — the dashboard
-  // invoice modal — from also reacting to Escape/Tab.
+  // phase (with stopPropagation) keeps an enclosing dialog, such as the
+  // dashboard invoice modal, from also reacting to Escape/Tab.
   useEffect(() => {
     if (!confirming) return;
     const node = confirmDialogRef.current;
@@ -124,7 +124,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    // Creating or emailing an invoice — and arming automatic invoicing — always
+    // Creating or emailing an invoice, and arming automatic invoicing, always
     // goes through the explicit confirmation dialog first.
     if (mode === "approved" || autoSend) {
       confirmTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -136,7 +136,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
     setBusy("save"); setMessage(null);
     try {
       await savePlan(false);
-      setMessage({ kind: "success", text: "Saved. Nothing is sent automatically — after client approval you can create the invoice from the dashboard." });
+      setMessage({ kind: "success", text: "Saved. Nothing is sent automatically. After client approval, you can create the invoice from the dashboard." });
       onComplete?.();
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error && !(error instanceof TypeError) ? error.message : "The save could not be confirmed because of a network problem. Reopen this step to check the saved details before trying again." }); }
     finally { setBusy(""); }
@@ -147,7 +147,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
     setConfirmBusy(true); setConfirmError("");
     try {
       // Re-validate the required fields and the selected Stripe customer
-      // immediately before acting — the form may have gone stale.
+      // immediately before acting because the form may have gone stale.
       const trimmedName = billingName.trim();
       const normalizedEmail = billingEmail.trim().toLowerCase();
       if (trimmedName.length < 2 || !EMAIL_PATTERN.test(normalizedEmail)) throw new Error("Enter the billing contact name and a valid billing email before continuing.");
@@ -171,7 +171,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
         if (!sendResponse.ok) throw new Error((sendPayload as { error?: string }).error ?? "The invoice could not be created.");
         setMessage({ kind: "success", text: livemode ? `Stripe sent the ${formattedAmount} invoice to ${normalizedEmail} and Greenlit saved its transaction record.` : `Stripe created a ${formattedAmount} test draft invoice. Test mode sends no email to the client.` });
       } else {
-        setMessage({ kind: "success", text: livemode ? `Saved. Client approval will automatically create and email the ${formattedAmount} Stripe invoice to ${normalizedEmail}. The client review discloses this before the decision.` : `Saved. Client approval will automatically create a ${formattedAmount} draft invoice in the connected Stripe test account — test mode sends no email. The client review discloses this before the decision.` });
+        setMessage({ kind: "success", text: livemode ? `Saved. Client approval will automatically create and email the ${formattedAmount} Stripe invoice to ${normalizedEmail}. The client review discloses this before the decision.` : `Saved. Client approval will automatically create a ${formattedAmount} draft invoice in the connected Stripe test account. Test mode sends no email. The client review discloses this before the decision.` });
       }
       setConfirming(null);
       onComplete?.();
@@ -185,7 +185,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
   const connected = connection?.connection?.status === "CONNECTED";
   const livemode = Boolean(connection?.connection?.livemode);
   const formattedAmount = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amountMinor / 100);
-  const lineItemLabel = milestoneTitle ? (projectName ? `${projectName} — ${milestoneTitle}` : milestoneTitle) : "Approved milestone";
+  const lineItemLabel = milestoneTitle ? (projectName ? `${projectName}: ${milestoneTitle}` : milestoneTitle) : "Approved milestone";
   const estimatedDue = confirmOpenedAt ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(confirmOpenedAt + daysUntilDue * 86_400_000)) : "";
   const finalCta = confirming === "send"
     ? livemode ? `Send ${formattedAmount} invoice` : `Create ${formattedAmount} test invoice`
@@ -211,7 +211,7 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
       </div>
       <div className="invoice-customer-row"><button type="button" className="mini-action" onClick={() => void matchCustomers()} disabled={busy !== "" || !billingEmail.includes("@")}><Search size={12} /> {busy === "customers" ? "Checking…" : "Check for existing Stripe customer"}</button>{customers.length > 1 && <label>Stripe customer<select value={customerId ?? ""} onChange={(event) => { setCustomerId(event.target.value || null); if (!event.target.value) setAutoSend(false); }} required><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name || customer.email} · {customer.id}</option>)}</select></label>}</div>
       <label className="invoice-memo">Invoice memo (optional)<textarea value={memo} onChange={(event) => setMemo(event.target.value)} maxLength={500} placeholder="Approved milestone delivered according to the attached acceptance record." /></label>
-      {mode === "pre-review" && <label className="decision-consent invoice-auto-send"><input type="checkbox" checked={autoSend} disabled={!customerId} onChange={(event) => setAutoSend(event.target.checked)} /><span>{livemode ? "Automatically create and email this Stripe invoice after the client approves. The client review will disclose this before the decision." : "Automatically create this invoice as a Stripe test draft after the client approves — test mode sends no email. The client review will disclose this before the decision."}{!customerId && <em className="invoice-auto-send-hint"> Automatic invoicing requires a confirmed existing Stripe customer: use “Check for existing Stripe customer” and select the match first.</em>}</span></label>}
+      {mode === "pre-review" && <label className="decision-consent invoice-auto-send"><input type="checkbox" checked={autoSend} disabled={!customerId} onChange={(event) => setAutoSend(event.target.checked)} /><span>{livemode ? "Automatically create and email this Stripe invoice after the client approves. The client review will disclose this before the decision." : "Automatically create this invoice as a Stripe test draft after the client approves. Test mode sends no email. The client review will disclose this before the decision."}{!customerId && <em className="invoice-auto-send-hint"> Automatic invoicing requires a confirmed existing Stripe customer: use “Check for existing Stripe customer” and select the match first.</em>}</span></label>}
       {message && <div className={message.kind === "error" ? "form-message form-message--error" : "form-message"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</div>}
       <div className="invoice-actions"><small>{mode === "approved" ? livemode ? "Continuing opens a final confirmation before Stripe creates and emails the invoice." : "Continuing opens a final confirmation before Stripe creates a test draft invoice. No email is sent in test mode." : autoSend ? "Continuing opens a final confirmation before automatic invoicing is enabled. Details are hash-bound into the client-review snapshot." : "Details are hash-bound into the client-review snapshot. Nothing is created or sent until you choose to."}</small><button className="button button--ink button--small" disabled={busy !== "" || confirmBusy || !billingName.trim() || !billingEmail.trim()}>{busy === "save" ? <LoaderCircle className="spin" size={13} /> : mode === "approved" ? <Send size={13} /> : <Check size={13} />}{mode === "approved" ? (livemode ? "Review & send invoice" : "Review & create test invoice") : autoSend ? "Review automatic invoicing" : "Save invoice details"}</button></div>
     </form>}
@@ -221,9 +221,9 @@ export function InvoicePlanCard({ recordId, clientName, projectName, milestoneTi
         <h2 id={`invoice-confirm-title-${recordId}`} tabIndex={-1}>{confirming === "send" ? (livemode ? "Send this invoice now?" : "Create this test invoice?") : "Enable automatic invoicing?"}</h2>
         <p>{confirming === "send"
           ? livemode ? "Stripe will create this invoice and email it to the client immediately." : "Stripe will create a draft invoice in the connected test account. Test mode sends no email to the client."
-          : livemode ? "After the client approves, Stripe will create and email this invoice automatically. The client review discloses this before the decision." : "After the client approves, Stripe will create this invoice as a test draft automatically — test mode sends no email. The client review discloses this before the decision."}</p>
+          : livemode ? "After the client approves, Stripe will create and email this invoice automatically. The client review discloses this before the decision." : "After the client approves, Stripe will create this invoice as a test draft automatically. Test mode sends no email. The client review discloses this before the decision."}</p>
         <dl className="invoice-confirm-facts">
-          <div><dt>Invoice mode</dt><dd>{confirming === "enable-auto" ? (livemode ? "Automatic · live — emails the client" : "Automatic · test draft — no email") : livemode ? "Live — emails the client" : "Test draft — no email"}</dd></div>
+          <div><dt>Invoice mode</dt><dd>{confirming === "enable-auto" ? (livemode ? "Automatic · live (emails the client)" : "Automatic · test draft (no email)") : livemode ? "Live (emails the client)" : "Test draft (no email)"}</dd></div>
           <div><dt>Stripe account</dt><dd>{connection?.connection?.accountId} ({livemode ? "live" : "test"} mode)</dd></div>
           <div><dt>Client</dt><dd>{clientName}</dd></div>
           <div><dt>Billing contact</dt><dd>{billingName}</dd></div>

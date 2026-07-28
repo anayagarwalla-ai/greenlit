@@ -38,7 +38,7 @@ test("approval-delay calculator updates locally", async ({ page }) => {
   await expect(page.locator("#roi-input-error")).toContainText("Estimate unavailable");
   await expect(page.getByLabel("Milestones completed per month")).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByText("20.0 hours")).toHaveCount(0);
-  await expect(page.locator(".roi-result strong")).toHaveText(["—", "—", "—"]);
+  await expect(page.locator(".roi-result strong")).toHaveText(["Pending", "Pending", "Pending"]);
 
   await page.getByLabel("Milestones completed per month").fill("1001");
   await expect(page.locator("#roi-input-error")).toBeVisible();

@@ -52,7 +52,7 @@ export function FeedbackWidget() {
       const response = await fetchWithTimeout("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category, message, email, pagePath: window.location.pathname }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Feedback could not be sent.");
-      setStatus({ kind: "success", message: `Received as ${payload.feedbackId}. Thank you—we saved your report.` }); setMessage("");
+      setStatus({ kind: "success", message: `Received as ${payload.feedbackId}. Thank you. We saved your report.` }); setMessage("");
       window.setTimeout(() => successHeadingRef.current?.focus({ preventScroll: true }), 0);
     } catch (error) { setStatus({ kind: "error", message: clientRequestMessage(error, "Feedback could not be sent.") }); }
     finally { setBusy(false); }

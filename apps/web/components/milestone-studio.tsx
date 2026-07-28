@@ -144,7 +144,7 @@ type WorkspaceDraft = {
   customRun: CustomRunConfiguration | null;
   retainedFixtureRecord?: boolean;
   // The review bearer token lives only in React state for the current tab
-  // (see `reviewUrl` below) — it is never written to localStorage. Only the
+  // (see `reviewUrl` below). It is never written to localStorage. Only the
   // non-secret packet id is persisted so a resumed session can look up its
   // current decision through the owner's authenticated session.
   reviewPacketId: string;
@@ -335,7 +335,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
 
   useEffect(() => {
     // Legacy global (non-account-scoped) keys could hold another account's
-    // SOW/business details or — critically — a client review bearer-token
+    // SOW/business details or, critically, a client review bearer-token
     // URL. Never trust or carry them forward now that drafts are scoped per
     // signed-in account.
     clearLegacyGlobalDraftState();
@@ -479,7 +479,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
           setRunRequestId(editableWorkspace?.runRequestId ?? null);
           setVerificationDraft(editableWorkspace?.verificationDraft ?? null);
           setChangeRequest(latestReview?.decision === "CHANGES_REQUESTED" ? latestReview.reviewer_note || "The client requested changes without a note." : "");
-          // An approved record is a terminal, finalized state — send the
+          // An approved record is a terminal, finalized state. Send the
           // agency straight to its receipt instead of reopening it inside
           // the intake/verification workflow.
           if (record.status === "APPROVED") {
@@ -621,7 +621,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         }
       } catch (cause) {
         if (controller.signal.aborted) return;
-        // A dropped connection only hides status — the retained job keeps
+        // A dropped connection only hides status. The retained job keeps
         // running on the server, so offer a way out instead of a dead spinner.
         setPollNetworkFailure(cause instanceof TypeError);
         setRunError(cause instanceof TypeError
@@ -728,7 +728,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     setDraftId(crypto.randomUUID());
     setSourceMode("demo");
     setSourceText(demoSowText);
-    setSourceName("Acme × Northstar — SOW.pdf");
+    setSourceName("Acme × Northstar SOW.pdf");
     setSourceReattachRequired(false);
     setBusiness({
       agencyName: "Northstar Studio",
@@ -994,7 +994,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       }
       if (!controller.signal.aborted) {
-        setRunError("Verification is still running. The job is saved—leave this page or return from the dashboard without starting a duplicate run.");
+        setRunError("Verification is still running. The job is saved. You can leave this page or return from the dashboard without starting a duplicate run.");
         return;
       }
     } catch (error) {
@@ -1086,13 +1086,13 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     } catch {
       setCopied(false);
       setManualReviewCopy(true);
-      setToast("Clipboard unavailable — select and copy the link manually");
+      setToast("Clipboard unavailable. Select and copy the link manually.");
     }
   };
 
   const openClientReview = () => {
     // The bearer token is only ever held in memory for the tab that created
-    // it — never persisted — so if it's gone (e.g. after a reload) a fresh
+    // it, never persisted, so if it is gone (e.g. after a reload) a fresh
     // review packet is minted rather than trying to resurrect the old link.
     if (reviewUrl) setPhase("shared");
     else if (sourceMode === "demo") void share({ reviewerEmail: "demo@example.test", expiryHours: 72 });
@@ -1107,7 +1107,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "This review record is unavailable.");
       if (payload.decision === "APPROVED") window.location.assign(`/receipt/${reviewPacketId}`);
-      else setToast(payload.decision === "CHANGES_REQUESTED" ? "The client requested changes — no approval receipt yet." : "Awaiting the client's decision — no approval receipt yet.");
+      else setToast(payload.decision === "CHANGES_REQUESTED" ? "The client requested changes. No approval receipt is available yet." : "Awaiting the client's decision. No approval receipt is available yet.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "This review record is unavailable.");
     }
@@ -1386,7 +1386,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>
-          <span className="trust-card__number">03</span><strong>The browser proves</strong><p>Typed, allowlisted checks produce timestamped evidence—never arbitrary AI code.</p>
+          <span className="trust-card__number">03</span><strong>The browser proves</strong><p>Typed, allowlisted checks produce timestamped evidence, never arbitrary AI code.</p>
         </section>
       </aside>
     </div>
@@ -1404,7 +1404,7 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   return (
     <div className="criteria-layout">
       <section className="panel source-sheet" aria-label="Scrollable source document" tabIndex={0}>
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>Acme × Northstar — SOW.pdf</strong><span>Selected page 4 · source hash 3f45b1d8…a209</span></div></div>
+        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>Acme × Northstar SOW.pdf</strong><span>Selected page 4 · source hash 3f45b1d8…a209</span></div></div>
         <div className="document-page">
           <div className="document-page__head"><span>Statement of work</span><span>Page 4 / 7</span></div>
           {sowExcerpt.map((line, index) => <div className={`document-line ${index > 0 ? "is-cited" : ""}`} key={line.line}><span>{line.line}</span><div>{line.text}</div></div>)}
@@ -1634,7 +1634,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
   const completedAt = run.completedAt ? formatTimestamp(new Date(run.completedAt), run.seededDemo ? DEMO_TIME_ZONE : undefined) : "Just now";
   const actionBanner = (
     <div className="action-banner">
-      <div><h3>{run.seededDemo ? isPass ? "Continue to the client decision." : "Next: verify the fixed sample build." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "Next: verify the fixed build." : "Next: verify another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only client review and try the decision flow." : "Run the same six checks against rc2—no re-analysis needed." : isPass ? "Create a focused review page with the latest passing evidence." : "Rerun the same frozen checks after the build is corrected."}</p></div>
+      <div><h3>{run.seededDemo ? isPass ? "Continue to the client decision." : "Next: verify the fixed sample build." : isPass ? "Give the client proof, not a test report." : caughtFalseSuccess ? "Next: verify the fixed build." : "Next: verify another build."}</h3><p>{run.seededDemo ? isPass ? "Open a local-only client review and try the decision flow." : "Run the same six checks against rc2; no re-analysis is needed." : isPass ? "Create a focused review page with the latest passing evidence." : "Rerun the same frozen checks after the build is corrected."}</p></div>
       <div className="action-banner__buttons">
         {!isPass && <a className="button button--outline" href={run.buildUrl} target="_blank" rel="noreferrer">Inspect build <ExternalLink size={14} /></a>}
         <button className="button button--lime" disabled={shareBusy} onClick={(event) => { if (isPass) onShare?.(event.currentTarget); else onRerun?.(); }}>{isPass ? <>{shareBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}{shareBusy ? "Creating secure review…" : "Create client review"}</> : <>Verify fixed build <Play size={15} /></>}</button>
@@ -1646,7 +1646,7 @@ function VerificationReport({ run, criteria, onRerun, onShare, shareBusy = false
       <div className="report-grid">
         <section>
           <div className="panel report-summary">
-            {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough — not retained evidence</strong><span>The displayed frames were captured from Greenlit&apos;s included local fixture for presentation. The outcomes are seeded; no runner session, retained artifact, audit event, or legal transaction record was created.</span></div></div>}
+            {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough. Not retained evidence</strong><span>The displayed frames were captured from Greenlit&apos;s included local fixture for presentation. The outcomes are seeded; no runner session, retained artifact, audit event, or legal transaction record was created.</span></div></div>}
             <div className="score-line">
               <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
               <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every automated check passes." : failed === 1 ? "Sample: one automated check needs work." : `Sample: ${failed} automated checks need work.` : isPass ? manualCount ? "Automated checks pass; client judgment remains." : "Every promise has browser evidence." : failed === 1 ? "One automated check needs work." : `${failed} automated checks need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? manualCount ? `${run.results.length} automated checks passed; ${manualCount} manual ${manualCount === 1 ? "promise awaits" : "promises await"} the client’s judgment.` : "This milestone has a passing browser-evidence run and is ready for client review." : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>

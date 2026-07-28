@@ -33,7 +33,7 @@ export default function TermsPage() {
         <h2>Human control and verification</h2>
         <p>AI suggestions are drafts. You are responsible for reviewing source quotes, measurable outcomes, check mappings, and results. Browser evidence reflects only the recorded build, time, and typed checks and does not prove facts outside that scope.</p>
 
-        <h2>Approval record—not a legal signature</h2>
+        <h2>Approval record, not a legal signature</h2>
         <p>The client decision is a business approval record. It is not a payment guarantee, accounting or tax ledger, notarization, certification, or substitute for a contract or formal electronic-signature product where one is required. Do not use Greenlit for documents excluded from electronic-transaction laws or requiring special signatures, witnessing, or notarization.</p>
 
         <h2>Optional Stripe invoicing</h2>

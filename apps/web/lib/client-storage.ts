@@ -13,7 +13,7 @@ const LEGACY_GLOBAL_KEYS = [
 ];
 const PENDING_CLAIM_KEY = `greenlit-pending-draft-claim-${DRAFT_VERSION}`;
 // An unsigned draft on a shared browser can be read by the next person at the
-// keyboard, so it is purged after this window — the same window the sign-in
+// keyboard, so it is purged after this window, which is the same window the sign-in
 // handoff marker already used.
 export const ANONYMOUS_DRAFT_TTL_MS = 30 * 60_000;
 
@@ -93,8 +93,8 @@ function anonymousDraftExpired(draftId: string): boolean {
 }
 
 /**
- * Persists a draft. Returns false — instead of silently pretending the draft
- * was saved — when the browser rejects the write (quota, private mode,
+ * Persists a draft. Returns false, instead of silently pretending the draft
+ * was saved, when the browser rejects the write (quota, private mode,
  * blocked storage). Callers surface that honestly.
  */
 export function saveProjectDraft(email: string | null | undefined, draftId: string, raw: string, markForSignIn = false): boolean {
@@ -156,7 +156,7 @@ export function removeProjectDraft(email: string | null | undefined, draftId: st
 }
 
 /**
- * Deletes every anonymous draft older than the 30-minute retention window — the
+ * Deletes every anonymous draft older than the 30-minute retention window, the
  * draft content itself, not only the sign-in handoff marker.
  */
 export function purgeExpiredAnonymousDrafts(): void {
@@ -216,7 +216,7 @@ export function clearLegacyGlobalDraftState(): void {
 }
 
 /**
- * Ends the server session and clears the account's local drafts — in that
+ * Ends the server session and clears the account's local drafts. In that
  * order. A failed sign-out (non-2xx or a network error) leaves the local
  * draft untouched so a still-signed-in user does not lose work.
  */

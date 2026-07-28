@@ -79,7 +79,7 @@ export async function processInvoiceJob(jobId: string, ownerUserId: string) {
     const { data: existingInvoice } = await database.from("record_invoices").select("stripe_invoice_id").eq("packet_id", job.packet_id).maybeSingle();
     let invoice = existingInvoice?.stripe_invoice_id ? await retrieveStripeInvoice(access.accessToken, existingInvoice.stripe_invoice_id) : null;
     if (!invoice) {
-      invoice = await createStripeInvoice(access.accessToken, { customer: customerId, daysUntilDue: plan.daysUntilDue, description: plan.memo || `${record.project_name} — ${record.milestone_title}`, metadata }, `${job.idempotency_prefix}:invoice`);
+      invoice = await createStripeInvoice(access.accessToken, { customer: customerId, daysUntilDue: plan.daysUntilDue, description: plan.memo || `${record.project_name}: ${record.milestone_title}`, metadata }, `${job.idempotency_prefix}:invoice`);
       await createStripeInvoiceItem(access.accessToken, { customer: customerId, invoice: invoice.id, amount: plan.amountMinor, currency: plan.currency, description: record.milestone_title, metadata }, `${job.idempotency_prefix}:item`);
       invoice = await retrieveStripeInvoice(access.accessToken, invoice.id);
       const { error: createdError } = await database.rpc("record_invoice_created_atomic", {

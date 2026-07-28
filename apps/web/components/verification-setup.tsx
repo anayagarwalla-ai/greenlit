@@ -282,7 +282,7 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
         </div>
 
         <div className="setup-section">
-          <div className="setup-section__head"><span>2</span><div><h3>Map safe typed checks</h3><p>References use accessible role:name labels—not brittle CSS selectors or generated code.</p></div></div>
+          <div className="setup-section__head"><span>2</span><div><h3>Map safe typed checks</h3><p>References use accessible role:name labels, not brittle CSS selectors or generated code.</p></div></div>
           <div className="mapping-list">
             {automated.map((criterion) => <article className={`mapping-card ${fieldErrors[criterion.id] ? "has-warning" : ""}`} key={criterion.id}><div className="mapping-card__head"><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><span>{criterion.checkType.replaceAll("_", " ")}</span></div></div><MappingFields criterion={criterion} draft={drafts[criterion.id] ?? initialDraft()} error={fieldErrors[criterion.id] ?? ""} update={(patch) => setDrafts((current) => ({ ...current, [criterion.id]: { ...(current[criterion.id] ?? initialDraft()), ...patch } }))} /></article>)}
             {criteria.filter((item) => !item.supported || item.checkType === "manual").map((criterion) => <article className="mapping-card mapping-card--manual" key={criterion.id}><div className="mapping-card__head"><span className="criterion-id">{criterion.id}</span><div><strong>{criterion.title}</strong><span>Client-reviewed promise · no automated evidence claim</span></div></div></article>)}

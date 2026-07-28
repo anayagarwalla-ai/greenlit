@@ -13,7 +13,7 @@ function reviewSnapshot(overrides: Record<string, unknown> = {}) {
     milestoneTitle: "Spring launch",
     amountMinor: 1200050,
     currency: "USD",
-    sourceName: "Acme × Northstar — SOW.pdf",
+    sourceName: "Acme × Northstar SOW.pdf",
     sourceSha256: "a".repeat(64),
     revision: 1,
     criteria: [{ id: "AC-01", title: "Hero visible", sourceQuote: "The hero must be visible." }],
@@ -28,7 +28,7 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
   return {
     packetId: "REVIEW-BETA1",
     snapshot: {
-      recordPublicId: "MP-BETA", agencyName: "Northstar Studio", clientName: "Acme Outdoors", projectName: "Spring launch", milestoneTitle: "Spring launch", amountMinor: 1200050, currency: "USD", sourceName: "Acme × Northstar — SOW.pdf", sourceSha256: "a".repeat(64), revision: 1,
+      recordPublicId: "MP-BETA", agencyName: "Northstar Studio", clientName: "Acme Outdoors", projectName: "Spring launch", milestoneTitle: "Spring launch", amountMinor: 1200050, currency: "USD", sourceName: "Acme × Northstar SOW.pdf", sourceSha256: "a".repeat(64), revision: 1,
       criteria: [{ id: "AC-01", title: "Hero visible" }],
       run: { runId: "run-1", buildLabel: "launch-rc2", buildUrl: "https://staging.acme.test", results: [{ criterionId: "AC-01", status: "PASS", expected: "Visible", observed: "Visible" }], manifestSha256: "b".repeat(64), browserVersion: "test", runnerVersion: "test", completedAt: iso },
     },
@@ -150,8 +150,8 @@ test("receipt shows the correction history and truthful draft-invoice wording", 
   })) }));
   await page.goto("/receipt/REVIEW-BETA1");
   await expect(page.getByText("Amendment & correction history")).toBeVisible();
-  await expect(page.getByText(/corrected to “Acme Outdoors, Inc\.” — Legal name correction/)).toBeVisible();
-  await expect(page.getByText(/draft created for billing@acme\.test — not emailed/)).toBeVisible();
+  await expect(page.getByText(/corrected to “Acme Outdoors, Inc\.”: Legal name correction/)).toBeVisible();
+  await expect(page.getByText(/draft created for billing@acme\.test; not emailed/)).toBeVisible();
   await expect(page.getByText(/sent to billing@acme\.test/)).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Open hosted invoice/ })).toBeVisible();
 });
@@ -159,10 +159,10 @@ test("receipt shows the correction history and truthful draft-invoice wording", 
 test("client review explains a test-draft invoice truthfully", async ({ page }) => {
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot: reviewSnapshot({ invoiceDeliveryMode: "TEST_DRAFT" }), snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: null }) }));
   await page.goto("/review/REVIEW-BETA1");
-  await expect(page.getByText("Approval creates a test draft invoice — no email")).toBeVisible();
+  await expect(page.getByText("Approval creates a test draft invoice (no email)")).toBeVisible();
   await expect(page.getByText(/test mode: approving creates a \$12,000\.50 draft invoice/)).toBeVisible();
   await page.getByRole("button", { name: "Approve milestone" }).click();
-  await expect(page.getByRole("dialog")).toContainText("as a Stripe test draft — no email is sent");
+  await expect(page.getByRole("dialog")).toContainText("as a Stripe test draft; no email is sent");
 });
 
 test("client review explains live-email and manual invoicing truthfully", async ({ page }) => {
@@ -228,15 +228,15 @@ test("the final invoice confirmation modal shows the facts, an explicit CTA, and
 
   const confirmDialog = page.getByRole("dialog", { name: "Enable automatic invoicing?" });
   await expect(confirmDialog).toBeVisible();
-  await expect(confirmDialog.getByText("Automatic · test draft — no email")).toBeVisible();
+  await expect(confirmDialog.getByText("Automatic · test draft (no email)")).toBeVisible();
   await expect(confirmDialog.getByText("acct_test (test mode)")).toBeVisible();
   await expect(confirmDialog.getByText("Acme Outdoors", { exact: true })).toBeVisible();
   await expect(confirmDialog.getByText("Acme Outdoors LLC", { exact: true })).toBeVisible();
   await expect(confirmDialog.getByText("billing@acme.test", { exact: true })).toBeVisible();
   await expect(confirmDialog.getByText("$12,000.50 USD")).toBeVisible();
   await expect(confirmDialog.getByText(/14 days after creation/)).toBeVisible();
-  await expect(confirmDialog.getByText("Spring launch — Spring launch")).toBeVisible();
-  // No vague "Confirm" button — the final CTA names the exact action and amount.
+  await expect(confirmDialog.getByText("Spring launch: Spring launch")).toBeVisible();
+  // No vague "Confirm" button. The final CTA names the exact action and amount.
   await expect(confirmDialog.getByRole("button", { name: "Enable automatic $12,000.50 test invoice" })).toBeVisible();
   await expect(confirmDialog.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0);
   // Initial focus lands on the dialog heading.

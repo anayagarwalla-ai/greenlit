@@ -1,4 +1,4 @@
-STATEMENT OF WORK — SPRING LAUNCH MILESTONE
+STATEMENT OF WORK: SPRING LAUNCH MILESTONE
 
 Northstar Studio will deliver the Spring launch milestone for Acme Outdoors for $12,000 USD.
 
@@ -12,4 +12,3 @@ Acceptance criteria
 6. The mobile navigation must fit a 390px viewport without horizontal scrolling.
 
 This is synthetic demonstration content and contains no confidential customer information.
-

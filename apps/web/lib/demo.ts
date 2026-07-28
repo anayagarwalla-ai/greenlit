@@ -31,7 +31,7 @@ export const demoMilestone = {
 };
 
 export const sowExcerpt = [
-  { line: 18, text: "Acceptance criteria — Spring launch milestone" },
+  { line: 18, text: "Acceptance criteria: Spring launch milestone" },
   { line: 19, text: "The homepage hero headline and primary ‘Plan my trip’ call-to-action must be visible on load." },
   { line: 20, text: "The primary call-to-action must take visitors to the contact page." },
   { line: 21, text: "The services section must present three distinct trip-planning packages." },
@@ -46,7 +46,7 @@ Acme Outdoors / Northstar Studio
 Project: Spring launch website
 Milestone 3: Production-ready marketing site
 
-Acceptance criteria — Spring launch milestone
+Acceptance criteria: Spring launch milestone
 The homepage hero headline and primary ‘Plan my trip’ call-to-action must be visible on load.
 The primary call-to-action must take visitors to the contact page.
 The services section must present three distinct trip-planning packages.

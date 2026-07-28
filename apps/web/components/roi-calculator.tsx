@@ -95,15 +95,15 @@ export function RoiCalculator() {
         {!result && <p id="roi-input-error" className="roi-input-error" role="status"><strong>Estimate unavailable.</strong> Use zero or a positive value no higher than each field allows.</p>}
         <div className="roi-result">
           <Clock3 size={22} />
-          <div><strong>{result ? `${result.hoursRecovered.toFixed(1)} hours` : "—"}</strong><span>potential team time recovered</span></div>
+          <div><strong>{result ? `${result.hoursRecovered.toFixed(1)} hours` : "Pending"}</strong><span>potential team time recovered</span></div>
         </div>
         <div className="roi-result">
           <ReceiptText size={22} />
-          <div><strong>{result ? money(result.valueRecovered) : "—"}</strong><span>potential capacity value recovered</span></div>
+          <div><strong>{result ? money(result.valueRecovered) : "Pending"}</strong><span>potential capacity value recovered</span></div>
         </div>
         <div className="roi-result">
           <Calculator size={22} />
-          <div><strong>{result ? `${result.approvalDaysRecovered.toFixed(1)} milestone-days` : "—"}</strong><span>potential approval delay removed</span></div>
+          <div><strong>{result ? `${result.approvalDaysRecovered.toFixed(1)} milestone-days` : "Pending"}</strong><span>potential approval delay removed</span></div>
         </div>
         <p className="roi-caveat">Validate these assumptions during the beta using actual timestamps and team estimates. Do not use the result as a public ROI claim until a customer approves the underlying data and comparison.</p>
       </div>

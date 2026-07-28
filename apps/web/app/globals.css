@@ -563,7 +563,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .feedback-backdrop { position: fixed; z-index: 30; inset: 0; padding: 16px; display: grid; place-items: end; background: rgba(11,24,18,.55); }
 .dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 @media print {
-  /* Real, browser-computed pagination in the printed page margin — not a
+  /* Real, browser-computed pagination in the printed page margin, not a
      fake in-flow counter. counter(pages) requires a second print pass in
      some engines, which Chromium/Edge (the "Save as PDF" path this button
      targets) support natively. */

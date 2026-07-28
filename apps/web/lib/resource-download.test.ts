@@ -12,7 +12,7 @@ describe("resource downloads", () => {
       const rendered = renderResourceDownload(guide);
       expect(rendered).toContain(`# ${guide.title}`);
       expect(rendered).toContain(guide.summary);
-      expect(rendered).not.toContain("—");
+      expect(rendered).not.toContain(String.fromCodePoint(0x2014));
     }
   });
 
