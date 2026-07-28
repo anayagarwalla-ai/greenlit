@@ -6,7 +6,7 @@ import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
   title: "What runs live",
-  description: "What the public Greenlit judge walkthrough runs live, what is seeded, and how the full verification architecture works.",
+  description: "What the public Greenlit walkthrough runs live, what is seeded, and how the full verification architecture works.",
   path: "/trust",
 });
 
@@ -20,12 +20,12 @@ export default function TrustPage() {
       <section className="trust-hero">
         <span className="resource-kicker"><ShieldCheck size={15} /> What runs live</span>
         <h1>Clear demo.<br /><em>Clear boundaries.</em></h1>
-        <p>The public judge walkthrough runs in this deployed app with no account. It uses a deterministic sample so every judge can see the complete story; the production architecture for Gemini import, queued browser verification, and retained records is explained below.</p>
-        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Hackathon prototype</span><span>Updated July 28, 2026</span></div>
+        <p>The public walkthrough runs in this deployed app with no account. It uses a deterministic sample so anyone can see the complete story; the production architecture for Gemini import, queued browser verification, and retained records is explained below.</p>
+        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Product walkthrough</span><span>Updated July 28, 2026</span></div>
       </section>
 
       <section className="trust-grid" aria-label="Security overview">
-        <article><LockKeyhole /><h2>Judge access</h2><p>The complete guided walkthrough is public and requires no sign-in. Account access is reserved for retained project work and owner-scoped records.</p></article>
+        <article><LockKeyhole /><h2>Walkthrough access</h2><p>The complete guided walkthrough is public and requires no sign-in. Account access is reserved for retained project work and owner-scoped records.</p></article>
         <article><Server /><h2>Architecture</h2><p>Vercel serves the app, Gemini supports source analysis, Cloudflare runs queued browser checks, Supabase stores private records, and Stripe supports the optional billing handoff.</p></article>
         <article><UserCheck /><h2>Human control</h2><p>AI drafts are tied to source quotes. The agency confirms criteria and mappings. The client, not the model, makes the milestone decision.</p></article>
         <article><TimerReset /><h2>Retention</h2><p>Current defaults retain screenshot evidence for 90 days and approval and audit records for four years, with privacy requests and legal-hold-aware deletion.</p></article>
@@ -34,7 +34,7 @@ export default function TrustPage() {
       <section className="trust-detail">
         <div className="trust-detail__nav">
           <strong>Trust topics</strong>
-          <a href="#live">Live judge path</a>
+          <a href="#live">Live walkthrough</a>
           <a href="#data">Data handling</a>
           <a href="#verification">Verification</a>
           <a href="#records">Records</a>
@@ -45,7 +45,7 @@ export default function TrustPage() {
         <div className="trust-detail__content">
           <section id="live">
             <span className="resource-section__eyebrow">01</span>
-            <h2>What the judge can run now</h2>
+            <h2>What you can run now</h2>
             <p>The public walkthrough runs the full interface, confirmation gates, failure reveal, corrected pass, client decision, and printable approval record in this production deployment. Its sample outcomes are seeded so the path stays reliable and creates no customer record.</p>
             <ul>
               <li><Check size={15} /> No account, invitation, or form submission is required.</li>
@@ -57,7 +57,7 @@ export default function TrustPage() {
           <section id="data">
             <span className="resource-section__eyebrow">02</span>
             <h2>Data handling</h2>
-            <p>The judge walkthrough uses synthetic, non-confidential data. Any separate source import must use material the user is authorized to process and must not include secrets or regulated data.</p>
+            <p>The walkthrough uses synthetic, non-confidential data. Any separate source import must use material the user is authorized to process and must not include secrets or regulated data.</p>
             <ul>
               <li><Check size={15} /> Original uploaded documents are extracted for analysis and are not retained server-side by the analysis route.</li>
               <li><Check size={15} /> Retained evidence is stored privately rather than placed in a public asset directory.</li>

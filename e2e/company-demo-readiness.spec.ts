@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("the public funnel gives judges a direct walkthrough and a visible build timeline", async ({ page }) => {
+test("the public product funnel offers a direct walkthrough without contest-specific framing", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText(/Blueprint Hackathon · public judge walkthrough/i)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Start the 3-minute judge walkthrough/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /The build history is part of the submission/i })).toBeVisible();
-  await expect(page.getByText("First repository commit")).toBeVisible();
+  await expect(page.getByText("Evidence-backed milestone approval", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Start the 3-minute walkthrough/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /The page says success. The network says 500./i })).toBeVisible();
+  await expect(page.getByText(/judge|hackathon submission/i)).toHaveCount(0);
   await expect(page.getByText(/one-click/i)).toHaveCount(0);
 
   await page.goto("/request-demo");

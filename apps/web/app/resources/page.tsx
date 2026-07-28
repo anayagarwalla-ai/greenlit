@@ -46,7 +46,7 @@ export default function ResourcesPage() {
       <section className="resource-index" aria-labelledby="library-title">
         <div className="resource-index__head">
           <div><span className="resource-kicker">The library</span><h2 id="library-title">Use the piece you need now.</h2></div>
-          <p>Every resource reflects the current hackathon build. It does not assume unbuilt integrations, legal certifications, or customer results.</p>
+          <p>Every resource reflects the current product build. It does not assume unbuilt integrations, legal certifications, or customer results.</p>
         </div>
         {publicResourceCategories.map((category) => {
           const guides = publicResourceGuides.filter((guide) => guide.category === category);
@@ -83,7 +83,7 @@ export default function ResourcesPage() {
             </Link>
             <Link className="resource-card" href={"/resources/changelog" as Route}>
               <div><span>Product evaluation</span><span>Public timeline</span></div>
-              <h4>Hackathon build log</h4>
+              <h4>Product build log</h4>
               <p>Review meaningful changes to agency setup, client review, evidence, and billing handoff.</p>
               <strong>Read changelog <ArrowRight size={15} /></strong>
             </Link>
@@ -96,7 +96,7 @@ export default function ResourcesPage() {
         <div>
           <span>Ready to see the complete story?</span>
           <h2>Follow one SOW promise all the way to approval.</h2>
-          <p>The public judge walkthrough needs no account and uses synthetic data. It includes the false-success failure, corrected pass, client decision, and approval record.</p>
+          <p>The public walkthrough needs no account and uses synthetic data. It includes the false-success failure, corrected pass, client decision, and approval record.</p>
         </div>
         <Link className="button button--outline" href="/workspace?demo=guided">Start the walkthrough</Link>
       </section>

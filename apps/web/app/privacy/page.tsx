@@ -19,9 +19,9 @@ export default function PrivacyPage() {
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
       <article>
-        <div className="legal-kicker">Effective July 28, 2026 · Hackathon prototype</div>
+        <div className="legal-kicker">Effective July 28, 2026 · Product prototype</div>
         <h1>Privacy notice</h1>
-        <p className="legal-lede">This notice explains what Greenlit collects, why it is needed, which providers process it, and how long each category is retained. The public judge walkthrough uses synthetic data and creates no retained customer record.</p>
+        <p className="legal-lede">This notice explains what Greenlit collects, why it is needed, which providers process it, and how long each category is retained. The public walkthrough uses synthetic data and creates no retained customer record.</p>
 
         <h2>Data you provide</h2>
         <ul>
@@ -69,7 +69,7 @@ export default function PrivacyPage() {
         <p>Greenlit uses TLS, private storage, server-only credentials, AES-256-GCM encryption for Stripe OAuth tokens, signed Stripe webhooks, HMAC-authenticated runner callbacks, expiring review sessions, restrictive browser headers, and append-only hash-chained audit events. No service can guarantee absolute security. Do not use this beta for health, financial-account, government-identifier, child, employment, or other regulated data.</p>
 
         <h2>Scope and changes</h2>
-        <p>The public judge walkthrough is available without an account and uses synthetic data. Separate source-import, retained-project, and product-research features are directed to adults acting for a business. Material changes will update the effective date and be presented before new collection where required.</p>
+        <p>The public walkthrough is available without an account and uses synthetic data. Separate source-import, retained-project, and product-research features are directed to adults acting for a business. Material changes will update the effective date and be presented before new collection where required.</p>
 
         <h2>Operator and contact</h2>
         <p>{operator && <><strong>{operator}</strong> operates Greenlit{operatorAddress ? ` at ${operatorAddress}` : ""}. </>}Use the <Link href="/privacy-request">privacy request form</Link> for privacy or data questions. {supportEmail && <>Questions may also be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.</>}</p>

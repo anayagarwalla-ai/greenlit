@@ -6,7 +6,7 @@ import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
   title: "Product research request",
-  description: "Optionally share an agency approval workflow for Greenlit product research. The public judge walkthrough remains available without this form.",
+  description: "Optionally share an agency approval workflow for Greenlit product research. The public walkthrough remains available without this form.",
   path: "/request-demo",
 });
 
@@ -18,7 +18,7 @@ export default function RequestDemoPage() {
         <div>
           <span className="resource-kicker">Optional product research</span>
           <h1>Share where milestone approval gets <em>stuck.</em></h1>
-          <p>This form is not required to evaluate the hackathon submission. Use it only if you want to share an agency workflow for future product research.</p>
+          <p>The walkthrough is available without this form. Use this request only if you want to share an agency workflow for future product research.</p>
           <ul>
             <li><Clock3 size={17} /><span><strong>Twenty focused minutes</strong>Discovery first, then a six-to-eight-minute synthetic product walkthrough.</span></li>
             <li><Users size={17} /><span><strong>Built for agency delivery teams</strong>Owners, operations leads, project managers, and account leads are the best fit.</span></li>

@@ -12,11 +12,11 @@ export default function Home() {
         <SiteHeader />
         <div className="hero-grid">
           <div className="hero-copy">
-            <div className="eyebrow"><span className="eyebrow-dot" /> Blueprint Hackathon · public judge walkthrough</div>
+            <div className="eyebrow"><span className="eyebrow-dot" /> Evidence-backed milestone approval</div>
             <h1>The client says<br /><em>prove it.</em></h1>
             <p className="hero-lede"><strong>The agency says it&apos;s done. The client says prove it. Greenlit turns the SOW into the proof.</strong> Follow one promise from contract language to browser evidence, approval, and an invoice-ready record.</p>
             <div className="hero-actions">
-              <Link className="button button--lime" href="/workspace?demo=guided">Start the 3-minute judge walkthrough <ArrowRight size={18} /></Link>
+              <Link className="button button--lime" href="/workspace?demo=guided">Start the 3-minute walkthrough <ArrowRight size={18} /></Link>
               <Link className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See the story first</Link>
             </div>
             <div className="trust-line">
@@ -33,7 +33,7 @@ export default function Home() {
                   <span className="micro-label">One promise · complete chain</span>
                   <h2>SOW to sign-off</h2>
                 </div>
-                <span className="proof-live-pill"><span /> Judge path</span>
+                <span className="proof-live-pill"><span /> Live walkthrough</span>
               </div>
 
               <div className="proof-chain">
@@ -102,24 +102,11 @@ export default function Home() {
         <Link className="button button--lime" href="/workspace?demo=guided">See Greenlit catch it <ArrowRight size={18} /></Link>
       </section>
 
-      <section className="build-timeline-section" id="build-timeline" aria-labelledby="build-timeline-title">
-        <div>
-          <span className="section-kicker">Eligibility disclosure</span>
-          <h2 id="build-timeline-title">The build history is part of the submission.</h2>
-          <p>Greenlit is presented here as a Blueprint Hackathon project. These dates come directly from the repository history so judges can evaluate the timeline without guessing.</p>
-        </div>
-        <dl>
-          <div><dt>First repository commit</dt><dd>July 19, 2026</dd></div>
-          <div><dt>Current submission build</dt><dd>July 28, 2026</dd></div>
-          <div><dt>Judge access</dt><dd>Public walkthrough · no account</dd></div>
-        </dl>
-      </section>
-
       <section className="cta-strip">
-        <div><span>Blueprint Hackathon submission</span><h2>One promise. One failure.{" "}<br />One proof a client can approve.</h2></div>
+        <div><span>From promise to approval</span><h2>One promise. One failure.{" "}<br />One proof a client can approve.</h2></div>
         <div className="cta-strip__actions">
           <Link className="text-link text-link--inverse" href={"/trust" as Route}>What runs live</Link>
-          <Link className="button button--lime" href="/workspace?demo=guided">Start the judge walkthrough <ArrowRight size={18} /></Link>
+          <Link className="button button--lime" href="/workspace?demo=guided">Start the walkthrough <ArrowRight size={18} /></Link>
         </div>
       </section>
     </main>

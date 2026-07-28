@@ -13,7 +13,7 @@ export function ResourceHeader({ back = false }: { back?: boolean }) {
         <Link href={"/resources/changelog" as Route}>Changelog</Link>
         <Link href={"/trust" as Route}>Trust</Link>
         <Link className="button button--small button--ink" href="/workspace?demo=guided">
-          Judge walkthrough <ArrowUpRight size={15} aria-hidden="true" />
+          Walkthrough <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
       </nav>
     </header>

@@ -5,7 +5,7 @@ import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
   title: "Prototype terms",
-  description: "Terms and operating boundaries for Greenlit's public hackathon walkthrough and separate account-based project features.",
+  description: "Terms and operating boundaries for Greenlit's public walkthrough and separate account-based project features.",
   path: "/terms",
 });
 
@@ -20,12 +20,12 @@ export default function TermsPage() {
     <main className="legal-page">
       <header><Brand /><Link href="/">Back to product</Link></header>
       <article>
-        <div className="legal-kicker">Effective July 28, 2026 · Hackathon prototype</div>
+        <div className="legal-kicker">Effective July 28, 2026 · Product prototype</div>
         <h1>Terms of use</h1>
-        <p className="legal-lede">Greenlit is a Blueprint Hackathon prototype for demonstrating evidence-backed milestone approval. The public judge walkthrough uses synthetic data and creates no retained customer record.</p>
+        <p className="legal-lede">Greenlit is a product prototype for demonstrating evidence-backed milestone approval. The public walkthrough uses synthetic data and creates no retained customer record.</p>
 
         <h2>Eligibility and authority</h2>
-        <p>The public judge walkthrough requires no account and uses only included synthetic material. Separate source import, retained project, and product-research features are for adults acting for a business who have authority to submit the material and represent the organization they identify. Those features are not offered for consumer, medical, financial, employment, government, or child-directed use.</p>
+        <p>The public walkthrough requires no account and uses only included synthetic material. Separate source import, retained project, and product-research features are for adults acting for a business who have authority to submit the material and represent the organization they identify. Those features are not offered for consumer, medical, financial, employment, government, or child-directed use.</p>
 
         <h2>Your data and Gemini</h2>
         <p>Submit only material you are authorized to process and never submit secrets or regulated data. You authorize the disclosed processing needed to provide the Service. {paidGemini ? "This deployment identifies Gemini as a paid API service, whose current terms state prompts and responses are not used to improve Google products." : "Gemini’s unpaid API tier may allow Google to use inputs and outputs to improve its services and permit human review; only synthetic or explicitly non-confidential, non-personal material is allowed."} The analysis screen requires a separate acknowledgment before anything is sent.</p>

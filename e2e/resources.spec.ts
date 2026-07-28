@@ -7,7 +7,7 @@ test("resource center exposes the public workflow library", async ({ page }) => 
   await expect(page.getByRole("link", { name: /Agency quick-start/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Writing measurable acceptance criteria/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Approval-delay calculator/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Hackathon build log/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Product build log/i }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /Start the walkthrough/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Agency sales and client-introduction playbook/i })).toHaveCount(0);
 });
@@ -65,7 +65,7 @@ test("what-runs-live page names prototype boundaries and stays within mobile wid
   await page.goto("/trust");
 
   await expect(page.getByRole("heading", { name: /Clear demo/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /What the judge can run now/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /What you can run now/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "What Greenlit does not claim" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);

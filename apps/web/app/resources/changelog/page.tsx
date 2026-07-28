@@ -5,8 +5,8 @@ import { ResourceHeader } from "@/components/resource-header";
 import { publicPageMetadata } from "@/lib/page-metadata";
 
 export const metadata = publicPageMetadata({
-  title: "Hackathon build log",
-  description: "Greenlit's public Blueprint Hackathon build timeline and meaningful product changes.",
+  title: "Product build log",
+  description: "Greenlit's public development timeline and meaningful product changes.",
   path: "/resources/changelog",
 });
 
@@ -49,9 +49,9 @@ export default function ChangelogPage() {
       <ResourceHeader back />
       <article className="guide">
         <header className="guide-hero">
-          <span className="resource-kicker">Blueprint Hackathon</span>
+          <span className="resource-kicker">Product updates</span>
           <h1>Build log</h1>
-          <p>A public timeline of the submission, from the first repository commit through the current judge-ready deployment.</p>
+          <p>A public timeline of development, from the first repository commit through the current deployment.</p>
           <div className="guide-meta"><span>First commit July 19, 2026</span><span>Current build July 28, 2026</span></div>
         </header>
         <div className="changelog">
@@ -67,7 +67,7 @@ export default function ChangelogPage() {
           ))}
         </div>
         <section className="resource-callout resource-callout--warning">
-          <strong>Judge path and retained project path are separate</strong>
+          <strong>Walkthrough and retained project paths are separate</strong>
           <p>The public walkthrough requires no account and uses deterministic sample outcomes. Retained staging verification is restricted to authorized source material, supported public origins, and account-scoped records. See What runs live for the exact boundary.</p>
         </section>
         <footer className="guide-next"><Link href={"/resources" as Route}><ArrowLeft size={16} /> All resources</Link></footer>
