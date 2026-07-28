@@ -8,9 +8,9 @@ Greenlit
 
 Turn every SOW promise into client-ready proof.
 
-## One-line pitch
+## Elevator pitch (198 characters)
 
-Greenlit helps web agencies use Gemini to turn a statement of work into human-confirmed acceptance criteria, verify those promises against a staging build, and collect an evidence-backed client approval so the milestone is ready to invoice.
+Greenlit uses Gemini to turn a statement of work into human-confirmed acceptance criteria, verify each promise against staging, and give clients evidence they can approve before the agency invoices.
 
 ## Inspiration
 
@@ -85,11 +85,15 @@ TypeScript, React, Next.js, Gemini API, Google GenAI SDK, Zod, Cloudflare Worker
 
 - Live app: https://greenlitproof.vercel.app
 - GitHub: https://github.com/anayagarwalla-ai/milestoneproof
+- Presentation (PDF): https://github.com/anayagarwalla-ai/milestoneproof/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pdf
+- Presentation (PowerPoint): https://github.com/anayagarwalla-ai/milestoneproof/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pptx
 - Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health (legacy infrastructure hostname)
+
+Add the final public YouTube or Vimeo demo URL to the Devpost video field after recording. Confirm all GitHub presentation links in an incognito window after the repository is public and `main` contains the submission release.
 
 ## Suggested Devpost gallery captions
 
-1. **Real SOW import:** Paste a non-confidential scope or upload a document; Gemini drafts source-backed acceptance criteria.
+1. **Product overview:** Greenlit connects the SOW, browser evidence, client decision, and invoice-ready approval record.
 2. **Human-controlled AI:** Every measurable outcome, exact quote, evidence family, and rationale is editable and must be confirmed.
 3. **A false success caught:** The page claimed the form worked, but Greenlit proved its lead request returned HTTP 500.
 4. **Proof the client understands:** The review packet translates a passing browser run back into the six promises the client signed.

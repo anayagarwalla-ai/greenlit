@@ -20,3 +20,6 @@ tmp/
 docs/operations/*.json
 artifacts/release/
 supabase/.temp/
+/artifacts/
+/outputs/
+*.pptx.inspect.ndjson

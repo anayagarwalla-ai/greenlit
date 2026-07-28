@@ -66,7 +66,7 @@ pnpm build
 - **Closed beta:** set `BETA_ALLOWED_EMAILS`, `ADMIN_EMAILS`, `NEXT_PUBLIC_OPERATOR_NAME`, and `NEXT_PUBLIC_SUPPORT_EMAIL`. Daily defaults are 8 retained browser runs and 100 analyses globally; tune them with `BETA_DAILY_RUN_LIMIT` and `BETA_DAILY_ANALYSIS_LIMIT` without enabling paid services.
 - **Notifications:** every client decision appears in-app. Optionally set a public HTTPS webhook URL, a webhook secret, and the disclosed provider name for immediate external delivery; failed deliveries remain in the outbox and are retried by the bounded hourly notification job.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, and [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough. Beta operators should also use [docs/BETA_OPERATIONS.md](docs/BETA_OPERATIONS.md) and [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust boundaries, [docs/JUDGE_DEMO.md](docs/JUDGE_DEMO.md) for the timed video script, [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) for submission copy, [docs/JUDGING_NOTES.md](docs/JUDGING_NOTES.md) for the official-rubric walkthrough, and [docs/hackathon/README.md](docs/hackathon/README.md) for the complete judge-facing submission package. Beta operators should also use [docs/BETA_OPERATIONS.md](docs/BETA_OPERATIONS.md) and [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md).
 
 ## Agency resources
 

@@ -216,7 +216,7 @@ for (const boundary of boundaryChecks) {
 const auxiliaryChecks = [
   { path: "/robots.txt", contentType: "text/plain", contains: "Sitemap:" },
   { path: "/sitemap.xml", contentType: "application/xml", contains: "/resources/roi-calculator" },
-  { path: "/.well-known/security.txt", contentType: "text/plain", contains: "Contact: mailto:" },
+  { path: "/.well-known/security.txt", contentType: "text/plain", contains: "Contact:" },
   { path: "/manifest.webmanifest", contentType: "application/manifest+json", contains: "\"name\":\"Greenlit\"" },
   { path: "/icon.png", contentType: "image/png" },
   { path: "/apple-icon.png", contentType: "image/png" },

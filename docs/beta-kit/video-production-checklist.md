@@ -1,6 +1,6 @@
-# Two-minute demo video production checklist
+# Blueprint 2:45 demo video production checklist
 
-Use with the public `Two-minute demo video script`.
+Use with `docs/JUDGE_DEMO.md`. The official submission window is 2–5 minutes; target 2:30–2:55.
 
 ## Before recording
 
@@ -27,7 +27,7 @@ Use with the public `Two-minute demo video script`.
 
 ## Editing
 
-- [ ] Final length is 90 to 120 seconds.
+- [ ] Final length is 150 to 175 seconds.
 - [ ] Captions are accurate.
 - [ ] No em dash is used in on-screen copy.
 - [ ] No unsupported security, legal, accessibility, payment, or performance claim appears.
