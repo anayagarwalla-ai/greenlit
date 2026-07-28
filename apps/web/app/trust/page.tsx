@@ -24,6 +24,33 @@ export default function TrustPage() {
         <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Product walkthrough</span><span>Updated July 28, 2026</span></div>
       </section>
 
+      <section className="trust-status-board" aria-labelledby="trust-status-title">
+        <div className="trust-status-board__heading">
+          <div><span className="resource-kicker">Status at a glance</span><h2 id="trust-status-title">What is real today.</h2></div>
+          <p>These labels separate the public deployed experience from account-based infrastructure and future product commitments.</p>
+        </div>
+        <div className="trust-status-board__grid">
+          <article className="trust-status-card trust-status-card--live">
+            <span>Live now</span>
+            <h3>Public product walkthrough</h3>
+            <p>Runs on this production deployment with no account. It includes source confirmation, the HTTP 500 failure reveal, a fixed rerun, client approval, and a printable sample record.</p>
+            <small>Seeded outcomes · synthetic data · no retained customer record</small>
+          </article>
+          <article className="trust-status-card trust-status-card--configured">
+            <span>Configured path</span>
+            <h3>Retained project execution</h3>
+            <p>Gemini analysis, the Cloudflare queue and browser runner, Supabase private storage, and Stripe invoicing have implemented integration paths.</p>
+            <small>Requires configured credentials, account access, origin verification, and available capacity</small>
+          </article>
+          <article className="trust-status-card trust-status-card--planned">
+            <span>Planned or not promised</span>
+            <h3>Broader production guarantees</h3>
+            <p>General availability, universal staging compatibility, paid capacity, service-level commitments, certifications, and custom integrations are not part of the public walkthrough.</p>
+            <small>No claim is made until the capability is deployed, tested, and disclosed</small>
+          </article>
+        </div>
+      </section>
+
       <section className="trust-grid" aria-label="Security overview">
         <article><LockKeyhole /><h2>Walkthrough access</h2><p>The complete guided walkthrough is public and requires no sign-in. Account access is reserved for retained project work and owner-scoped records.</p></article>
         <article><Server /><h2>Architecture</h2><p>Vercel serves the app, Gemini supports source analysis, Cloudflare runs queued browser checks, Supabase stores private records, and Stripe supports the optional billing handoff.</p></article>

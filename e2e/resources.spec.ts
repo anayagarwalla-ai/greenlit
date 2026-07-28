@@ -65,6 +65,10 @@ test("what-runs-live page names prototype boundaries and stays within mobile wid
   await page.goto("/trust");
 
   await expect(page.getByRole("heading", { name: /Clear demo/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What is real today." })).toBeVisible();
+  await expect(page.getByText("Live now", { exact: true })).toBeVisible();
+  await expect(page.getByText("Configured path", { exact: true })).toBeVisible();
+  await expect(page.getByText("Planned or not promised", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: /What you can run now/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "What Greenlit does not claim" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

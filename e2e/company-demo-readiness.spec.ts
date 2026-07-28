@@ -4,7 +4,7 @@ test("the public product funnel offers a direct walkthrough without contest-spec
   await page.goto("/");
   await expect(page.getByText("Evidence-backed milestone approval", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Start the 3-minute walkthrough/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /The page says success. The network says 500./i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /The page says success. The API says 500./i })).toBeVisible();
   await expect(page.getByText(/judge|hackathon submission/i)).toHaveCount(0);
   await expect(page.getByText(/one-click/i)).toHaveCount(0);
 
@@ -76,7 +76,10 @@ test("robots and sitemap expose public evaluation pages without advertising priv
   const robotsBody = await robots.text();
   expect(robotsBody).toContain("Disallow: /admin");
   expect(robotsBody).toContain("Disallow: /dashboard");
-  expect(robotsBody).toContain("Disallow: /workspace");
+  expect(robotsBody).toContain("Allow: /workspace");
+  expect(robotsBody).toContain("Allow: /review/demo");
+  expect(robotsBody).toContain("Allow: /receipt/demo");
+  expect(robotsBody).not.toContain("Disallow: /workspace");
 
   const sitemap = await request.get("/sitemap.xml");
   expect(sitemap.status()).toBe(200);
@@ -86,4 +89,14 @@ test("robots and sitemap expose public evaluation pages without advertising priv
   expect(sitemapBody).toContain("/resources/roi-calculator");
   expect(sitemapBody).not.toContain("/resources/case-study-kit");
   expect(sitemapBody).not.toContain("/dashboard");
+});
+
+test("the public walkthrough is meaningful from a cold session", async ({ page }) => {
+  const startedAt = Date.now();
+  await page.goto("/workspace?demo=guided");
+
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  expect(Date.now() - startedAt).toBeLessThan(10_000);
+  await expect(page.getByText("0/6 confirmed")).toBeVisible();
+  await expect(page.locator(".demo-badge")).toContainText("Guided demo");
 });

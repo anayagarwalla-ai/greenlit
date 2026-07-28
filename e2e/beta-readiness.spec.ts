@@ -46,7 +46,8 @@ function receiptPacket(overrides: Record<string, unknown> = {}) {
 
 test("the landing-page CTA starts the synthetic walkthrough directly", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "The page says success. The network says 500." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "The page says success. The API says 500." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "The screenshot says done. The evidence says failed." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Catch the fake success" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prove the fix" })).toBeVisible();
   await page.getByRole("link", { name: /Start the 3-minute walkthrough/ }).click();

@@ -1,67 +1,76 @@
 # Greenlit demo video script (2:45)
 
-Target length: 2:30–2:55. Record at 1440p or 1080p with the browser at 100% zoom. Keep the cursor deliberate and captions on.
+Target length: 2:30 to 2:55. Record at 1440p or 1080p with the browser at 100% zoom. Keep the cursor deliberate and captions on.
 
-## 0:00–0:18 — Make the business pain concrete
+## 0:00 to 0:15 | Cold open on the hidden failure
 
-**Screen:** Landing page, then open the workspace.
-
-**Narration:**
-
-“Web agencies often finish a milestone days before they get permission to invoice. The hard part is not delivery—it is proving, in language the client recognizes, that every promise in the statement of work is actually done. Greenlit turns that approval limbo into an evidence-backed workflow.”
-
-## 0:18–0:52 — Real Gemini import
-
-**Screen:** Before recording, sign in with the pre-approved demo account. Click **Use the synthetic sample**, confirm the non-confidential, Gemini unpaid-tier, and 18+/business notices, then **Generate acceptance criteria**. When the result appears, scroll just enough to show the source and criteria together.
+**Screen:** Open the failed `launch-rc1` result at AC-04. Hold on the visible “Request sent” message, then reveal the HTTP 500 response.
 
 **Narration:**
 
-“An agency can paste a non-confidential scope or upload a PDF, text, or Markdown SOW. Gemini finds atomic, measurable acceptance criteria and returns the exact supporting quote for each one. Greenlit independently matches every quote against the extracted source, so the model cannot quietly invent a requirement.”
+“This page says the contact request was sent. The API says it failed. A screenshot would call this done. Greenlit catches what actually happened.”
 
-## 0:52–1:12 — Show the human/AI boundary
+## 0:15 to 0:32 | State the problem in plain language
 
-**Screen:** Briefly edit one quote so its green **Exact source match** badge turns red, then undo the edit. Click **Confirm grounded**.
-
-**Narration:**
-
-“AI drafts; a human decides what ‘done’ means. Every title, quote, evidence type, and rationale is editable. Editing clears confirmation, and an ungrounded quote cannot be frozen. The model never generates or executes arbitrary JavaScript—only typed, allowlisted evidence families move forward.”
-
-## 1:12–1:38 — The memorable failure reveal
-
-**Screen:** Continue into the included staging fixture. Run `launch-rc1` and point to AC-04.
+**Screen:** Return to the homepage hero, then enter the public walkthrough.
 
 **Narration:**
 
-“The safe fixture lets us exercise the whole workflow. This release looks successful: the contact form displays a cheerful confirmation. But the lead request actually returned HTTP 500. Greenlit catches that false success and attaches the observed result to the exact SOW promise.”
+“A web agency says the milestone is finished. The client asks for proof. Greenlit follows each promise from the statement of work to an observed result, a client decision, and an invoice-ready record.”
 
-## 1:38–1:58 — Prove the fix without moving the goalposts
+## 0:32 to 0:55 | Turn one promise into a cited criterion
 
-**Screen:** Click **Verify fixed build**. On the passing report, point to **Specs frozen** and **Artifacts hashed**.
-
-**Narration:**
-
-“We rerun the fixed build against the same frozen scope—no re-analysis and no moving the goalposts. All six promises now pass in an isolated browser run, with timestamped evidence and integrity metadata.”
-
-## 1:58–2:25 — Client decision and invoice-ready record
-
-**Screen:** Click **Create client review**, **Open as the client**, and **Approve milestone**. Enter `Mara Chen` and `mara@acme.example`, affirm authority/intent and electronic records, then open the approval record. Briefly point to **Export JSON**.
+**Screen:** Show the synthetic SOW beside the generated criteria. Point to AC-04 and its exact source quote, then confirm the criteria.
 
 **Narration:**
 
-“The client never sees CI jargon. They see the promises they signed, the outcome observed for each one, and one clear decision. Approval produces a printable and exportable business record tying the SOW revision, build, evidence hashes, client intent, timestamp, and twelve-thousand-dollar milestone together.”
+“Greenlit turns the scope into measurable acceptance criteria and keeps the exact supporting language beside each one. The agency reviews every criterion before it is frozen. AI can draft the structure, but a human decides what ‘done’ means.”
 
-## 2:25–2:45 — Technical credibility and close
+## 0:55 to 1:20 | Run typed checks and reveal the failure
 
-**Screen:** Show `docs/ARCHITECTURE.md` or the GitHub README, then return to the passing report.
+**Screen:** Continue to the typed-check summary, run `launch-rc1`, and return to AC-04. Show the visible confirmation and failed request together.
 
 **Narration:**
 
-“The app is live on Vercel, uses Gemini structured output, a signed Cloudflare Queue and Browser runner, private Supabase storage with row-level security, and shared Zod contracts. The complete guided path remains available if an optional service is unavailable, and the free-tier build enables no paid services. Greenlit: give the client proof, not a test report.”
+“Each supported promise maps to an allowlisted check, not arbitrary generated code. On the first build, the interface looks successful while the lead request returns HTTP 500. Greenlit records the failed observation against the exact promise.”
+
+## 1:20 to 1:42 | Fix and rerun without moving the goalposts
+
+**Screen:** Click **Verify fixed build**. On `launch-rc2`, point to the passing AC-04 result and the frozen-criteria label.
+
+**Narration:**
+
+“The agency fixes the build and reruns the same frozen criteria. There is no rewording the requirement to make the failure disappear. The corrected request succeeds, and all six sample promises now pass.”
+
+## 1:42 to 2:10 | Client decision and invoice-ready record
+
+**Screen:** Create the sample client review, open it as the client, approve the milestone, and open the printable sample record.
+
+**Narration:**
+
+“The client sees the promise, expected outcome, and observed result together. One clear approval turns the milestone into an invoice-ready sample record. In a retained project, the record also links the frozen source revision, evidence manifest, reviewer intent, and transaction history.”
+
+## 2:10 to 2:30 | Say exactly what is real
+
+**Screen:** Open `/trust` and hold on **What is real today**.
+
+**Narration:**
+
+“This public walkthrough runs live on the deployed app with no account. Its outcomes are seeded, synthetic, and do not create a customer record. The account-based Gemini, queued browser, private storage, and Stripe paths require configured services and available capacity. Broader production guarantees remain planned, not promised.”
+
+## 2:30 to 2:45 | Architecture and close
+
+**Screen:** Show the README architecture diagram, then finish on the homepage proof card.
+
+**Narration:**
+
+“Vercel serves the product, Gemini supports source analysis, Cloudflare runs queued browser checks, Supabase stores private records, and Stripe supports the optional invoice handoff. Greenlit: the page says success; the evidence tells the truth.”
 
 ## Recording safety net
 
 - Use only the included synthetic SOW.
-- Add the recording account to `BETA_ALLOWED_EMAILS`, complete its magic-link sign-in before recording, and close the email tab so no personal inbox details appear on camera.
-- If Gemini or free Cloudflare browser capacity is unavailable during recording, click **Launch the reliable guided demo** and say, “This clearly labeled walkthrough uses seeded outcomes and creates no evidence record; the real Gemini import and browser architecture are shown separately.” Do not narrate its results as a live browser run.
-- Do one dry run through the approval dialog before recording so the browser has no permission prompts.
-- Avoid opening Vercel, Supabase, or Cloudflare dashboards on camera; they may expose project metadata.
+- Start with a new private browser window and the production walkthrough URL. No sign-in or prior session should be required.
+- Use the public walkthrough for the main recording. Its seeded outcomes create no browser-evidence, approval, or transaction record.
+- If showing the retained project path separately, use only a pre-approved test account and synthetic data. Do not describe optional infrastructure as part of the seeded walkthrough.
+- Do one dry run before recording so the browser has no permission prompts.
+- Avoid opening Vercel, Supabase, Cloudflare, Stripe, or personal email dashboards on camera because they may expose project metadata.

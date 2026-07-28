@@ -13,27 +13,27 @@ export default function Home() {
         <div className="hero-grid">
           <div className="hero-copy">
             <div className="eyebrow"><span className="eyebrow-dot" /> Evidence-backed milestone approval</div>
-            <h1>The client says<br /><em>prove it.</em></h1>
-            <p className="hero-lede"><strong>The agency says it&apos;s done. The client says prove it. Greenlit turns the SOW into the proof.</strong> Follow one promise from contract language to browser evidence, approval, and an invoice-ready record.</p>
+            <h1 className="hero-failure-title">The page says success.<br /><em>The API says 500.</em></h1>
+            <p className="hero-lede"><strong>A screenshot looks finished. Greenlit checks what actually happened underneath it.</strong> Follow the same SOW promise through the hidden failure, a fixed rerun, client approval, and an invoice-ready record.</p>
             <div className="hero-actions">
               <Link className="button button--lime" href="/workspace?demo=guided">Start the 3-minute walkthrough <ArrowRight size={18} /></Link>
               <Link className="text-link" href="#how-it-works"><Play size={16} fill="currentColor" /> See the story first</Link>
             </div>
             <div className="trust-line">
               <span><Globe2 size={16} /> No sign-in required</span>
-              <span><Bug size={16} /> Includes the false-success bug</span>
+              <span><Bug size={16} /> Catches false-success API failures</span>
             </div>
           </div>
 
-          <div className="proof-composition" id="proof-chain" aria-label="One statement of work promise becoming client-approved proof">
+          <div className="proof-composition" id="proof-chain" aria-label="A visible success message contradicted by a failed API request">
             <div className="proof-accent proof-accent--top" />
             <div className="proof-chain-card">
               <div className="proof-chain-card__header">
                 <div>
-                  <span className="micro-label">One promise · complete chain</span>
-                  <h2>SOW to sign-off</h2>
+                  <span className="micro-label">The moment screenshots miss</span>
+                  <h2>Promise vs. reality</h2>
                 </div>
-                <span className="proof-live-pill"><span /> Live walkthrough</span>
+                <span className="proof-live-pill proof-live-pill--failed"><span /> HTTP 500 caught</span>
               </div>
 
               <div className="proof-chain">
@@ -51,16 +51,16 @@ export default function Home() {
                   <div className="proof-chain__label"><span>03</span><ScanSearch size={15} /> Browser evidence</div>
                   <div className="mini-browser-proof">
                     <div><i /><i /><i /><span>/fixture/contact</span></div>
-                    <p><strong>POST /api/fixture/leads</strong><span>200 OK · lead created</span></p>
+                    <p><strong>Page: “Request sent”</strong><span>API: HTTP 500</span></p>
                   </div>
-                  <span className="pass-pill"><Check size={12} /> Passed</span>
+                  <span className="pass-pill pass-pill--fail"><Bug size={12} /> Failed</span>
                 </div>
               </div>
 
               <div className="proof-chain-card__outcome">
-                <div className="avatar-stack" aria-label="Approved by Mara Chen"><span>NS</span><span>MC</span></div>
-                <div><span>Client decision</span><strong>Mara approved the milestone</strong></div>
-                <div><span>Billing handoff</span><strong>$12,000 · invoice ready</strong></div>
+                <div className="proof-failure-mark" aria-hidden="true"><Bug size={18} /></div>
+                <div><span>Greenlit decision</span><strong>The promise failed</strong></div>
+                <div><span>Next step</span><strong>Fix, then rerun the same criterion</strong></div>
               </div>
             </div>
             <div className="proof-accent proof-accent--bottom" />
@@ -86,7 +86,7 @@ export default function Home() {
 
       <section className="judge-story-section" aria-labelledby="judge-story-title">
         <div className="judge-story-heading">
-          <div><span className="section-kicker">The memorable moment</span><h2 id="judge-story-title">The page says success.<br />The network says 500.</h2></div>
+          <div><span className="section-kicker">The memorable moment</span><h2 id="judge-story-title">The screenshot says done.<br />The evidence says failed.</h2></div>
           <p>A screenshot alone can look convincing. Greenlit checks the browser outcome behind it and attaches that observation to the exact promise the client signed.</p>
         </div>
         <div className="false-success-comparison">
