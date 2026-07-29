@@ -7,6 +7,7 @@ import { ArrowRight, Bell, Check, Clipboard, Clock3, CreditCard, ExternalLink, F
 import { Brand } from "@/components/brand";
 import { formatTimestamp } from "@/lib/format";
 import { signOutAndClearDraftState } from "@/lib/client-storage";
+import { AGENCY_BETA_SIGN_IN_VISIBLE } from "../lib/public-features";
 import { canCreateReviewLink } from "@/lib/review-lifecycle";
 import { InvoicePlanCard } from "@/components/invoice-plan-card";
 import { ReviewSetupDialog, type ReviewExpiryHours } from "@/components/review-setup-dialog";
@@ -224,7 +225,7 @@ export function AgencyDashboard() {
   };
 
   if (loading && !data) return <main className="dashboard-shell"><section className="review-state"><div className="loader-orbit" /><h1>Opening agency dashboard</h1><p>Loading your retained milestone records and client decisions.</p></section></main>;
-  if (authError) return <main className="dashboard-shell"><section className="review-state"><ShieldCheck size={34} /><h1>Sign in required</h1><p>{authError}</p><Link className="button button--lime" href={"/login" as Route}>Agency sign in</Link></section></main>;
+  if (authError) return <main className="dashboard-shell"><section className="review-state"><ShieldCheck size={34} /><h1>{AGENCY_BETA_SIGN_IN_VISIBLE ? "Sign in required" : "Workspace unavailable"}</h1><p>{authError}</p><Link className="button button--lime" href={(AGENCY_BETA_SIGN_IN_VISIBLE ? "/login" : "/") as Route}>{AGENCY_BETA_SIGN_IN_VISIBLE ? "Agency sign in" : "Return to overview"}</Link></section></main>;
   if (!data) return <main className="dashboard-shell"><section className="review-state"><ShieldCheck size={34} /><h1>Dashboard unavailable</h1><p role="alert">{error || "The dashboard could not be loaded."}</p><button className="button button--lime" onClick={() => void load()}><RefreshCw size={15} /> Retry</button></section></main>;
 
   const unread = data.notifications.filter((item) => !item.read_at);

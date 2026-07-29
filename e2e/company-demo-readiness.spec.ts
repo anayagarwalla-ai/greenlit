@@ -12,6 +12,15 @@ test("the public product funnel offers a direct walkthrough without contest-spec
   await expect(page.getByRole("heading", { name: /Share where milestone approval gets stuck/i })).toBeVisible();
   await expect(page.getByText(/No confidential SOW required/i)).toBeVisible();
   await expect(page.getByText(/Do not paste a SOW, credentials, client data, access codes, or regulated information/i)).toBeVisible();
+  const honeypot = page.locator(".demo-request-honeypot");
+  const honeypotStyles = await honeypot.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return { position: style.position, overflow: style.overflow, clip: style.clip, width: rect.width, height: rect.height };
+  });
+  expect(honeypotStyles).toMatchObject({ position: "absolute", overflow: "hidden", width: 1, height: 1 });
+  expect(honeypotStyles.clip).not.toBe("auto");
+  await expect(page.locator('input[name="faxNumber"]')).toHaveAttribute("tabindex", "-1");
 });
 
 test("a qualified agency can submit a demo request and receives a retained reference", async ({ page }) => {
@@ -99,4 +108,13 @@ test("the public walkthrough is meaningful from a cold session", async ({ page }
   expect(Date.now() - startedAt).toBeLessThan(10_000);
   await expect(page.getByText("0/6 confirmed")).toBeVisible();
   await expect(page.locator(".demo-badge")).toContainText("Guided demo");
+});
+
+test("the guided route server-renders no-account loading copy", async ({ request }) => {
+  const response = await request.get("/workspace?demo=guided");
+  expect(response.status()).toBe(200);
+  const body = await response.text();
+  expect(body).toContain("Preparing the guided walkthrough");
+  expect(body).toContain("No account is required");
+  expect(body).not.toContain("Checking your session and newest retained project state");
 });

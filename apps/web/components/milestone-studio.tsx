@@ -45,6 +45,7 @@ import { checkTypes, isCriterionReady, isGroundedQuote, lineContainsCitation, no
 import { demoCriteria, demoSowText, seededDemoArtifacts, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { DEMO_TIME_ZONE, formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
+import { AGENCY_BETA_SIGN_IN_VISIBLE } from "../lib/public-features";
 import { isActiveRunStatus, isTerminalRunFailure, terminalRunMessage } from "@/lib/run-status";
 import {
   activeDraftId,
@@ -222,7 +223,7 @@ async function browserSha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: boolean }) {
+export function MilestoneStudio({ geminiPaidService, guidedDemo }: { geminiPaidService: boolean; guidedDemo: boolean }) {
   const [phase, setPhase] = useState<Phase>("intake");
   const [sourceMode, setSourceMode] = useState<SourceMode>("live");
   const [sourceText, setSourceText] = useState("");
@@ -733,7 +734,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     setBusiness({
       agencyName: "Northstar Studio",
       clientName: "Acme Outdoors",
-      projectName: "Spring launch",
+      projectName: "Acme Outdoors website",
       milestoneTitle: "Spring launch",
       amountDollars: "12000.00",
       currency: "USD",
@@ -1128,7 +1129,9 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
     : phase === "intake"
       ? sessionEmail
         ? "Add the SOW and milestone details, accept the notices, then generate the criteria."
-        : "Add the SOW and milestone details. Sign in only when you are ready to generate the criteria."
+        : AGENCY_BETA_SIGN_IN_VISIBLE
+          ? "Add the SOW and milestone details. Sign in only when you are ready to generate the criteria."
+          : "Explore the complete workflow in the guided walkthrough. Account-backed imports are not being offered publicly yet."
       : phase === "criteria"
         ? sourceMode === "demo"
           ? "Review the six source-backed checks, then confirm them to verify the sample build."
@@ -1154,8 +1157,8 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         <section className="panel loading-panel" role="alert">
           <div className="loading-content">
             {restorePending ? <LoaderCircle className="spin" size={30} /> : <AlertTriangle size={30} />}
-            <h1>{restorePending ? "Restoring your workspace…" : "We could not safely restore this workspace."}</h1>
-            <p>{restorePending ? "Checking your session and newest retained project state before editing is enabled." : restoreError}</p>
+            <h1>{restorePending ? guidedDemo ? "Preparing the guided walkthrough…" : "Restoring your workspace…" : "We could not safely restore this workspace."}</h1>
+            <p>{restorePending ? guidedDemo ? "Loading the sample promise, verification evidence, client decision, and invoice-ready record. No account is required." : "Checking your session and newest retained project state before editing is enabled." : restoreError}</p>
             {!restorePending && <><p>Your browser copy has not been overwritten. Retry once the connection is stable.</p><button type="button" className="button button--ink" onClick={() => window.location.reload()}><RefreshCw size={15} /> Retry restoration</button></>}
           </div>
         </section>
@@ -1169,9 +1172,9 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
         <Brand inverse />
         <div className="app-topbar__right">
           <span className="demo-badge">{sourceMode === "demo" ? "Guided demo" : "Gemini import"}</span>
-          <Link className="app-account-link" onClick={(event) => { event.preventDefault(); void leaveForAccountPage(sessionEmail ? "/dashboard" : signInHref); }} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>
+          {(sessionEmail || AGENCY_BETA_SIGN_IN_VISIBLE) && <Link className="app-account-link" onClick={(event) => { event.preventDefault(); void leaveForAccountPage(sessionEmail ? "/dashboard" : signInHref); }} href={(sessionEmail ? "/dashboard" : signInHref) as Route}>{sessionEmail ? "Dashboard" : "Agency sign in"}</Link>}
           <button className="button button--small button--outline" onClick={reset}><RefreshCw size={13} /> New import</button>
-          <span className="avatar" aria-label={sessionEmail || "Guest agency"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "AG"}</span>
+          <span className="avatar" aria-label={sessionEmail || "Guided workspace"}>{sessionEmail ? sessionEmail.slice(0, 2).toUpperCase() : "GW"}</span>
         </div>
       </header>
 
@@ -1225,7 +1228,7 @@ export function MilestoneStudio({ geminiPaidService }: { geminiPaidService: bool
 
           <div className="sr-only" aria-live="polite" aria-atomic="true">{phase === "analyzing" ? "Gemini analysis in progress" : phase.startsWith("running") ? "Verification in progress" : status.text}</div>
 
-          {storageBlocked && sourceMode === "live" && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span><strong>This browser is not saving drafts.</strong> Local storage is unavailable (private browsing, blocked storage, or a full disk), so this draft exists only in this open tab and will be lost if you reload or leave. {sessionEmail ? "Completed verification runs are still retained to your account." : "Sign in and run verification to retain the work server-side."}</span></div>}
+          {storageBlocked && sourceMode === "live" && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span><strong>This browser is not saving drafts.</strong> Local storage is unavailable (private browsing, blocked storage, or a full disk), so this draft exists only in this open tab and will be lost if you reload or leave. {sessionEmail ? "Completed verification runs are still retained to your account." : AGENCY_BETA_SIGN_IN_VISIBLE ? "Sign in and run verification to retain the work server-side." : "Use the guided walkthrough to explore the complete workflow without saving this draft."}</span></div>}
           {runError && <div className="analysis-error workspace-error" role="alert"><AlertTriangle size={15} /><span>{runError}</span>{pollNetworkFailure ? <Link className="mini-action" href="/dashboard">Return to dashboard</Link> : <button className="mini-action" type="button" onClick={() => void openGuidedDemo()}>Open synthetic walkthrough</button>}</div>}
           {changeRequest && <div className="analysis-notice change-request-note" role="status"><PencilLine size={15} /><div><strong>Client change request</strong><span>{changeRequest}</span></div></div>}
 
@@ -1319,8 +1322,8 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
     setBusiness({
       agencyName: "Northstar Studio",
       clientName: "Acme Outdoors",
-      projectName: "Spring launch website",
-      milestoneTitle: "Production-ready marketing site",
+      projectName: "Acme Outdoors website",
+      milestoneTitle: "Spring launch",
       amountDollars: "12000.00",
       currency: "USD",
     });
@@ -1374,15 +1377,19 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            {signedInEmail ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button> : <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in & generate criteria</Link>}
-            <span>{signedInEmail ? "Greenlit checks every required field before analysis." : "Your draft will be preserved through sign-in."}</span>
+            {signedInEmail
+              ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+              : AGENCY_BETA_SIGN_IN_VISIBLE
+                ? <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in & generate criteria</Link>
+                : <button className="button button--ink" type="button" onClick={onDemo}>Explore the full walkthrough <ArrowRight size={15} /></button>}
+            <span>{signedInEmail ? "Greenlit checks every required field before analysis." : AGENCY_BETA_SIGN_IN_VISIBLE ? "Your draft will be preserved through sign-in." : "The public walkthrough demonstrates criteria, verification, client review, and the approval record."}</span>
           </div>
         </div>
 
       </section>
 
       <aside className="intake-side">
-        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>{geminiPaidService ? "Submit only scopes you are authorized to process, and never include secrets or regulated data." : "Use non-confidential scopes only."} Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so sign-in and reload do not erase your work.{signedInEmail ? "" : " Until you sign in, this unsigned draft is limited to this browser tab and is deleted automatically after 30 minutes."}</p></section>
+        <section className="panel privacy-card"><LockKeyhole size={20} /><h3>Safe by design</h3><p>{geminiPaidService ? "Submit only scopes you are authorized to process, and never include secrets or regulated data." : "Use non-confidential scopes only."} Source text is excluded from server records and evidence artifacts; an unfinished copy stays in this browser so reload does not erase your work.{signedInEmail ? "" : " Unsigned drafts are limited to this browser and deleted automatically after 30 minutes."}</p></section>
         <section className="panel trust-card">
           <span className="trust-card__number">01</span><strong>Gemini drafts</strong><p>Atomic outcomes, exact quotes, and an evidence strategy.</p>
           <span className="trust-card__number">02</span><strong>You confirm</strong><p>Edit every claim and freeze only what both sides actually agreed.</p>

@@ -26,7 +26,7 @@ export const demoMilestone = {
   amountMinor: 1_200_000,
   currency: "USD",
   target: "launch-rc2.acme-demo.test",
-  revision: 3,
+  revision: 1,
   sourceHash: "3f45b1d8…a209",
 };
 
@@ -43,8 +43,8 @@ export const sowExcerpt = [
 export const demoSowText = `STATEMENT OF WORK
 Acme Outdoors / Northstar Studio
 
-Project: Spring launch website
-Milestone 3: Production-ready marketing site
+Project: Acme Outdoors website
+Milestone 1: Spring launch
 
 Acceptance criteria: Spring launch milestone
 The homepage hero headline and primary ‘Plan my trip’ call-to-action must be visible on load.
@@ -88,7 +88,7 @@ export const demoCriteria: DemoCriterion[] = [
     id: "AC-04",
     title: "Contact form creates a lead",
     source: "Submitting the contact form must create a lead and show a success confirmation.",
-    check: "Submit labeled staging fields; expect success text and POST /api/leads → 201.",
+    check: "Submit labeled staging fields; expect success text and POST /api/fixture/leads → 201.",
     type: "Form",
     path: "/#contact",
     result: { rc1: "FAIL", rc2: "PASS", expected: "Success text + HTTP 201", observedRc1: "Success text shown, but POST returned 500", observedRc2: "Success text shown; POST returned 201", duration: 821 },

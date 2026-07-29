@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, CircleDot, Clipboard, ExternalLink, LoaderCircle, LockKeyhole, Play, ShieldCheck } from "lucide-react";
 import { checkSpecSchema, type CheckSpec } from "@greenlit/contracts";
 import type { AnalysisCriterion } from "@/lib/analysis";
+import { AGENCY_BETA_SIGN_IN_VISIBLE } from "../lib/public-features";
 import { clientRequestMessage, fetchWithTimeout } from "../lib/client-request";
 
 export type CheckDraft = {
@@ -268,7 +269,8 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
     <div className="verification-setup-grid">
       <section className="panel setup-main">
         <div className="setup-heading"><span className="handoff-mark"><ShieldCheck size={26} /></span><div><div className="intake-kicker">Scope frozen · connect staging</div><h2>Map the promises to evidence.</h2><p>{criteria.length} confirmed promises from <strong>{sourceName}</strong>; {automated.length} can be checked safely and {criteria.length - automated.length} remain client-reviewed.</p></div></div>
-        {!signedInEmail && <div className="setup-auth"><LockKeyhole size={18} /><div><strong>Agency sign-in required</strong><span>Retained runs and client decisions belong to an agency account, so they remain accessible across devices.</span></div><Link className="button button--ink button--small" href={"/login?next=/workspace" as Route}>Sign in <ArrowRight size={13} /></Link></div>}
+        {!signedInEmail && AGENCY_BETA_SIGN_IN_VISIBLE && <div className="setup-auth"><LockKeyhole size={18} /><div><strong>Agency sign-in required</strong><span>Retained runs and client decisions belong to an agency account, so they remain accessible across devices.</span></div><Link className="button button--ink button--small" href={"/login?next=/workspace" as Route}>Sign in <ArrowRight size={13} /></Link></div>}
+        {!signedInEmail && !AGENCY_BETA_SIGN_IN_VISIBLE && <div className="setup-auth"><Play size={18} /><div><strong>Explore this step in the walkthrough</strong><span>The public walkthrough demonstrates verification, client review, and the approval record without an account.</span></div><button className="button button--ink button--small" type="button" onClick={onDemo}>Open walkthrough <ArrowRight size={13} /></button></div>}
         {signedInEmail && <div className="setup-signed-in"><CheckCircle2 size={14} /> Retained evidence will belong to {signedInEmail}</div>}
         {error && <div className="analysis-error" role="alert">{error}</div>}
 

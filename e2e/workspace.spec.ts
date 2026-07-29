@@ -18,20 +18,21 @@ test("real imports start blank and criteria navigation stays locked", async ({ p
 
 test("the import flow explains the next action and the sample completes non-legal fields", async ({ page }) => {
   await page.goto("/workspace");
-  await expect(page.getByText(/Add the SOW and milestone details. Sign in only when you are ready/i)).toBeVisible();
+  await expect(page.getByText(/Explore the complete workflow in the guided walkthrough/i)).toBeVisible();
   await expect(page.locator(".side-details")).toHaveCount(1);
   await expect(page.getByText("Paid services")).toBeHidden();
+  await expect(page.getByRole("link", { name: "Agency sign in" })).toHaveCount(0);
   await page.getByRole("button", { name: "Use the synthetic sample" }).click();
   await expect(page.getByLabel("Paste SOW text")).toHaveValue(/STATEMENT OF WORK/);
   await expect(page.getByLabel("Agency or vendor")).toHaveValue("Northstar Studio");
   await expect(page.locator("#client-name")).toHaveValue("Acme Outdoors");
-  await expect(page.locator("#project-name")).toHaveValue("Spring launch website");
-  await expect(page.locator("#milestone-title")).toHaveValue("Production-ready marketing site");
+  await expect(page.locator("#project-name")).toHaveValue("Acme Outdoors website");
+  await expect(page.locator("#milestone-title")).toHaveValue("Spring launch");
   await expect(page.locator("#milestone-value")).toHaveValue("12000.00");
-  await expect(page.getByRole("link", { name: "Sign in & generate criteria" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explore the full walkthrough" })).toBeVisible();
 });
 
-test("unsigned intake survives sign-in navigation and a new import asks before erasing it", async ({ page }) => {
+test("unsigned intake survives direct account navigation and a new import asks before erasing it", async ({ page }) => {
   await page.goto("/workspace");
   await page.getByLabel("Paste SOW text").fill(source);
   await page.getByLabel("Agency or vendor").fill("Test Agency");
@@ -39,9 +40,11 @@ test("unsigned intake survives sign-in navigation and a new import asks before e
   await page.locator("#project-name").fill("Test Project");
   await page.locator("#milestone-title").fill("Launch");
   await page.locator("#milestone-value").fill("12000.50");
-  await page.getByRole("link", { name: "Agency sign in" }).click();
-  await expect(page).toHaveURL(/\/login/);
-  await page.goto("/workspace");
+  const draftUrl = page.url();
+  await page.goto(`/login?next=${encodeURIComponent(new URL(draftUrl).pathname + new URL(draftUrl).search)}`);
+  await expect(page).toHaveURL(/\/workspace/);
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await page.goto(draftUrl);
   await expect(page.getByLabel("Paste SOW text")).toHaveValue(source);
   page.once("dialog", async (dialog) => { expect(dialog.type()).toBe("confirm"); await dialog.dismiss(); });
   await page.getByRole("button", { name: "New import" }).click();
@@ -93,11 +96,11 @@ test("Gemini import validates business fields and supports criteria CRUD", async
   await expect(page.getByLabel("AC-02 measurable outcome")).toBeVisible();
 });
 
-test("magic-link failures are explained on the login page", async ({ page }) => {
+test("the public login entry point stays hidden while account access is disabled", async ({ page }) => {
   await page.goto("/login?error=expired");
-  await expect(page.locator("#agency-email-error")).toContainText("expired, invalid, or has already been used");
-  await page.goto("/login?error=configuration");
-  await expect(page.locator("#agency-email-error")).toContainText("not configured");
+  await expect(page).toHaveURL(/\/workspace/);
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Agency sign in" })).toHaveCount(0);
 });
 
 test("feedback distinguishes failure and success and allows another report", async ({ page }) => {

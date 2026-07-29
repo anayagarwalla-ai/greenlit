@@ -4,7 +4,7 @@ The three reviewed Greenlit product screenshots live in `docs/screenshots/`. The
 
 | File | Moment | Devpost caption |
 |---|---|---|
-| `02-source-grounded-criteria.png` | Live Gemini results with cited source and green exact-match badges | Human-controlled AI: every editable criterion carries an exact quote independently matched to the source. |
+| `02-source-grounded-criteria.png` | Seeded source-grounded criteria in the guided walkthrough, with cited source and green exact-match badges | Human-controlled AI: every editable criterion carries an exact quote independently matched to the source. |
 | `03-false-success-caught.png` | Clearly labeled synthetic `launch-rc1` walkthrough with AC-04 failing | A seeded walkthrough illustrates how Greenlit surfaces a false-success HTTP 500 without presenting the sample as evidence. |
 | `05-invoice-ready-record.png` | Clearly labeled sample approval format | The printable format is demonstrated without implying that a real client transaction occurred. |
 
@@ -14,7 +14,7 @@ Before upload, verify that every image:
 
 - is readable at Devpost gallery size;
 - contains only synthetic Acme/Northstar data;
-- shows the deployed `greenlitproof.vercel.app` build;
+- shows the final release build that will be deployed to `greenlitproof.vercel.app`;
 - avoids cursor hover states over important copy;
 - uses consistent viewport and zoom;
 - has no toasts obscuring important information.

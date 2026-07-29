@@ -1,32 +1,17 @@
 import { expect, test } from "@playwright/test";
 
-test("sign-in controls report an outage and recover without a reload", async ({ page }) => {
-  await page.route("**/api/auth/invite", (route) => route.fulfill({
-    status: 503,
-    contentType: "application/json",
-    body: JSON.stringify({ error: "Sign-in is temporarily unavailable." }),
-  }));
+test("the public login route cannot expose account controls while beta sign-in is disabled", async ({ page }) => {
   await page.goto("/login");
-  await page.getByLabel("Business email").fill("agency@example.test");
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await expect(page.locator("#agency-email-error")).toContainText("temporarily unavailable");
-
-  await page.unroute("**/api/auth/invite");
-  await page.route("**/api/auth/invite", (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ accepted: true }),
-  }));
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await expect(page.getByRole("status")).toContainText("agency@example.test");
-  await page.getByRole("button", { name: "Use a different email" }).click();
-  await expect(page.getByLabel("Business email")).toBeVisible();
+  await expect(page).toHaveURL(/\/workspace(?:\?demo=guided)?$/);
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await expect(page.getByLabel("Business email")).toHaveCount(0);
 });
 
-test("an expired Stripe OAuth session survives the sign-in handoff", async ({ page }) => {
+test("an expired Stripe OAuth session cannot reopen hidden public sign-in", async ({ page }) => {
   await page.goto("/dashboard?stripe=session-expired");
-  await expect(page).toHaveURL(/\/login\?.*next=%2Fdashboard%3Fstripe%3Dsession-expired.*error=stripe-session-expired/);
-  await expect(page.locator("#agency-email-error")).toContainText("sign-in expired before Stripe returned");
+  await expect(page).toHaveURL(/\/workspace(?:\?demo=guided)?$/);
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+  await expect(page.locator("#agency-email-error")).toHaveCount(0);
 });
 
 test("privacy request controls preserve input on failure and reset after success", async ({ page }) => {

@@ -155,7 +155,7 @@ export function DemoRequestForm() {
             <textarea name="currentProcess" minLength={20} maxLength={2_000} placeholder="Where the decision happens, who chases it, and what usually delays invoicing…" required />
           </label>
         </fieldset>
-        <label className="sr-only" aria-hidden="true">
+        <label className="demo-request-honeypot" aria-hidden="true">
           Fax number
           <input name="faxNumber" tabIndex={-1} autoComplete="off" />
         </label>

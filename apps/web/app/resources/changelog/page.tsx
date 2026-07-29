@@ -12,9 +12,20 @@ export const metadata = publicPageMetadata({
 
 const releases = [
   {
+    date: "July 28, 2026",
+    title: "Public walkthrough and resource alignment",
+    state: "Current",
+    changes: [
+      "Gave the no-account guided walkthrough its own startup message and kept the complete proof story available.",
+      "Removed public agency sign-in prompts while preserving account-backed workspace, record, review, and invoicing capabilities for a later release.",
+      "Updated the quick-start and FAQ to match the currently available workflow and published support routes.",
+      "Confirmed that the research form's anti-spam field remains outside the visible and keyboard-accessible interface.",
+    ],
+  },
+  {
     date: "July 24, 2026",
     title: "External beta safety and recovery",
-    state: "Current",
+    state: "Shipped",
     changes: [
       "Hardened retained verification, recipient-bound reviews, evidence recovery, and invoice-state handling.",
       "Simplified the agency proof workflow and clarified fix-versus-new-scope decisions.",

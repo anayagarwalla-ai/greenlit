@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { sourceTreeDirty } from "./git-tree-state.mjs";
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -22,7 +23,7 @@ const [packageJson, lockfile, runnerVersionSource, databaseVersionSource, migrat
   readdir(resolve(root, "supabase/migrations")),
 ]);
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, encoding: "utf8" }).trim().length > 0;
+const dirty = sourceTreeDirty(root);
 const parsedPackage = JSON.parse(packageJson);
 const sqlMigrations = migrations.filter((name) => name.endsWith(".sql")).sort();
 const manifest = {

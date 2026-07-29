@@ -39,7 +39,7 @@ export default async function ResourceGuidePage({ params }: { params: Promise<{ 
           <span className="resource-kicker">{guide.category}</span>
           <h1>{guide.title}</h1>
           <p>{guide.summary}</p>
-          <div className="guide-meta"><span>{guide.audience}</span><span>{guide.readTime} read</span><span>Updated July 24, 2026</span></div>
+          <div className="guide-meta"><span>{guide.audience}</span><span>{guide.readTime} read</span><span>Updated {guide.updatedAt ?? "July 24, 2026"}</span></div>
           {guide.downloadHref && <a className="button button--outline" href={guide.downloadHref} download><Download size={16} /> {resourceDownloadLabel(guide.downloadHref)}</a>}
         </header>
 

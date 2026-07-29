@@ -1,3 +1,5 @@
+import { AGENCY_BETA_SIGN_IN_VISIBLE } from "./public-features";
+
 export type ResourceTemplate = {
   label: string;
   content: string;
@@ -28,6 +30,7 @@ export type ResourceGuide = {
   summary: string;
   audience: string;
   readTime: string;
+  updatedAt?: string;
   downloadHref?: string;
   sections: ResourceSection[];
 };
@@ -40,6 +43,7 @@ export const resourceGuides: ResourceGuide[] = [
     summary: "Go from a scoped milestone to a client-ready proof packet in one focused session.",
     audience: "Agency owners and project leads",
     readTime: "8 min",
+    updatedAt: "July 28, 2026",
     downloadHref: "/resources/downloads/greenlit-agency-quickstart.md",
     sections: [
       {
@@ -57,33 +61,33 @@ export const resourceGuides: ResourceGuide[] = [
         ],
       },
       {
-        eyebrow: "First milestone path",
-        title: "Complete the first proof flow",
+        eyebrow: "Public walkthrough path",
+        title: "Explore the complete proof flow",
         steps: [
-          { title: "Open the workspace", detail: "Sign in with the invited agency email and choose New import. If you want to learn the flow first, launch the guided synthetic demo." },
-          { title: "Add the promise", detail: "Paste or upload the relevant SOW section. Include only the language needed to define this milestone." },
-          { title: "Review every criterion", detail: "Check each exact source quote, rewrite vague outcomes, choose whether the criterion is automated or client-reviewed, then confirm the grounded revision." },
-          { title: "Verify staging ownership", detail: "Add the one-time Greenlit ownership file to the approved staging origin and complete the origin check." },
-          { title: "Map and run checks", detail: "Map each automated promise to a supported typed check. Run the verification and review expected versus observed results." },
-          { title: "Resolve failures", detail: "If a check fails, fix the build and run the frozen criteria against the corrected version. Do not rewrite the requirement to make a failure disappear." },
-          { title: "Prepare client review", detail: "Name one reviewer, set a clear deadline, confirm the milestone value, and decide whether Greenlit should only prepare an invoice or create a configured Stripe invoice after approval." },
-          { title: "Share securely", detail: "Send the one-time review link and its separate access code through different business channels. Do not post either publicly." },
-          { title: "Record the decision", detail: "The client reviews the criteria and evidence, then approves or requests changes. New scope should be classified separately from a correction to the agreed milestone." },
-          { title: "Finish the handoff", detail: "Export or print the approval record, confirm the invoice result, and store the record with the agency's normal project and accounting files." },
+          { title: "Open the walkthrough", detail: "Launch the guided synthetic demo. It requires no account and demonstrates the complete workflow; account-backed project imports are not currently offered through the public site." },
+          { title: "Inspect the promise", detail: "Start with the included synthetic SOW and see how exact source language stays attached to the milestone." },
+          { title: "Review every criterion", detail: "Check each exact source quote and confirm the grounded outcomes that define what done means." },
+          { title: "Preview staging ownership", detail: "See where an agency proves control of a public HTTPS staging origin before a retained verification run." },
+          { title: "Inspect the checks", detail: "Review the supported typed checks and compare expected outcomes with the evidence captured from the sample build." },
+          { title: "Follow the failure and fix", detail: "See Greenlit catch a hidden HTTP failure, then rerun the same frozen criteria against the corrected build." },
+          { title: "Prepare client review", detail: "Preview the named-reviewer handoff, milestone value, evidence summary, and invoice disclosure." },
+          { title: "Understand secure sharing", detail: "See how a recipient-bound review link and separate access code protect the client decision path." },
+          { title: "Record the decision", detail: "Use the sample client view to approve or request changes and see how new scope stays separate from corrections." },
+          { title: "Finish the handoff", detail: "Open the sample approval record and inspect the evidence, decision, and invoice-ready status that an agency would retain." },
         ],
       },
       {
-        title: "Definition of a successful first use",
+        title: "What the walkthrough demonstrates",
         bullets: [
-          "The agency confirms at least one source-grounded criterion.",
-          "A retained browser run completes against an authorized staging origin.",
-          "A client opens the focused review without needing product training.",
-          "The client makes a clear approve or request-changes decision.",
-          "The agency can retrieve the resulting record from its dashboard.",
+          "An agency can trace every criterion to exact agreed source language.",
+          "A browser check can expose a failure hidden behind a successful-looking page.",
+          "The same frozen promise can be rerun after the build is corrected.",
+          "A client can make a clear approve or request-changes decision.",
+          "The resulting record can connect evidence, the client decision, and invoice readiness.",
         ],
         callout: {
-          title: "Start with a real bottleneck, not the biggest project",
-          body: "The ideal beta test is one milestone where the agency would otherwise chase approval through email. A narrow real workflow will teach Greenlit more than a broad hypothetical evaluation.",
+          title: "Evaluate the workflow with a narrow milestone",
+          body: "The clearest evaluation is one milestone where an agency would otherwise chase approval through email. The public walkthrough uses synthetic data so the workflow can be assessed without an account or client material.",
           tone: "success",
         },
       },
@@ -524,7 +528,7 @@ Thanks,
         steps: [
           { title: "Onboarding", detail: "Complete the guided sample and one real project setup." },
           { title: "Real use", detail: "Run at least one staging verification and invite one client reviewer when appropriate." },
-          { title: "Feedback", detail: "Report confusing steps and failures through the in-product Beta feedback button without pasting client data." },
+          { title: "Feedback", detail: "Report confusing steps and failures through the in-product Feedback button without pasting client data." },
           { title: "Conversation", detail: "Join one short feedback interview after the workflow is complete or abandoned." },
           { title: "Evidence permission", detail: "Choose separately whether Greenlit may quote or publish any result. Beta participation does not grant automatic publicity rights." },
         ],
@@ -541,7 +545,7 @@ Thanks,
         ],
         callout: {
           title: "Need help?",
-          body: "Use the in-product Beta feedback button for product issues. Use the published support contact for account, privacy, or security questions. Do not send client SOW text or credentials in a support ticket.",
+          body: "Use the in-product Feedback button for product issues. Use the privacy request form for privacy or data questions, and check the Contact page for the currently available account and security channels. Do not send client SOW text or credentials.",
         },
       },
     ],
@@ -553,6 +557,7 @@ Thanks,
     summary: "Clear answers about verification, client decisions, scope, security, records, and invoicing.",
     audience: "Agencies and client stakeholders",
     readTime: "10 min",
+    updatedAt: "July 28, 2026",
     sections: [
       {
         title: "Product and workflow",
@@ -594,8 +599,8 @@ Thanks,
         title: "Data and access",
         steps: [
           { title: "What SOW information should I submit?", detail: "Use only the section needed for the milestone. Follow the analysis-screen notice about whether the deployment accepts authorized business content or only synthetic and expressly non-confidential material." },
-          { title: "Can Greenlit test any URL?", detail: "No. Custom verification is restricted to public HTTPS staging origins controlled by the signed-in agency and proven through the ownership flow." },
-          { title: "Where do I report a problem?", detail: "Use the in-product Beta feedback button for bugs, confusion, and product ideas. Use the published support contact for privacy, access, or security concerns." },
+          { title: "Can Greenlit test any URL?", detail: "No. The public walkthrough uses sample builds. Custom verification belongs to the account-backed workflow and accepts only public HTTPS staging origins controlled by the agency and proven through the ownership flow." },
+          { title: "Where do I report a problem?", detail: "Use the in-product Feedback button for bugs, confusion, and product ideas. Use the privacy request form for privacy or data questions, and check the Contact page for the currently available account and security channels." },
         ],
       },
     ],
@@ -665,7 +670,7 @@ Thanks,
     audience: "Agency operators",
     readTime: "10 min",
     sections: [
-      {
+      ...(AGENCY_BETA_SIGN_IN_VISIBLE ? [{
         title: "Sign-in or invitation problem",
         steps: [
           { title: "Confirm the exact email", detail: "Use the same business email that received the closed-beta invitation. Aliases and alternate domains may not be allowed." },
@@ -673,7 +678,7 @@ Thanks,
           { title: "Check the deployment URL", detail: "Make sure the link returns to the official Greenlit production domain rather than an old preview or local address." },
           { title: "Escalate safely", detail: "Send the business email and error text to support. Do not forward authentication links." },
         ],
-      },
+      }] : []),
       {
         title: "SOW analysis problem",
         bullets: [

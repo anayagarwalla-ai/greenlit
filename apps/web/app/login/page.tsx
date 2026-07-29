@@ -4,10 +4,12 @@ import { AuthPanel } from "@/components/auth-panel";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { safeAuthNext } from "@/lib/auth-next";
+import { AGENCY_BETA_SIGN_IN_VISIBLE } from "@/lib/public-features";
 
 export const metadata: Metadata = { title: "Agency sign in", robots: { index: false, follow: false } };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
+  if (!AGENCY_BETA_SIGN_IN_VISIBLE) redirect("/workspace?demo=guided");
   const params = await searchParams;
   const requested = params.next;
   const nextPath = safeAuthNext(requested);

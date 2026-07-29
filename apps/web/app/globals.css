@@ -896,6 +896,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .demo-request-fields input,.demo-request-fields select,.demo-request-fields textarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #adb5af; border-radius: 4px; background: white; color: var(--ink); font-size: 14px; font-weight: 500; }
 .demo-request-fields textarea { min-height: 112px; resize: vertical; line-height: 1.55; }
 .demo-request-fields__wide { grid-column: 1/-1; }
+.demo-request-honeypot { position: absolute!important; width: 1px!important; height: 1px!important; margin: -1px!important; padding: 0!important; overflow: hidden!important; clip: rect(0,0,0,0)!important; white-space: nowrap!important; border: 0!important; }
 .demo-request-consent { margin: 21px 0; }
 .demo-request-consent span { font-size: 12px; }
 .demo-request-actions { margin-top: 21px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }

@@ -16,12 +16,21 @@ test("quick-start guide and generated download use the same source", async ({ pa
   await page.goto("/resources/agency-quickstart");
 
   await expect(page.getByRole("heading", { name: "Agency quick-start" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Complete the first proof flow" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Explore the complete proof flow" })).toBeVisible();
+  await expect(page.getByText("Updated July 28, 2026")).toBeVisible();
+  await expect(page.getByText(/invited agency email/i)).toHaveCount(0);
 
   const response = await request.get("/resources/downloads/greenlit-agency-quickstart.md");
   expect(response.status()).toBe(200);
   expect(response.headers()["content-disposition"]).toContain("attachment");
   expect(await response.text()).toContain("# Agency quick-start");
+});
+
+test("account sign-in troubleshooting stays off the public resource surface", async ({ page }) => {
+  await page.goto("/resources/troubleshooting");
+  await expect(page.getByRole("heading", { name: "Troubleshooting guide" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign-in or invitation problem" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "SOW analysis problem" })).toBeVisible();
 });
 
 test("approval-delay calculator updates locally", async ({ page }) => {

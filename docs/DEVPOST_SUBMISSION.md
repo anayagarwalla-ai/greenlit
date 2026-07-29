@@ -36,7 +36,7 @@ For arbitrary imported SOWs, the agency proves ownership by serving a one-time t
 
 ## How we built it
 
-The frontend and API are a TypeScript/React application built with Next.js and deployed on Vercel. The Gemini API uses structured JSON output with a low-temperature extraction prompt and Zod validation. PDF text extraction happens server-side and is limited to selectable-text files under 3 MB. Original source text is processed in memory and excluded from verification logs.
+The frontend and API are a TypeScript/React application built with Next.js and deployed on Vercel. The Gemini API uses structured JSON output with a low-temperature extraction prompt and Zod validation. PDF text extraction happens server-side and is limited to selectable-text files under 1.5 MB. Original source text is processed in memory and excluded from verification logs.
 
 The verification architecture separates orchestration from execution. The web service dispatches a job identifier to a Cloudflare Queue using timestamped HMAC requests. A Cloudflare Worker leases a frozen, typed check revision, runs it in an isolated browser, hashes the evidence manifest, and posts structured results back through a signed callback. Supabase provides the relational schema, private object storage, row-level security, and expiry fields.
 

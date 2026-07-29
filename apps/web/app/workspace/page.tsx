@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function WorkspacePage() {
-  return <MilestoneStudio geminiPaidService={geminiServiceConfiguration().paidService} />;
+export default async function WorkspacePage({ searchParams }: { searchParams: Promise<{ demo?: string | string[] }> }) {
+  const params = await searchParams;
+  const guidedDemo = params.demo === "guided";
+  return <MilestoneStudio geminiPaidService={geminiServiceConfiguration().paidService} guidedDemo={guidedDemo} />;
 }
