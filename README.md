@@ -6,6 +6,8 @@
 
 > **Evaluation note:** The public walkthrough needs no account, invite, API key, or prior session. It uses synthetic source material and seeded outcomes, runs through the complete interface, and creates no customer, evidence, approval, or transaction record.
 
+> **Eligibility and timeline:** Greenlit is a student-built submission for the July 17 to 31, 2026 Blueprint Hackathon. The repository's first commit is dated July 19, 2026, within the hackathon period.
+
 ![Greenlit verification evidence showing that one of six synthetic checks needs work](docs/screenshots/03-false-success-caught.png)
 
 ## Why this matters
