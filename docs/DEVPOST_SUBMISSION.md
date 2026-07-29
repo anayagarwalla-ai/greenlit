@@ -16,7 +16,7 @@ Greenlit uses Gemini to turn a statement of work into human-confirmed acceptance
 
 Agencies rarely wait to invoice because nobody shipped the work. They wait because “done” is trapped across a contract, a staging link, QA notes, email threads, and a client’s subjective review. That creates approval limbo: engineers know the build is finished, account managers cannot produce a clean proof packet, and clients do not want to read CI logs.
 
-We wanted to make the statement of work—not the test suite—the center of acceptance.
+We wanted the statement of work to be the center of acceptance instead of the test suite.
 
 ## What it does
 
@@ -25,7 +25,7 @@ Greenlit gives an agency one guided flow:
 1. Paste a non-confidential SOW excerpt or upload a selectable-text PDF, TXT, or Markdown document.
 2. Gemini extracts atomic, measurable acceptance criteria and returns an exact supporting source quote, evidence type, and rationale for each one.
 3. Greenlit independently grounds every quote against the extracted source. A human can edit and must confirm every criterion; ungrounded quotes cannot be frozen.
-4. Confirmed promises are mapped only to safe, typed browser checks—never model-generated scripts.
+4. Confirmed promises are mapped only to safe, typed browser checks, never model-generated scripts.
 5. An isolated staging run captures the observed outcome and integrity metadata for every promise.
 6. The client receives a focused, no-login review packet and makes one clear decision: approve the milestone or request changes.
 7. Approval creates an invoice-ready proof record tying together the SOW revision, build, evidence, decision, timestamp, and milestone amount.
@@ -67,7 +67,7 @@ Finally, we treated the runner as an untrusted boundary. Queue messages carry on
 
 ## What we learned
 
-AI is most trustworthy when its role is narrow, visible, and reversible. Structured output improves reliability, but the meaningful safeguard is an independent invariant: every model-generated claim must point back to words the user can inspect. We also learned that client acceptance is a translation problem as much as a testing problem—raw technical results become useful only when attached to the promise they prove.
+AI is most trustworthy when its role is narrow, visible, and reversible. Structured output improves reliability, but the meaningful safeguard is an independent invariant: every model-generated claim must point back to words the user can inspect. We also learned that client acceptance is a translation problem as much as a testing problem because raw technical results become useful only when attached to the promise they prove.
 
 ## What is next
 
@@ -84,17 +84,15 @@ TypeScript, React, Next.js, Gemini API, Google GenAI SDK, Zod, Cloudflare Worker
 ## Links
 
 - Live app: https://greenlitproof.vercel.app
-- GitHub: https://github.com/anayagarwalla-ai/milestoneproof
-- Presentation (PDF): https://github.com/anayagarwalla-ai/milestoneproof/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pdf
-- Presentation (PowerPoint): https://github.com/anayagarwalla-ai/milestoneproof/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pptx
+- GitHub: https://github.com/anayagarwalla-ai/greenlit
+- Presentation (PDF): https://github.com/anayagarwalla-ai/greenlit/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pdf
+- Presentation (PowerPoint): https://github.com/anayagarwalla-ai/greenlit/blob/main/docs/hackathon/greenlit-blueprint-hackathon-deck.pptx
 - Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health (legacy infrastructure hostname)
 
 Add the final public YouTube or Vimeo demo URL to the Devpost video field after recording. Confirm all GitHub presentation links in an incognito window after the repository is public and `main` contains the submission release.
 
 ## Suggested Devpost gallery captions
 
-1. **Product overview:** Greenlit connects the SOW, browser evidence, client decision, and invoice-ready approval record.
-2. **Human-controlled AI:** Every measurable outcome, exact quote, evidence family, and rationale is editable and must be confirmed.
-3. **A false success caught:** The page claimed the form worked, but Greenlit proved its lead request returned HTTP 500.
-4. **Proof the client understands:** The review packet translates a passing browser run back into the six promises the client signed.
-5. **Invoice-ready, not an invoice:** The approval record binds revision, build, evidence hashes, decision, timestamp, and milestone value.
+1. **Human-controlled AI:** Every measurable outcome, exact quote, evidence family, and rationale is editable and must be confirmed.
+2. **A false success caught:** The page claimed the form worked, but Greenlit proved its lead request returned HTTP 500.
+3. **Invoice-ready, not an invoice:** The approval record binds revision, build, evidence hashes, decision, timestamp, and milestone value.

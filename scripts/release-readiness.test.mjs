@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { productionReadinessMissing } from "./company-demo-preflight.mjs";
+import { productionReadinessMissing } from "./release-readiness.mjs";
 
 const readyEnvironment = {
   NEXT_PUBLIC_APP_URL: "https://proof.example.com",
@@ -22,7 +22,7 @@ const readyEnvironment = {
   INCIDENT_OWNERS_ASSIGNED: "true",
 };
 
-test("production preflight uses the same current legal and operational keys as runtime readiness", () => {
+test("release preflight uses the same current legal and operational keys as runtime readiness", () => {
   assert.deepEqual(productionReadinessMissing(readyEnvironment), []);
 });
 
@@ -84,7 +84,7 @@ test("production notification delivery rejects unsafe webhook targets", () => {
   );
 });
 
-test("production preflight rejects weak secrets and invalid capacity settings", () => {
+test("release preflight rejects weak secrets and invalid capacity settings", () => {
   assert.deepEqual(
     productionReadinessMissing({
       ...readyEnvironment,
@@ -102,7 +102,7 @@ test("production preflight rejects weak secrets and invalid capacity settings", 
   );
 });
 
-test("production preflight requires a complete pinned Stripe configuration when enabled", () => {
+test("release preflight requires a complete pinned Stripe configuration when enabled", () => {
   assert.deepEqual(
     productionReadinessMissing({
       ...readyEnvironment,

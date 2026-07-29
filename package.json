@@ -7,13 +7,13 @@
     "dev": "pnpm --filter @greenlit/web dev",
     "build": "pnpm --filter @greenlit/contracts build && pnpm --filter @greenlit/web build",
     "typecheck": "pnpm --filter @greenlit/contracts build && pnpm --filter @greenlit/web typecheck && pnpm --filter @greenlit/runner typecheck",
-    "test": "pnpm --filter @greenlit/contracts test && pnpm --filter @greenlit/web test && pnpm --filter @greenlit/runner test && pnpm test:demo-preflight && pnpm test:ops && pnpm test:deployment-package",
-    "test:demo-preflight": "node --test scripts/company-demo-preflight.test.mjs",
+    "test": "pnpm --filter @greenlit/contracts test && pnpm --filter @greenlit/web test && pnpm --filter @greenlit/runner test && pnpm test:readiness && pnpm test:ops && pnpm test:deployment-package",
+    "test:readiness": "node --test scripts/release-readiness.test.mjs",
     "test:ops": "node --test scripts/ops-lib.test.mjs",
     "test:deployment-package": "node --test scripts/deployment-package.test.mjs",
     "test:e2e": "playwright test",
     "test:site-smoke": "node scripts/public-site-smoke.mjs",
-    "demo:preflight": "node scripts/company-demo-preflight.mjs",
+    "release:preflight": "node scripts/release-readiness.mjs",
     "lint": "pnpm --filter @greenlit/web lint",
     "ops:backup": "node scripts/backup-production.mjs",
     "ops:restore-check": "node scripts/verify-backup.mjs",
@@ -24,7 +24,6 @@
     "runner:deploy": "pnpm --filter @greenlit/runner run deploy"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
-    "next": "16.2.11"
+    "@playwright/test": "1.56.1"
   }
 }

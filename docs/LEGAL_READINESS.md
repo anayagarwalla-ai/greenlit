@@ -38,10 +38,10 @@ A review link starts at 72 hours; the agency may revoke it or extend it within a
 ### Electronic records and attribution
 
 - The federal E-SIGN Act generally prevents denying legal effect solely because a record or signature is electronic. Its retention rule requires the retained record to accurately reflect the information, remain accessible for the legally required period, and be reproducible. It also contains transaction-specific exclusions and consumer-disclosure rules. Source: [15 U.S.C. § 7001](https://uscode.house.gov/view.xhtml?req=%28title%3A15+section%3A7001+edition%3Aprelim%29).
-- California's Uniform Electronic Transactions Act recognizes electronic records and signatures, permits attribution using the surrounding circumstances and security procedures, and requires retained electronic records to accurately reflect the original and remain accessible. Source: [California Civil Code §§ 1633.1–1633.17](https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?division=3.&lawCode=CIV&part=2.&title=2.5.).
+- California's Uniform Electronic Transactions Act recognizes electronic records and signatures, permits attribution using the surrounding circumstances and security procedures, and requires retained electronic records to accurately reflect the original and remain accessible. Source: [California Civil Code §§ 1633.1-1633.17](https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?division=3.&lawCode=CIV&part=2.&title=2.5.).
 - The four-year beta retention default is informed by California's limitations period for an action on a written contract. Other claims, jurisdictions, tax rules, industries, and contracts can require different periods. Source: [California Code of Civil Procedure § 337](https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?chapter=3.&lawCode=CCP&part=2.&title=2).
 
-Product response: the reviewer must state a name and business email, affirm authority and intent, consent to electronic records, and take an unambiguous decision action. The frozen snapshot, decision, notice version, event chain, and reproducible export are retained together. The UI says this is a business approval record—not a notarization, payment guarantee, or general-purpose e-signature product.
+Product response: the reviewer must state a name and business email, affirm authority and intent, consent to electronic records, and take an unambiguous decision action. The frozen snapshot, decision, notice version, event chain, and reproducible export are retained together. The UI says this is a business approval record, not a notarization, payment guarantee, or general-purpose e-signature product.
 
 ### Privacy, notice, minimization, and security
 
@@ -56,7 +56,7 @@ Product response: the app provides just-in-time collection notices, Privacy/Term
 
 - The IRS says a business may choose a recordkeeping system that clearly shows income and expenses, but must keep supporting records for as long as they may be needed to substantiate a tax return. It identifies invoices, receipts, payment records, journals, and ledgers as accounting support, and requires electronic tax records to remain complete, accurate, accessible, and reproducible. Sources: [IRS Recordkeeping](https://www.irs.gov/businesses/small-businesses-self-employed/recordkeeping) and [IRS Publication 583](https://www.irs.gov/publications/p583).
 
-Product response: Greenlit records a milestone-evidence and client-decision event only. It does not record payment settlement, revenue recognition, tax treatment, the final invoice, or the general ledger entry. Businesses must keep the Greenlit export alongside—never instead of—their contract, invoice, payment, and accounting records for the period their tax adviser and governing law require.
+Product response: Greenlit records a milestone-evidence and client-decision event only. It does not record payment settlement, revenue recognition, tax treatment, the final invoice, or the general ledger entry. Businesses must keep the Greenlit export alongside their contract, invoice, payment, and accounting records, never instead of them, for the period their tax adviser and governing law require.
 
 ### Gemini unpaid-tier restriction
 

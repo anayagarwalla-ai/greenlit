@@ -3,7 +3,7 @@
 These scripts let you validate the SQL migrations against a plain local
 PostgreSQL instance when the Supabase CLI/Docker stack isn't available. They
 are not a substitute for `supabase db reset` against the real CLI where that
-is available — use this only as a fallback.
+is available. Use this only as a fallback.
 
 ```bash
 # 1. Start an isolated local Postgres (adjust paths/ports as needed)

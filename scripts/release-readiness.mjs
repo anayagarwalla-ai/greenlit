@@ -6,10 +6,10 @@ const requiredFiles = [
   "apps/web/public/demo-evidence/fixture-rc1.png",
   "apps/web/public/demo-evidence/fixture-rc1-false-success.png",
   "apps/web/public/demo-evidence/fixture-rc2.png",
-  "docs/company-demo/20-minute-runbook.md",
-  "docs/company-demo/design-partner-offer-draft.md",
-  "docs/company-demo/demo-reset-checklist.md",
-  "docs/company-demo/production-demo-smoke-checklist.md",
+  "docs/ARCHITECTURE.md",
+  "docs/LEGAL_READINESS.md",
+  "docs/INCIDENT_RESPONSE.md",
+  ".env.example",
 ];
 export const requiredLegalSettings = [
   "NEXT_PUBLIC_OPERATOR_NAME",
@@ -141,7 +141,7 @@ export function productionReadinessMissing(environment = process.env) {
   return [...new Set(missing)];
 }
 
-export async function runCompanyDemoPreflight({
+export async function runReleasePreflight({
   environment = process.env,
   root = process.cwd(),
   logger = console,
@@ -162,7 +162,7 @@ export async function runCompanyDemoPreflight({
     }
   }
 
-  if (environment.DEMO_PREFLIGHT_PRODUCTION === "1") {
+  if (environment.RELEASE_PREFLIGHT_PRODUCTION === "1") {
     const missing = productionReadinessMissing(environment);
     for (const key of [...requiredLegalSettings, ...requiredOperationalSettings, ...requiredOperationalConfirmations]) {
       if (missing.includes(key)) fail(`${key} is missing, invalid, or not explicitly true`);
@@ -196,19 +196,19 @@ export async function runCompanyDemoPreflight({
       logger.log("INFO  Notification webhook is optional; in-app notifications remain available without one.");
     }
   } else {
-    logger.log("INFO  File-level preflight only. Set DEMO_PREFLIGHT_PRODUCTION=1 with the production environment to enforce legal, operator, and provider gates.");
+    logger.log("INFO  File-level release preflight only. Set RELEASE_PREFLIGHT_PRODUCTION=1 with the production environment to enforce legal, operator, and provider gates.");
   }
 
   if (failures > 0) {
-    logger.error(`\nCompany-demo preflight blocked by ${failures} item${failures === 1 ? "" : "s"}.`);
+    logger.error(`\nRelease preflight blocked by ${failures} item${failures === 1 ? "" : "s"}.`);
   } else {
-    logger.log("\nCompany-demo preflight passed.");
+    logger.log("\nRelease preflight passed.");
   }
   return failures;
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  const failures = await runCompanyDemoPreflight();
+  const failures = await runReleasePreflight();
   if (failures > 0) process.exitCode = 1;
 }

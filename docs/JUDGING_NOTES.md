@@ -1,6 +1,6 @@
 # Judging notes and rubric map
 
-The official rubric scores 12 project dimensions at 0–4 points (48 total) plus three video dimensions at 0–2 points (6 total). These notes are a presenter checklist, not claims of a guaranteed score.
+The official rubric scores 12 project dimensions at 0 to 4 points (48 total) plus three video dimensions at 0 to 2 points (6 total). These notes are a presenter checklist, not claims of a guaranteed score.
 
 ## Technical achievement (12 points)
 
@@ -37,7 +37,7 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 
 - README: product, setup, hosted URLs, validation, deployment, and data policy.
 - `docs/ARCHITECTURE.md`: data flow, trust boundaries, and status model.
-- `docs/JUDGE_DEMO.md`: timed 2–5 minute video script.
+- `docs/JUDGE_DEMO.md`: timed 2 to 5 minute video script.
 - `docs/DEVPOST_SUBMISSION.md`: ready-to-paste submission copy.
 
 ### System architecture
@@ -85,7 +85,7 @@ The official rubric scores 12 project dimensions at 0–4 points (48 total) plus
 ### Deployment
 
 - App: https://greenlitproof.vercel.app
-- Repository link (make public before submission): https://github.com/anayagarwalla-ai/milestoneproof
+- Repository link (make public before submission): https://github.com/anayagarwalla-ai/greenlit
 - Runner health: https://milestoneproof-runner.anay-agarwalla-581.workers.dev/health (legacy infrastructure hostname)
 - Mention the repeatable deployment files: `vercel.json`, `wrangler.toml`, Supabase migration, and README commands.
 

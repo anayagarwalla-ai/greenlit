@@ -273,6 +273,7 @@ Maintained by [anayagarwalla-ai](https://github.com/anayagarwalla-ai). Built for
 
 Submission material:
 
+- [Judge-facing documentation index](docs/README.md)
 - [Devpost-ready project copy](docs/DEVPOST_SUBMISSION.md)
 - [Timed product video script](docs/JUDGE_DEMO.md)
 - [Technical presentation](docs/hackathon/greenlit-blueprint-hackathon-deck.pdf)
