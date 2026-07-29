@@ -241,7 +241,8 @@ AI accelerates drafting; it is not the authority on scope, observed behavior, or
 | --- | --- | --- |
 | Public end-to-end walkthrough | **Live** | Deployed, no account, seeded outcomes, no retained record |
 | Criteria review, failure reveal, fixed rerun, review, and printable sample | **Live** | Real interface behavior with deterministic sample state |
-| Gemini, queued browser execution, Supabase records, and Stripe handoff | **Configured path** | Implemented integrations that require credentials, account access, authorization, and capacity |
+| Public Gemini criteria drafting | **Live** | Rate-limited, attested synthetic/non-confidential source, exact-quote grounding, no retained project |
+| Queued browser execution, Supabase project records, and Stripe handoff | **Configured path** | Implemented integrations that require credentials, account access, authorization, and capacity |
 | General availability, universal site compatibility, paid capacity, SLAs, certifications, and custom integrations | **Not promised** | Outside the current demonstrated scope |
 
 ## Limitations and non-goals

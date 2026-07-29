@@ -20,8 +20,8 @@ export default function TrustPage() {
       <section className="trust-hero">
         <span className="resource-kicker"><ShieldCheck size={15} /> What runs live</span>
         <h1>Clear demo.<br /><em>Clear boundaries.</em></h1>
-        <p>The public walkthrough runs in this deployed app with no account. It uses a deterministic sample so anyone can see the complete story; the production architecture for Gemini import, queued browser verification, and retained records is explained below.</p>
-        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Product walkthrough</span><span>Updated July 28, 2026</span></div>
+        <p>Public visitors can run Gemini against a synthetic or non-confidential SOW and review its source-grounded criteria without an account. A separate deterministic walkthrough shows the complete downstream story; its verification outcomes are clearly labeled as seeded.</p>
+        <div className="trust-hero__status"><span><span className="eyebrow-dot" /> Live analysis + product walkthrough</span><span>Updated July 29, 2026</span></div>
       </section>
 
       <section className="trust-status-board" aria-labelledby="trust-status-title">
@@ -32,14 +32,14 @@ export default function TrustPage() {
         <div className="trust-status-board__grid">
           <article className="trust-status-card trust-status-card--live">
             <span>Live now</span>
-            <h3>Public product walkthrough</h3>
-            <p>Runs on this production deployment with no account. It includes source confirmation, the HTTP 500 failure reveal, a fixed rerun, client approval, and a printable sample record.</p>
-            <small>Seeded outcomes · synthetic data · no retained customer record</small>
+            <h3>Public Gemini analysis + walkthrough</h3>
+            <p>Visitors can generate and edit criteria from their own eligible SOW, or run the full no-account walkthrough through the HTTP 500 reveal, fixed rerun, client approval, and printable sample record.</p>
+            <small>Live Gemini criteria · seeded walkthrough outcomes · no retained customer record</small>
           </article>
           <article className="trust-status-card trust-status-card--configured">
             <span>Configured path</span>
             <h3>Retained project execution</h3>
-            <p>Gemini analysis, the Cloudflare queue and browser runner, Supabase private storage, and Stripe invoicing have implemented integration paths.</p>
+            <p>The Cloudflare queue and browser runner, Supabase private project storage, and Stripe invoicing have implemented account-backed integration paths.</p>
             <small>Requires configured credentials, account access, origin verification, and available capacity</small>
           </article>
           <article className="trust-status-card trust-status-card--planned">
@@ -52,7 +52,7 @@ export default function TrustPage() {
       </section>
 
       <section className="trust-grid" aria-label="Security overview">
-        <article><LockKeyhole /><h2>Walkthrough access</h2><p>The complete guided walkthrough is public and requires no sign-in. Account access is reserved for retained project work and owner-scoped records.</p></article>
+        <article><LockKeyhole /><h2>Public access</h2><p>Live Gemini criteria drafting and the complete guided walkthrough require no sign-in. Account access is reserved for retained project work and owner-scoped records.</p></article>
         <article><Server /><h2>Architecture</h2><p>Vercel serves the app, Gemini supports source analysis, Cloudflare runs queued browser checks, Supabase stores private records, and Stripe supports the optional billing handoff.</p></article>
         <article><UserCheck /><h2>Human control</h2><p>AI drafts are tied to source quotes. The agency confirms criteria and mappings. The client, not the model, makes the milestone decision.</p></article>
         <article><TimerReset /><h2>Retention</h2><p>Current defaults retain screenshot evidence for 90 days and approval and audit records for four years, with privacy requests and legal-hold-aware deletion.</p></article>
@@ -73,9 +73,9 @@ export default function TrustPage() {
           <section id="live">
             <span className="resource-section__eyebrow">01</span>
             <h2>What you can run now</h2>
-            <p>The public walkthrough runs the full interface, confirmation gates, failure reveal, corrected pass, client decision, and printable approval record in this production deployment. Its sample outcomes are seeded so the path stays reliable and creates no customer record.</p>
+            <p>Public intake sends an explicitly attested synthetic or non-confidential SOW to Gemini, validates every returned quote against the source, and opens the real editable criteria review. The separate walkthrough continues through verification, client decision, and a printable approval record with seeded outcomes so it stays reliable and creates no customer record.</p>
             <ul>
-              <li><Check size={15} /> No account, invitation, or form submission is required.</li>
+              <li><Check size={15} /> No account or invitation is required for live criteria drafting or the walkthrough.</li>
               <li><Check size={15} /> The included failure reproduces a visible success paired with an HTTP 500 response.</li>
               <li><Check size={15} /> The corrected sample reruns the same frozen criteria before client approval.</li>
               <li><Check size={15} /> Real project execution remains separate and requires authorized source material, a verified staging origin, and account-scoped storage.</li>
@@ -114,7 +114,7 @@ export default function TrustPage() {
                   <tr><td>Vercel</td><td>Web and API hosting</td><td>Application requests and operational delivery data</td></tr>
                   <tr><td>Cloudflare</td><td>Queued browser verification</td><td>Authorized staging targets, typed checks, and signed result callbacks in the retained project path</td></tr>
                   <tr><td>Supabase</td><td>Authentication, database, and private evidence storage</td><td>Agency, review, record, evidence, and operations data</td></tr>
-                  <tr><td>Google</td><td>Source analysis in account-based import</td><td>The submitted source text and generated response under the displayed service mode</td></tr>
+                  <tr><td>Google</td><td>Public and account-based source analysis</td><td>The submitted source text and generated response under the displayed service mode</td></tr>
                   <tr><td>Stripe</td><td>Optional invoice creation and status</td><td>Agency authorization, customer and invoice metadata; no card or bank details are stored by Greenlit</td></tr>
                 </tbody>
               </table>

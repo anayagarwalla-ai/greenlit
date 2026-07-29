@@ -125,7 +125,7 @@ function analysisResponse({
   });
 }
 
-async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt: number | undefined, ownerUserId: string) {
+async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt: number | undefined, ownerUserId: string | null) {
   const criteria = buildFallbackCriteria(input.text);
   if (criteria.length === 0) {
     return NextResponse.json({
@@ -154,9 +154,9 @@ export async function POST(request: Request) {
   const startedAt = performance.now();
   const geminiConfiguration = geminiServiceConfiguration();
   const user = await getOptionalUser();
-  if (!user) return NextResponse.json({ error: "Sign in with your business email to analyze a SOW. The guided demo remains available without an account.", code: "SIGN_IN_REQUIRED" }, { status: 401 });
-  if (!await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403 });
-  const intakeQuota = await consumeRateLimit(request, "sow-analysis-intake-hour", 20, 3_600, user.id, { failClosed: true });
+  if (user && !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  const ownerUserId = user?.id ?? null;
+  const intakeQuota = await consumeRateLimit(request, "sow-analysis-intake-hour", user ? 20 : 8, 3_600, ownerUserId, { failClosed: true });
   if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota);
   let input: AnalysisInput;
   try {
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
   try {
     const database = requireSupabaseAdmin();
     const { error: consentError } = await database.from("analysis_consent_events").insert({
-      owner_user_id: user.id,
+      owner_user_id: ownerUserId,
       actor_hash: requestActorHash(request),
       country_code: request.headers.get("x-vercel-ip-country") ?? null,
       source_mode: request.headers.get("content-type")?.includes("multipart/form-data") ? "UPLOAD" : "PASTE",
@@ -182,20 +182,20 @@ export async function POST(request: Request) {
     });
     if (consentError) throw new Error(consentError.message);
   } catch (consentError) {
-    await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { ownerUserId: user.id, error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
+    await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { accessMode: user ? "account" : "anonymous", error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
     return NextResponse.json({ error: "Your consent record could not be retained, so the SOW was not sent to Gemini. Try again later.", code: "CONSENT_RECORD_FAILED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
-  const quota = await consumeRateLimit(request, "sow-analysis-hour", 10, 3_600, user.id, { failClosed: true });
+  const quota = await consumeRateLimit(request, "sow-analysis-hour", user ? 10 : 3, 3_600, ownerUserId, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
   const globalLimit = positiveIntegerSetting(process.env.BETA_DAILY_ANALYSIS_LIMIT, 100, 500);
   const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "greenlit-global-analysis-capacity", { failClosed: true });
-  if (!capacity.allowed) return NextResponse.json({ error: "Today’s closed-beta AI capacity has been used. The guided demo and local review flow remain available.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
+  if (!capacity.allowed) return NextResponse.json({ error: "Today’s AI capacity has been used. The guided demo remains available, or try live analysis again after the reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return fallbackResponse(input, "not_configured", startedAt, undefined, user.id);
+  if (!apiKey) return fallbackResponse(input, "not_configured", startedAt, undefined, ownerUserId);
   const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
   const paidService = geminiConfiguration.paidService;
-  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt, undefined, user.id);
+  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt, undefined, ownerUserId);
 
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
@@ -259,7 +259,7 @@ ${input.text}`,
       .filter((criterion) => criterion.grounded);
     if (criteria.length === 0) throw new Error("Gemini returned no source-grounded criteria");
 
-    await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId: user.id, properties: { mode: "gemini", criteriaCount: criteria.length } });
+    await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId, properties: { mode: "gemini", criteriaCount: criteria.length } });
     return analysisResponse({
       input,
       criteria,
@@ -271,6 +271,6 @@ ${input.text}`,
   } catch (error) {
     console.error("Gemini analysis failed", error instanceof Error ? error.message : "unknown error");
     await logOperationalEvent({ severity: "WARN", service: "web", eventType: "GEMINI_ANALYSIS_FALLBACK", details: { model, reason: error instanceof Error ? error.message.slice(0, 300) : "unknown" } });
-    return fallbackResponse(input, "unavailable", startedAt, providerStartedAt, user.id);
+    return fallbackResponse(input, "unavailable", startedAt, providerStartedAt, ownerUserId);
   }
 }

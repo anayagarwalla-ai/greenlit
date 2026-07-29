@@ -18,13 +18,13 @@ Target length: 2:30 to 2:55. Record at 1440p or 1080p with the browser at 100% z
 
 “A web agency says the milestone is finished. The client asks for proof. Greenlit follows each promise from the statement of work to an observed result, a client decision, and an invoice-ready record.”
 
-## 0:32 to 0:55 | Turn one promise into a cited criterion
+## 0:32 to 0:55 | Run Gemini, then show the cited criterion
 
-**Screen:** Show the synthetic SOW beside the generated criteria. Point to AC-04 and its exact source quote, then confirm the criteria.
+**Screen:** In `/workspace`, click **Use the synthetic sample**, accept the notices, and click **Generate acceptance criteria**. Hold on the returned model label and one exact-match criterion. Then cut to that promise in the guided walkthrough for the deterministic downstream sequence.
 
 **Narration:**
 
-“Greenlit turns the scope into measurable acceptance criteria and keeps the exact supporting language beside each one. The agency reviews every criterion before it is frozen. AI can draft the structure, but a human decides what ‘done’ means.”
+“That is a live Gemini call, not the seeded walkthrough. Greenlit turns the scope into measurable acceptance criteria and keeps the exact supporting language beside each one. The agency reviews every criterion before it is frozen. AI drafts the structure; a human decides what ‘done’ means.”
 
 ## 0:55 to 1:20 | Run typed checks and reveal the failure
 
@@ -56,7 +56,7 @@ Target length: 2:30 to 2:55. Record at 1440p or 1080p with the browser at 100% z
 
 **Narration:**
 
-“This public walkthrough runs live on the deployed app with no account. Its outcomes are seeded, synthetic, and do not create a customer record. The account-based Gemini, queued browser, private storage, and Stripe paths require configured services and available capacity. Broader production guarantees remain planned, not promised.”
+“The public SOW analysis you saw really runs Gemini and shows its actual output. The downstream walkthrough outcomes are seeded, synthetic, and do not create a customer record. Retained browser evidence, private project storage, and Stripe require the account-backed path and available capacity.”
 
 ## 2:30 to 2:45 | Architecture and close
 
@@ -70,6 +70,7 @@ Target length: 2:30 to 2:55. Record at 1440p or 1080p with the browser at 100% z
 
 - Use only the included synthetic SOW.
 - Start with a new private browser window and the production walkthrough URL. No sign-in or prior session should be required.
+- Test the live Gemini call once before recording; keep the deterministic walkthrough ready in a second tab for the downstream sequence.
 - Use the public walkthrough for the main recording. Its seeded outcomes create no browser-evidence, approval, or transaction record.
 - If showing the retained project path separately, use only a pre-approved test account and synthetic data. Do not describe optional infrastructure as part of the seeded walkthrough.
 - Do one dry run before recording so the browser has no permission prompts.

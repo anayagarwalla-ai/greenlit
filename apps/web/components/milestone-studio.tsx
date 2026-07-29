@@ -1131,7 +1131,9 @@ export function MilestoneStudio({ geminiPaidService, guidedDemo }: { geminiPaidS
         ? "Add the SOW and milestone details, accept the notices, then generate the criteria."
         : AGENCY_BETA_SIGN_IN_VISIBLE
           ? "Add the SOW and milestone details. Sign in only when you are ready to generate the criteria."
-          : "Explore the complete workflow in the guided walkthrough. Account-backed imports are not being offered publicly yet."
+          : sourceText.trim() || selectedFile
+            ? "Complete the milestone details and notices, then let Gemini draft source-backed criteria for your review."
+            : "Add a synthetic or non-confidential SOW for live Gemini criteria, or explore the complete guided walkthrough."
       : phase === "criteria"
         ? sourceMode === "demo"
           ? "Review the six source-backed checks, then confirm them to verify the sample build."
@@ -1312,6 +1314,7 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
   onSignIn: () => Promise<void>;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const hasSourceInput = Boolean(selectedFile || sourceText.trim());
   useEffect(() => {
     if (!selectedFile && fileInput.current) fileInput.current.value = "";
   }, [selectedFile]);
@@ -1377,12 +1380,16 @@ function SowIntake({ sourceText, setSourceText, selectedFile, setSelectedFile, a
         <div className="intake-action-dock">
           {error && <div className="analysis-error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           <div className="intake-actions">
-            {signedInEmail
-              ? <button className="button button--ink" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
-              : AGENCY_BETA_SIGN_IN_VISIBLE
+            {hasSourceInput && (signedInEmail || !AGENCY_BETA_SIGN_IN_VISIBLE)
+              ? <button className="button button--ink" type="button" disabled={analyzing} onClick={onAnalyze}>{analyzing ? <><LoaderCircle className="spin" size={16} /> Drafting criteria…</> : <>Generate acceptance criteria <Sparkles size={15} /></>}</button>
+              : hasSourceInput && AGENCY_BETA_SIGN_IN_VISIBLE
                 ? <Link className="button button--ink" onClick={(event) => { event.preventDefault(); void onSignIn(); }} href={signInHref}><LockKeyhole size={15} /> Sign in & generate criteria</Link>
-                : <button className="button button--ink" type="button" onClick={onDemo}>Explore the full walkthrough <ArrowRight size={15} /></button>}
-            <span>{signedInEmail ? "Greenlit checks every required field before analysis." : AGENCY_BETA_SIGN_IN_VISIBLE ? "Your draft will be preserved through sign-in." : "The public walkthrough demonstrates criteria, verification, client review, and the approval record."}</span>
+                : <button className="button button--ink" type="button" disabled={analyzing} onClick={onDemo}>Explore the full walkthrough <ArrowRight size={15} /></button>}
+            <span>{hasSourceInput
+              ? signedInEmail || !AGENCY_BETA_SIGN_IN_VISIBLE
+                ? "Gemini will draft source-grounded criteria for you to review and confirm."
+                : "Your draft will be preserved through sign-in."
+              : "No SOW yet? The public walkthrough demonstrates criteria, verification, client review, and the approval record."}</span>
           </div>
         </div>
 

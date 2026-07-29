@@ -97,7 +97,7 @@ Use one sentence and one consequence: agencies finish the work but wait to invoi
 
 ### Solution demo
 
-Show, do not enumerate: source-grounded criteria in the guided walkthrough, the grounding lock, false-success catch, fixed rerun, client approval, and receipt. Explain that Gemini powers the configured account-backed import path while the public walkthrough is seeded.
+Show, do not enumerate: one live public Gemini import, the grounding lock, false-success catch, fixed rerun, client approval, and receipt. Explain that the custom criteria are live Gemini output while the downstream public walkthrough is clearly seeded.
 
 ### Technical explanation
 
@@ -109,7 +109,7 @@ Spend the final 20 seconds on the trust boundary and architecture. Name Gemini, 
 
 **Can Gemini execute anything?**  No. Gemini returns structured criterion drafts only. It cannot submit selectors, JavaScript, credentials, headers, or off-origin actions. Human-confirmed data must pass a shared typed schema before the runner sees a job ID.
 
-**Are the demo results real?**  There are two distinct paths. The implemented account-backed queue/lease/browser/callback path can create retained evidence when the required services, account, and runner capacity are configured. The always-available guided walkthrough uses seeded outcomes, labels them on every result/review/receipt screen, and creates no transaction record. A custom imported SOW stops at staging setup until its own origin and checks are configured.
+**Are the demo results real?**  There are three distinct boundaries. Public custom SOW analysis really calls Gemini (or the disclosed local fallback) and opens its actual source-grounded criteria review. The implemented account-backed queue/lease/browser/callback path can create retained evidence when the required services, account, and runner capacity are configured. The always-available downstream walkthrough uses seeded outcomes, labels them on every result/review/receipt screen, and creates no transaction record. A public custom SOW stops at staging setup because retained origin verification and evidence require an account.
 
 **What data goes to Gemini?**  Only text the user explicitly pasted or uploaded after attesting that it is synthetic or non-confidential. It is processed in memory and omitted from verification logs. This free-tier build is not for confidential client documents.
 
