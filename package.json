@@ -24,7 +24,7 @@
     "runner:deploy": "pnpm --filter @greenlit/runner run deploy"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
+    "@playwright/test": "1.62.0",
     "next": "16.2.11"
   }
 }
