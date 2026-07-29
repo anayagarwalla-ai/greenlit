@@ -102,7 +102,7 @@ test("magic-link failures are explained on the login page", async ({ page }) => 
 
 test("feedback distinguishes failure and success and allows another report", async ({ page }) => {
   await page.goto("/");
-  const feedbackTrigger = page.getByRole("button", { name: "Beta feedback" });
+  const feedbackTrigger = page.getByRole("button", { name: "Feedback" });
   await feedbackTrigger.click();
   const feedbackDialog = page.getByRole("dialog", { name: /Tell us what got in your way/ });
   await expect(feedbackDialog).toBeVisible();
