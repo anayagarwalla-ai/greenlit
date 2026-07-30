@@ -9,8 +9,20 @@ const mocks = vi.hoisted(() => ({
   logOperationalEvent: vi.fn(),
   logProductEvent: vi.fn(),
   consentInsert: vi.fn(),
+  generateContent: vi.fn(),
 }));
 
+vi.mock("@google/genai", () => ({
+  GoogleGenAI: class {
+    models = { generateContent: mocks.generateContent };
+  },
+  Type: {
+    OBJECT: "object",
+    ARRAY: "array",
+    STRING: "string",
+    BOOLEAN: "boolean",
+  },
+}));
 vi.mock("@/lib/supabase-server", () => ({ getOptionalUser: mocks.getOptionalUser }));
 vi.mock("@/lib/beta-access", () => ({ betaAccessAllowedFresh: mocks.betaAccessAllowedFresh }));
 vi.mock("@/lib/database", () => ({ requireSupabaseAdmin: mocks.requireSupabaseAdmin }));
@@ -32,6 +44,12 @@ vi.mock("@/lib/analysis", () => ({
   normalizeSourceText: (value: string) => value.trim(),
 }));
 vi.mock("@/lib/fallback-analysis", () => ({
+  LOCAL_FALLBACK_MODEL: "Greenlit local source parser",
+  localFallbackNotice: (reason: string) => reason === "consent_record_unavailable"
+    ? "Greenlit could not retain consent, so it did not send this SOW to Google. Its local source parser created this source-grounded draft."
+    : reason === "unavailable"
+      ? "Gemini may already have received the SOW. The local source parser created a source-grounded draft."
+      : "Greenlit did not send this SOW to Google. Its local source parser created a source-grounded draft.",
   buildFallbackCriteria: (text: string) => [{
     title: "Get started is visible",
     sourceQuote: text.split(".")[0] + ".",
@@ -79,7 +97,7 @@ import { POST } from "./route";
 
 const source = "The launch page must display a visible Get started button on the home page. The button must open the /contact page when activated.";
 
-function request() {
+function request(overrides: Record<string, unknown> = {}) {
   return new Request("https://greenlit.example/api/analyze", {
     method: "POST",
     headers: {
@@ -92,6 +110,7 @@ function request() {
       sourceDataAttested: true,
       aiDisclosureAccepted: true,
       adultBusinessUseAttested: true,
+      ...overrides,
     }),
   });
 }
@@ -104,6 +123,17 @@ describe("public SOW analysis", () => {
     mocks.consumeRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 3_600 });
     mocks.requestActorHash.mockReturnValue("anonymous-actor-hash");
     mocks.consentInsert.mockResolvedValue({ error: null });
+    mocks.generateContent.mockResolvedValue({
+      text: JSON.stringify({
+        criteria: [{
+          title: "Get started is visible",
+          sourceQuote: "The launch page must display a visible Get started button on the home page.",
+          supported: true,
+          checkType: "element_state",
+          rationale: "Inspect the rendered control.",
+        }],
+      }),
+    });
     mocks.requireSupabaseAdmin.mockReturnValue({
       from: (table: string) => {
         if (table !== "analysis_consent_events") throw new Error(`Unexpected table: ${table}`);
@@ -114,7 +144,7 @@ describe("public SOW analysis", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it("accepts an unsigned attested SOW and records pseudonymous consent", async () => {
+  it("uses the source-grounded local fallback without requiring storage when Gemini is not configured", async () => {
     const response = await POST(request());
 
     expect(response.status).toBe(200);
@@ -126,6 +156,40 @@ describe("public SOW analysis", () => {
       requiresHumanConfirmation: true,
     });
     expect(mocks.betaAccessAllowedFresh).not.toHaveBeenCalled();
+    expect(mocks.requireSupabaseAdmin).not.toHaveBeenCalled();
+    expect(mocks.consentInsert).not.toHaveBeenCalled();
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.logProductEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "ANALYSIS_COMPLETED",
+      ownerUserId: null,
+      properties: expect.objectContaining({ mode: "fallback", reason: "not_configured" }),
+    }));
+  });
+
+  it("still requires explicit data and business-use confirmations for local parsing", async () => {
+    const response = await POST(request({ aiDisclosureAccepted: false }));
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: "INVALID_SOURCE" });
+    expect(mocks.requireSupabaseAdmin).not.toHaveBeenCalled();
+    expect(mocks.logProductEvent).not.toHaveBeenCalled();
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+  });
+
+  it("records pseudonymous consent before sending an unsigned attested SOW to Gemini", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-api-key");
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-analysis-mode")).toBe("gemini");
+    await expect(response.json()).resolves.toMatchObject({
+      sourceName: "Public test SOW",
+      sourceText: source,
+      analysisMode: "gemini",
+      requiresHumanConfirmation: true,
+    });
     expect(mocks.consentInsert).toHaveBeenCalledWith(expect.objectContaining({
       owner_user_id: null,
       actor_hash: "anonymous-actor-hash",
@@ -151,6 +215,8 @@ describe("public SOW analysis", () => {
       null,
       { failClosed: true },
     );
+    expect(mocks.generateContent).toHaveBeenCalledTimes(1);
+    expect(mocks.consentInsert.mock.invocationCallOrder[0]).toBeLessThan(mocks.generateContent.mock.invocationCallOrder[0]!);
     expect(mocks.logProductEvent).toHaveBeenCalledWith(expect.objectContaining({
       eventType: "ANALYSIS_COMPLETED",
       ownerUserId: null,
@@ -169,14 +235,47 @@ describe("public SOW analysis", () => {
     expect(mocks.consentInsert).not.toHaveBeenCalled();
   });
 
-  it("fails closed before analysis when anonymous consent cannot be retained", async () => {
-    mocks.consentInsert.mockResolvedValue({ error: { message: "database unavailable" } });
+  it("keeps the source out of Gemini and recovers locally when consent cannot be retained", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-api-key");
+    mocks.requireSupabaseAdmin.mockImplementation(() => {
+      throw new Error("Durable record storage is not configured.");
+    });
 
     const response = await POST(request());
 
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSENT_RECORD_FAILED" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-analysis-mode")).toBe("fallback");
+    await expect(response.json()).resolves.toMatchObject({
+      analysisMode: "fallback",
+      model: "Greenlit local source parser",
+      notice: expect.stringContaining("did not send this SOW to Google"),
+    });
     expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
-    expect(mocks.logProductEvent).not.toHaveBeenCalled();
+    expect(mocks.consentInsert).not.toHaveBeenCalled();
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.logOperationalEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "ANALYSIS_CONSENT_RECORD_FAILED",
+      details: expect.objectContaining({ recovery: "local_fallback" }),
+    }));
+    expect(mocks.logProductEvent).toHaveBeenCalledWith(expect.objectContaining({
+      properties: expect.objectContaining({ reason: "consent_record_unavailable" }),
+    }));
+  });
+
+  it("uses the local fallback in unpaid-tier restricted regions without retaining provider consent", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-api-key");
+    const restrictedRequest = request();
+    restrictedRequest.headers.set("x-vercel-ip-country", "GB");
+
+    const response = await POST(restrictedRequest);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      analysisMode: "fallback",
+      notice: expect.stringContaining("did not send this SOW to Google"),
+    });
+    expect(mocks.requireSupabaseAdmin).not.toHaveBeenCalled();
+    expect(mocks.consentInsert).not.toHaveBeenCalled();
+    expect(mocks.generateContent).not.toHaveBeenCalled();
   });
 });

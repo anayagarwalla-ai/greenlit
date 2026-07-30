@@ -1,11 +1,14 @@
 import { launch, type BrowserWorker } from "@cloudflare/playwright";
-import { checkSpecSchema, type CheckSpec, type CriterionResult } from "@greenlit/contracts";
+import { checkSpecSchema, isSafeRelativePath, type CheckSpec, type CriterionResult } from "@greenlit/contracts";
 import { z } from "zod";
 import axe from "axe-core";
 import { addressMatchesFrozenSet, pathWithQueryAndHash, perCheckBudgetMs } from "./security";
 import { installNetworkIsolation } from "./network-isolation";
 import { leaseResponseDisposition } from "./lease-response";
 import { maintenanceRouteForCron } from "./scheduled-maintenance";
+import { resolveLocator } from "./element-reference";
+import { discoverBuild, type DiscoveryCatalog } from "./discovery";
+import { expectedPostResponseLabel, postResponsePassed } from "./form-evidence";
 import runnerPackage from "../package.json";
 
 type Env = {
@@ -31,11 +34,19 @@ type StoredEvidenceArtifact = Omit<EvidenceArtifact, "base64"> & { byteSize: num
 
 const RUNNER_VERSION = runnerPackage.version;
 const JOB_DEADLINE_MS = 48_000;
+const DISCOVERY_DEADLINE_MS = 24_000;
 const MAX_CONTROL_BODY_BYTES = 8_192;
 const INTERNAL_REQUEST_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_ADDRESS_CHECKS = 500;
 
 const jobSchema = z.object({ jobId: z.string().min(4).max(200) });
+const discoveryRequestSchema = z.object({
+  origin: z.string().url().max(2_000),
+  startPath: z.string().max(500).refine(isSafeRelativePath),
+  intentTerms: z.array(z.string().trim().min(2).max(32).regex(/^[\p{L}\p{N}]+$/u)).max(24),
+  originReceipt: z.string().min(20).max(4_000),
+  userId: z.string().min(1).max(200),
+});
 const axePageSource = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n${axe.source}`;
 const leaseSchema = z.object({
   jobId: z.string(),
@@ -193,14 +204,6 @@ function remainingBudget(deadline: number, maximum: number, label: string): numb
   return Math.min(maximum, remaining);
 }
 
-async function resolveLocator(page: import("@cloudflare/playwright").Page, elementRef: string) {
-  const separator = elementRef.indexOf(":");
-  if (separator < 1) throw new Error("Element reference must be role:accessible name.");
-  const role = elementRef.slice(0, separator) as Parameters<typeof page.getByRole>[0];
-  const name = elementRef.slice(separator + 1);
-  return page.getByRole(role, { name, exact: true });
-}
-
 function assertVerifiedPage(page: import("@cloudflare/playwright").Page, origin: string) {
   const current = new URL(page.url());
   if (current.origin !== origin) throw new Error(`Navigation left the verified origin (${current.origin}).`);
@@ -277,8 +280,12 @@ async function executeCheck(page: import("@cloudflare/playwright").Page, origin:
       assertVerifiedPage(page, origin);
       const textPassed = check.successText ? await page.getByText(check.successText, { exact: false }).isVisible() : true;
       const pathPassed = check.successPath ? pathWithQueryAndHash(new URL(page.url())) === check.successPath : true;
-      const statusPassed = check.expectedStatus ? observedStatus === check.expectedStatus : true;
-      return result(textPassed && pathPassed && statusPassed ? "PASS" : "FAIL", `Success UI${check.expectedStatus ? ` + HTTP ${check.expectedStatus}` : ""}`, `UI: ${textPassed ? "shown" : "missing"}${observedStatus ? `; HTTP ${observedStatus}` : ""}`);
+      const statusPassed = postResponsePassed(check.expectedPostPath, observedStatus, check.expectedStatus);
+      return result(
+        textPassed && pathPassed && statusPassed ? "PASS" : "FAIL",
+        `Success UI${expectedPostResponseLabel(check.expectedPostPath, check.expectedStatus)}`,
+        `UI: ${textPassed ? "shown" : "missing"}${observedStatus !== undefined ? `; HTTP ${observedStatus}` : ""}`,
+      );
     }
     if (check.type === "viewport_layout") {
       let worstOverflow = 0;
@@ -434,6 +441,129 @@ async function runJob(env: Env, message: JobMessage): Promise<JobDisposition> {
   return { action: "ack" };
 }
 
+async function runDiscovery(env: Env, input: z.infer<typeof discoveryRequestSchema>): Promise<DiscoveryCatalog> {
+  const deadline = Date.now() + DISCOVERY_DEADLINE_MS;
+  const validatePayload = {
+    origin: input.origin,
+    originReceipt: input.originReceipt,
+    userId: input.userId,
+  };
+  const initial = await authenticatedFetch(
+    env,
+    "/api/internal/discovery/validate-origin",
+    validatePayload,
+    remainingBudget(deadline, 5_000, "discovery origin validation"),
+  );
+  if (!initial.ok) throw new Error(`Discovery origin validation returned ${initial.status}.`);
+  const initialValidation = originValidationSchema.parse(await initial.json());
+  if (initialValidation.origin !== input.origin) throw new Error("Discovery origin validation returned a mismatched origin.");
+  let validatedAddresses = initialValidation.addresses;
+
+  const browser = await withinBudget(
+    launchWithBackoff(env.BROWSER),
+    remainingBudget(deadline, 12_000, "discovery browser launch"),
+    "Discovery browser launch",
+  );
+  try {
+    const context = await browser.newContext({
+      serviceWorkers: "block",
+      permissions: [],
+      viewport: { width: 1280, height: 720 },
+    });
+    let lastValidationAt = Date.now();
+    let lastValidation = true;
+    let validationInFlight: Promise<boolean> | null = null;
+    const validateTarget = async () => {
+      if (Date.now() - lastValidationAt < 1_000) return lastValidation;
+      if (validationInFlight) return validationInFlight;
+      validationInFlight = authenticatedFetch(
+        env,
+        "/api/internal/discovery/validate-origin",
+        validatePayload,
+        remainingBudget(deadline, 5_000, "discovery origin revalidation"),
+      ).then(async (response) => {
+        if (!response.ok) return false;
+        const current = originValidationSchema.safeParse(await response.json());
+        if (!current.success || current.data.origin !== input.origin) return false;
+        validatedAddresses = current.data.addresses;
+        return true;
+      }).catch(() => false).then((valid) => {
+        lastValidationAt = Date.now();
+        lastValidation = valid;
+        return valid;
+      }).finally(() => { validationInFlight = null; });
+      return validationInFlight;
+    };
+
+    await installNetworkIsolation(context, input.origin, validateTarget);
+    const page = await context.newPage();
+    const addressValidations = new Set<Promise<void>>();
+    let responseAddressChecks = 0;
+    let connectionFailure: Error | null = null;
+    try {
+      page.on("popup", (popup) => void popup.close());
+      page.on("response", (response) => {
+        if (!/^https?:/i.test(response.url())) return;
+        responseAddressChecks += 1;
+        if (responseAddressChecks > MAX_RESPONSE_ADDRESS_CHECKS) {
+          connectionFailure = new Error("The staging scan produced too many network responses to verify safely.");
+          void page.close().catch(() => undefined);
+          return;
+        }
+        let validation: Promise<void>;
+        validation = response.serverAddr().then(async (address) => {
+          if (!address?.ipAddress) throw new Error("The staging scan could not verify a connected server address.");
+          if (!addressMatchesFrozenSet(address.ipAddress, validatedAddresses)) {
+            const refreshed = await validateTarget();
+            if (!refreshed || !addressMatchesFrozenSet(address.ipAddress, validatedAddresses)) {
+              throw new Error(`Connection address ${address.ipAddress} is not in the origin's current safe DNS set.`);
+            }
+          }
+        }).catch(async (error) => {
+          connectionFailure = error instanceof Error ? error : new Error("The staging scan could not verify a connected server address.");
+          await page.close().catch(() => undefined);
+        }).finally(() => { addressValidations.delete(validation); });
+        addressValidations.add(validation);
+      });
+
+      const catalog = await withinBudget(
+        discoverBuild(page, input.origin, {
+          deadline,
+          startPath: input.startPath,
+          intentTerms: input.intentTerms,
+          maxPages: 4,
+          maxCandidates: 80,
+        }),
+        remainingBudget(deadline, 20_000, "staging discovery"),
+        "Staging discovery",
+      );
+      await page.waitForLoadState("networkidle", { timeout: 2_000 }).catch(() => undefined);
+      // Stop the page before draining the validation set. Taking a single
+      // snapshot while the page is alive can miss a late response event.
+      await page.close().catch(() => undefined);
+      while (addressValidations.size > 0) {
+        await withinBudget(
+          Promise.all([...addressValidations]),
+          remainingBudget(deadline, 3_000, "discovery response address validation"),
+          "Discovery response address validation",
+        );
+      }
+      if (connectionFailure) throw connectionFailure;
+      return catalog;
+    } finally {
+      await Promise.race([
+        context.close(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+    }
+  } finally {
+    await Promise.race([
+      browser.close(),
+      new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+    ]);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -450,6 +580,22 @@ export default {
         return Response.json({ ok: false, service: "greenlit-runner", version: RUNNER_VERSION, error: error instanceof Error ? error.message.slice(0, 200) : "Browser launch failed" }, { status: 503 });
       } finally {
         if (browser) await browser.close();
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/v1/discover") {
+      const body = await readLimitedBody(request, MAX_CONTROL_BODY_BYTES);
+      if (body === null) return Response.json({ error: "Request too large" }, { status: 413, headers: { "Cache-Control": "no-store" } });
+      if (!await authenticatedRequest(request, env, body)) return Response.json({ error: "Invalid or expired signature" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+      let input: unknown;
+      try { input = JSON.parse(body); } catch { return Response.json({ error: "Invalid discovery request" }, { status: 422, headers: { "Cache-Control": "no-store" } }); }
+      const discovery = discoveryRequestSchema.safeParse(input);
+      if (!discovery.success) return Response.json({ error: "Invalid discovery request" }, { status: 422, headers: { "Cache-Control": "no-store" } });
+      try {
+        const catalog = await runDiscovery(env, discovery.data);
+        return Response.json(catalog, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        console.error("Staging discovery failed", error instanceof Error ? error.message.slice(0, 240) : "unknown");
+        return Response.json({ error: "The staging build could not be scanned safely." }, { status: 503, headers: { "Cache-Control": "no-store" } });
       }
     }
     if (request.method !== "POST" || url.pathname !== "/v1/jobs") return new Response("Not found", { status: 404 });

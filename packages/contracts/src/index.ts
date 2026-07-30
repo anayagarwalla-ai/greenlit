@@ -1,5 +1,125 @@
 import { z } from "zod";
 
+export const supportedAccessibleRoles = [
+  "alert",
+  "alertdialog",
+  "application",
+  "article",
+  "banner",
+  "blockquote",
+  "button",
+  "caption",
+  "cell",
+  "checkbox",
+  "code",
+  "columnheader",
+  "combobox",
+  "complementary",
+  "contentinfo",
+  "definition",
+  "deletion",
+  "dialog",
+  "directory",
+  "document",
+  "emphasis",
+  "feed",
+  "figure",
+  "form",
+  "generic",
+  "grid",
+  "gridcell",
+  "group",
+  "heading",
+  "img",
+  "insertion",
+  "link",
+  "list",
+  "listbox",
+  "listitem",
+  "log",
+  "main",
+  "marquee",
+  "math",
+  "meter",
+  "menu",
+  "menubar",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "navigation",
+  "none",
+  "note",
+  "option",
+  "paragraph",
+  "presentation",
+  "progressbar",
+  "radio",
+  "radiogroup",
+  "region",
+  "row",
+  "rowgroup",
+  "rowheader",
+  "scrollbar",
+  "search",
+  "searchbox",
+  "separator",
+  "slider",
+  "spinbutton",
+  "status",
+  "strong",
+  "subscript",
+  "superscript",
+  "switch",
+  "tab",
+  "table",
+  "tablist",
+  "tabpanel",
+  "term",
+  "textbox",
+  "time",
+  "timer",
+  "toolbar",
+  "tooltip",
+  "tree",
+  "treegrid",
+  "treeitem",
+] as const;
+
+export type SupportedAccessibleRole = (typeof supportedAccessibleRoles)[number];
+export type AccessibleElementReference = {
+  role: SupportedAccessibleRole;
+  name: string;
+};
+
+const supportedAccessibleRoleSet = new Set<string>(supportedAccessibleRoles);
+
+export function parseAccessibleElementRef(value: string): AccessibleElementReference {
+  const normalized = value.trim();
+  const separator = normalized.indexOf(":");
+  if (separator < 1) throw new Error("Element reference must use role:accessible name.");
+
+  const role = normalized.slice(0, separator);
+  if (!supportedAccessibleRoleSet.has(role)) {
+    throw new Error(`Unsupported accessible role "${role}".`);
+  }
+
+  const name = normalized.slice(separator + 1).trim();
+  if (!name) throw new Error("Element reference must include a non-empty accessible name.");
+
+  return { role: role as SupportedAccessibleRole, name };
+}
+
+export const accessibleElementRefSchema = z.string().trim().max(160).superRefine((value, context) => {
+  try {
+    parseAccessibleElementRef(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "Invalid accessible element reference.",
+    });
+  }
+});
+
 export const viewportSchema = z.object({
   width: z.number().int().min(320).max(1280),
   height: z.number().int().min(480).max(900),
@@ -18,7 +138,7 @@ const baseCheck = z.object({
 
 export const elementStateCheckSchema = baseCheck.extend({
   type: z.literal("element_state"),
-  elementRef: z.string().trim().min(1).max(160),
+  elementRef: accessibleElementRefSchema,
   assertion: z.enum(["visible", "enabled", "count"]),
   expectedCount: z.number().int().min(0).max(100).optional(),
   viewport: viewportSchema.optional(),
@@ -26,14 +146,14 @@ export const elementStateCheckSchema = baseCheck.extend({
 
 export const linkDestinationCheckSchema = baseCheck.extend({
   type: z.literal("link_destination"),
-  elementRef: z.string().trim().min(1).max(160),
+  elementRef: accessibleElementRefSchema,
   expectedPath: safeRelativePathSchema,
 });
 
 export const formSubmissionCheckSchema = baseCheck.extend({
   type: z.literal("form_submission"),
   fields: z.array(z.object({ label: z.string().trim().min(1).max(160), value: z.string().max(500) })).min(1).max(20),
-  submitRef: z.string().trim().min(1).max(160),
+  submitRef: accessibleElementRefSchema,
   successText: z.string().trim().min(1).max(200).optional(),
   successPath: safeRelativePathSchema.optional(),
   expectedPostPath: safeRelativePathSchema.optional(),
@@ -51,7 +171,7 @@ export const axeScanCheckSchema = baseCheck.extend({
   type: z.literal("axe_scan"),
   tags: z.array(z.enum(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])).min(1).max(6).default(["wcag2a", "wcag2aa", "wcag22aa"]),
   failImpacts: z.array(z.enum(["critical", "serious"])).default(["critical", "serious"]),
-  submitRef: z.string().trim().min(1).max(160).optional(),
+  submitRef: accessibleElementRefSchema.optional(),
   ownerAcknowledgedMutation: z.literal(true).optional(),
 });
 

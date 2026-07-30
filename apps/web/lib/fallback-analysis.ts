@@ -3,6 +3,25 @@ import { isGroundedQuote, normalizeSourceText, normalizeWhitespace, type Analysi
 const MAX_FALLBACK_CRITERIA = 8;
 const MAX_QUOTE_LENGTH = 900;
 
+export type LocalFallbackReason =
+  | "unavailable"
+  | "not_configured"
+  | "region_restricted"
+  | "consent_record_unavailable";
+
+export const LOCAL_FALLBACK_MODEL = "Greenlit local source parser";
+
+const localFallbackNotices: Record<LocalFallbackReason, string> = {
+  unavailable: "Gemini did not return usable source-grounded criteria, so Greenlit's local source parser created this draft instead. The SOW may already have been sent to Gemini before the provider failed. Review every item before continuing.",
+  not_configured: "Gemini is not configured. Greenlit did not send this SOW to Google; its local source parser created this source-grounded draft instead. Review every item before continuing.",
+  region_restricted: "Gemini's unpaid API tier is not offered for this region. Greenlit did not send this SOW to Google; its local source parser created this source-grounded draft instead. Review every item before continuing.",
+  consent_record_unavailable: "Greenlit could not retain the consent record required for Gemini processing, so it did not send this SOW to Google. Its local source parser created this source-grounded draft instead. Review every item before continuing.",
+};
+
+export function localFallbackNotice(reason: LocalFallbackReason): string {
+  return localFallbackNotices[reason];
+}
+
 const requirementPattern = /\b(must|shall|should|will|needs? to|required|requires?|at least|no more than|within|acceptance|deliver(?:able|ables)?|ensure)\b/i;
 const browserEvidencePattern = /\b(page|screen|website|site|homepage|button|link|navigation|menu|form|field|headline|section|viewport|mobile|desktop|redirect|visible|display|submit|accessib|wcag|aria|scroll|layout|http|url|path)\b/i;
 const headingPattern = /^(statement of work|scope of work|acceptance criteria|deliverables?|project|milestone|overview|background|objectives?|timeline|terms?)\b.{0,45}:?$/i;
@@ -49,7 +68,10 @@ function evidenceStrategy(quote: string): { checkType: CheckType; supported: boo
   if (/\b(form|field|submit|submission|lead|confirmation|validation error)\b/.test(value)) {
     return { checkType: "form_submission", supported: true, rationale: "Submit safe staging inputs and verify the visible result and expected network response." };
   }
-  if (/\b(navigate|redirect|destination|take visitors|url|path|links? to)\b/.test(value)) {
+  if (
+    /\b(navigate|redirect|destination|take visitors|url|path|links? to|reaches?|goes? to|leads? to)\b/.test(value)
+    || /\bopens?\b.{0,80}\b(page|route|url|path|destination)\b/.test(value)
+  ) {
     return { checkType: "link_destination", supported: true, rationale: "Activate the named control and verify its final same-origin destination." };
   }
   if (/\b(visible|displays?|present|contains?|includes?|shows?|headline|section|button|image|count|exactly|at least|no more than)\b/.test(value)) {

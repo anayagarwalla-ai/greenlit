@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { demoSowText } from "./demo";
-import { buildFallbackCriteria } from "./fallback-analysis";
+import { buildFallbackCriteria, localFallbackNotice } from "./fallback-analysis";
 
 describe("fast local SOW fallback", () => {
   it("creates grounded, editable criteria for the synthetic SOW", () => {
@@ -35,11 +35,31 @@ describe("fast local SOW fallback", () => {
     expect(criteria[0]?.checkType).toBe("element_state");
   });
 
+  it("recognizes button-driven page navigation as a destination check", () => {
+    const [criterion] = buildFallbackCriteria("Selecting the Search button must open the same-origin results page.");
+    expect(criterion?.checkType).toBe("link_destination");
+  });
+
   it("does not turn contract pricing into an acceptance criterion", () => {
     const source = "Studio will deliver the website milestone for $12,000 USD.\nThe homepage must display the approved headline.";
     const criteria = buildFallbackCriteria(source);
 
     expect(criteria).toHaveLength(1);
     expect(criteria[0]?.sourceQuote).toBe("The homepage must display the approved headline.");
+  });
+
+  it("explains when consent retention prevents external processing", () => {
+    const notice = localFallbackNotice("consent_record_unavailable");
+
+    expect(notice).toContain("did not send this SOW to Google");
+    expect(notice).toContain("local source parser");
+    expect(notice).toContain("source-grounded draft");
+  });
+
+  it("does not incorrectly claim that a timed-out provider never received the source", () => {
+    const notice = localFallbackNotice("unavailable");
+
+    expect(notice).toContain("may already have been sent to Gemini");
+    expect(notice).not.toContain("did not send this SOW");
   });
 });

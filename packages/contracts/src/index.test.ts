@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSpecSchema, isSafeRelativePath } from "./index";
+import { checkSpecSchema, isSafeRelativePath, parseAccessibleElementRef } from "./index";
 
 describe("safe CheckSpec contract", () => {
   it("accepts a confirmed typed check", () => {
@@ -14,6 +14,56 @@ describe("safe CheckSpec contract", () => {
       assertion: "visible",
     });
     expect(parsed.type).toBe("element_state");
+  });
+
+  it("parses the first separator and preserves later colons in the accessible name", () => {
+    expect(parseAccessibleElementRef("link:API docs: authentication")).toEqual({
+      role: "link",
+      name: "API docs: authentication",
+    });
+  });
+
+  it.each([
+    ["missing separator", "button"],
+    ["missing role", ":Save"],
+    ["empty accessible name", "button:"],
+    ["whitespace-only accessible name", "button:   "],
+    ["unsupported role", "selector:#submit"],
+  ])("rejects an element reference with %s", (_case, elementRef) => {
+    expect(() => parseAccessibleElementRef(elementRef)).toThrow();
+  });
+
+  it.each([
+    {
+      type: "element_state",
+      elementRef: "button:",
+      assertion: "visible",
+    },
+    {
+      type: "link_destination",
+      elementRef: "not-a-role:Contact",
+      expectedPath: "/contact",
+    },
+    {
+      type: "form_submission",
+      fields: [{ label: "Email", value: "qa@example.test" }],
+      submitRef: "button: ",
+      ownerAcknowledgedMutation: true,
+    },
+    {
+      type: "axe_scan",
+      submitRef: "css:#submit",
+      ownerAcknowledgedMutation: true,
+    },
+  ])("rejects malformed references on $type checks", (check) => {
+    expect(() => checkSpecSchema.parse({
+      id: "check-ref",
+      criterionId: "AC-REF",
+      path: "/",
+      sourceQuote: "The referenced control behaves as promised.",
+      confirmedByHuman: true,
+      ...check,
+    })).toThrow();
   });
 
   it("rejects unconfirmed checks and arbitrary URLs", () => {

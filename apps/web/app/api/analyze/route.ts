@@ -2,7 +2,12 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isGroundedQuote, normalizeSourceText } from "@/lib/analysis";
-import { buildFallbackCriteria } from "@/lib/fallback-analysis";
+import {
+  buildFallbackCriteria,
+  LOCAL_FALLBACK_MODEL,
+  localFallbackNotice,
+  type LocalFallbackReason,
+} from "@/lib/fallback-analysis";
 import { getOptionalUser } from "@/lib/supabase-server";
 import { betaAccessAllowedFresh } from "@/lib/beta-access";
 import { consumeRateLimit, positiveIntegerSetting, rateLimitedResponse } from "@/lib/rate-limit";
@@ -43,7 +48,7 @@ const extractedCriterionSchema = z.object({
 
 const responseSchema = z.object({ criteria: z.array(extractedCriterionSchema).min(1).max(MAX_CRITERIA) });
 
-async function readInput(request: Request, paidService: boolean) {
+async function readInput(request: Request, paidService: boolean, externalProviderPlanned: boolean) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const form = await readLimitedFormData(request, MAX_ANALYSIS_REQUEST_BYTES);
@@ -57,7 +62,9 @@ async function readInput(request: Request, paidService: boolean) {
     }
     if (form.get("aiDisclosureAccepted") !== "true" || form.get("adultBusinessUseAttested") !== "true") {
       throw new SourceInputError(
-        `Accept the Gemini ${paidService ? "paid-service" : "unpaid-tier"} data notice and confirm adult business use before analysis.`,
+        externalProviderPlanned
+          ? `Accept the Gemini ${paidService ? "paid-service" : "unpaid-tier"} data notice and confirm adult business use before analysis.`
+          : "Accept the local-processing notice and confirm adult business use before analysis.",
         "AI_NOTICE_REQUIRED",
       );
     }
@@ -125,7 +132,7 @@ function analysisResponse({
   });
 }
 
-async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "not_configured" | "region_restricted", startedAt: number, providerStartedAt: number | undefined, ownerUserId: string | null) {
+async function fallbackResponse(input: AnalysisInput, reason: LocalFallbackReason, startedAt: number, providerStartedAt: number | undefined, ownerUserId: string | null) {
   const criteria = buildFallbackCriteria(input.text);
   if (criteria.length === 0) {
     return NextResponse.json({
@@ -134,17 +141,17 @@ async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "n
     }, { status: 422 });
   }
 
-  await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId, properties: { mode: "fallback", reason, criteriaCount: criteria.length } });
+  try {
+    await logProductEvent({ eventType: "ANALYSIS_COMPLETED", ownerUserId, properties: { mode: "fallback", reason, criteriaCount: criteria.length } });
+  } catch (error) {
+    console.error("Fallback completion event could not be recorded", error instanceof Error ? error.message : "unknown error");
+  }
   return analysisResponse({
     input,
     criteria,
-    model: "Greenlit fast fallback",
+    model: LOCAL_FALLBACK_MODEL,
     analysisMode: "fallback",
-    notice: reason === "unavailable"
-      ? "Gemini was unavailable or did not respond within 8 seconds, so Greenlit generated this source-grounded draft locally instead of making you wait. Review each item before continuing."
-      : reason === "region_restricted"
-        ? "Gemini's unpaid API tier is not offered for this region. Greenlit kept the source local and generated a source-grounded draft without sending it to Google."
-        : "Gemini is not configured, so Greenlit generated this source-grounded draft locally. Review each item before continuing.",
+    notice: localFallbackNotice(reason),
     startedAt,
     providerStartedAt,
   });
@@ -153,6 +160,13 @@ async function fallbackResponse(input: AnalysisInput, reason: "unavailable" | "n
 export async function POST(request: Request) {
   const startedAt = performance.now();
   const geminiConfiguration = geminiServiceConfiguration();
+  const apiKey = process.env.GEMINI_API_KEY;
+  const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
+  const localFallbackReason: LocalFallbackReason | null = !apiKey
+    ? "not_configured"
+    : !geminiConfiguration.paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)
+      ? "region_restricted"
+      : null;
   const user = await getOptionalUser();
   if (user && !await betaAccessAllowedFresh(user)) return NextResponse.json({ error: "This email is not on the closed-beta invite list yet.", code: "BETA_INVITE_REQUIRED" }, { status: 403, headers: { "Cache-Control": "no-store" } });
   const ownerUserId = user?.id ?? null;
@@ -160,13 +174,19 @@ export async function POST(request: Request) {
   if (!intakeQuota.allowed) return rateLimitedResponse(intakeQuota);
   let input: AnalysisInput;
   try {
-    input = await readInput(request, geminiConfiguration.paidService);
+    input = await readInput(request, geminiConfiguration.paidService, localFallbackReason === null);
   } catch (error) {
     if (error instanceof RequestSizeError) return requestTooLargeResponse(error.maxBytes);
     if (error instanceof SourceInputError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "The extracted SOW text must be between 80 and 45,000 characters.", code: "INVALID_SOURCE" }, { status: 422 });
     return NextResponse.json({ error: "The SOW could not be read. Try pasting the text instead.", code: "SOURCE_READ_FAILED" }, { status: 422 });
   }
+  // Local parsing still requires every intake attestation above, but it does
+  // not require a durable Gemini consent event because no source leaves
+  // Greenlit. This also keeps an unconfigured local workspace usable without
+  // pretending that a provider call occurred.
+  if (localFallbackReason) return fallbackResponse(input, localFallbackReason, startedAt, undefined, ownerUserId);
+
   try {
     const database = requireSupabaseAdmin();
     const { error: consentError } = await database.from("analysis_consent_events").insert({
@@ -182,8 +202,15 @@ export async function POST(request: Request) {
     });
     if (consentError) throw new Error(consentError.message);
   } catch (consentError) {
-    await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { accessMode: user ? "account" : "anonymous", error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
-    return NextResponse.json({ error: "Your consent record could not be retained, so the SOW was not sent to Gemini. Try again later.", code: "CONSENT_RECORD_FAILED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    try {
+      await logOperationalEvent({ severity: "ERROR", service: "web", eventType: "ANALYSIS_CONSENT_RECORD_FAILED", details: { accessMode: user ? "account" : "anonymous", recovery: "local_fallback", error: consentError instanceof Error ? consentError.message.slice(0, 300) : "unknown" } });
+    } catch (loggingError) {
+      console.error("Consent retention failure could not be logged", loggingError instanceof Error ? loggingError.message : "unknown error");
+    }
+    // Failing closed applies to the external provider boundary. The
+    // deterministic parser can still return exact, source-grounded quotes
+    // without sending the SOW to Google.
+    return fallbackResponse(input, "consent_record_unavailable", startedAt, undefined, ownerUserId);
   }
   const quota = await consumeRateLimit(request, "sow-analysis-hour", user ? 10 : 3, 3_600, ownerUserId, { failClosed: true });
   if (!quota.allowed) return rateLimitedResponse(quota);
@@ -191,12 +218,10 @@ export async function POST(request: Request) {
   const capacity = await consumeRateLimit(request, "sow-analysis-capacity-day", globalLimit, 86_400, "greenlit-global-analysis-capacity", { failClosed: true });
   if (!capacity.allowed) return NextResponse.json({ error: "Today’s AI capacity has been used. The guided demo remains available, or try live analysis again after the reset.", code: "BETA_CAPACITY_REACHED" }, { status: 429, headers: { "Retry-After": String(capacity.retryAfterSeconds), "Cache-Control": "no-store" } });
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  // `localFallbackReason` already handled this branch before consent storage.
+  // Keep the explicit guard here so the provider client can never be
+  // constructed with a missing key if the eligibility logic changes later.
   if (!apiKey) return fallbackResponse(input, "not_configured", startedAt, undefined, ownerUserId);
-  const country = request.headers.get("x-vercel-ip-country")?.toUpperCase();
-  const paidService = geminiConfiguration.paidService;
-  if (!paidService && country && GEMINI_UNPAID_RESTRICTED_COUNTRIES.has(country)) return fallbackResponse(input, "region_restricted", startedAt, undefined, ownerUserId);
-
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
   const providerStartedAt = performance.now();
