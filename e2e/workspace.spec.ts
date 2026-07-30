@@ -18,12 +18,12 @@ test("real imports start blank and criteria navigation stays locked", async ({ p
 
 test("the import flow explains the next action and the sample completes non-legal fields", async ({ page }) => {
   await page.goto("/workspace");
-  await expect(page.getByText(/Add a synthetic or non-confidential SOW for live Gemini criteria/i)).toBeVisible();
+  await expect(page.getByText(/Add a synthetic or non-confidential SOW for (?:live Gemini|local source-grounded) criteria/i)).toBeVisible();
   await expect(page.locator(".side-details")).toHaveCount(1);
   await expect(page.getByText("Paid services")).toBeHidden();
   await expect(page.getByRole("link", { name: "Agency sign in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Explore the full walkthrough" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Generate acceptance criteria/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Generate acceptance criteria|Draft criteria locally/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Use the synthetic sample" }).click();
   await expect(page.getByLabel("Paste SOW text")).toHaveValue(/STATEMENT OF WORK/);
   await expect(page.getByLabel("Agency or vendor")).toHaveValue("Northstar Studio");
@@ -31,7 +31,7 @@ test("the import flow explains the next action and the sample completes non-lega
   await expect(page.locator("#project-name")).toHaveValue("Acme Outdoors website");
   await expect(page.locator("#milestone-title")).toHaveValue("Spring launch");
   await expect(page.locator("#milestone-value")).toHaveValue("12000.00");
-  await expect(page.getByRole("button", { name: /Generate acceptance criteria/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Generate acceptance criteria|Draft criteria locally/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Explore the full walkthrough" })).toHaveCount(0);
 });
 
@@ -70,7 +70,7 @@ test("opening the guided demo keeps the live anonymous draft recoverable", async
   await expect(page.getByLabel("Agency or vendor")).toHaveValue("Draft-safe Agency");
 });
 
-test("public Gemini import validates business fields and opens the real criteria review", async ({ page }) => {
+test("public criteria import validates business fields and opens the real criteria review", async ({ page }) => {
   let submittedSource = "";
   await page.route("**/api/analyze", async (route) => {
     submittedSource = (route.request().postDataJSON() as { text: string }).text;
@@ -81,10 +81,11 @@ test("public Gemini import validates business fields and opens the real criteria
   });
   await page.goto("/workspace");
   await page.getByLabel("Paste SOW text").fill(source);
-  await expect(page.getByRole("button", { name: /Generate acceptance criteria/ })).toBeVisible();
+  const generateButton = page.getByRole("button", { name: /Generate acceptance criteria|Draft criteria locally/ });
+  await expect(generateButton).toBeVisible();
   await expect(page.getByRole("button", { name: "Explore the full walkthrough" })).toHaveCount(0);
   for (const box of await page.locator(".attestation input").all()) await box.check();
-  await page.getByRole("button", { name: /Generate acceptance criteria/ }).click();
+  await generateButton.click();
   await expect(page.locator(".analysis-error")).toContainText(/agency or vendor/i);
   await expect(page.getByLabel("Agency or vendor")).toHaveAttribute("aria-invalid", "true");
   await page.getByLabel("Agency or vendor").fill("Test Agency");
@@ -92,7 +93,7 @@ test("public Gemini import validates business fields and opens the real criteria
   await page.locator("#project-name").fill("Test Project");
   await page.locator("#milestone-title").fill("Launch");
   await page.locator("#milestone-value").fill("12000.50");
-  await page.getByRole("button", { name: /Generate acceptance criteria/ }).click();
+  await generateButton.click();
   await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
   expect(submittedSource).toBe(source);
   await expect(page.getByLabel("AC-01 measurable outcome")).toHaveValue("Get started is visible");

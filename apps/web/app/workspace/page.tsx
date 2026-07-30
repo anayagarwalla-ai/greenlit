@@ -10,5 +10,11 @@ export const metadata: Metadata = {
 export default async function WorkspacePage({ searchParams }: { searchParams: Promise<{ demo?: string | string[] }> }) {
   const params = await searchParams;
   const guidedDemo = params.demo === "guided";
-  return <MilestoneStudio geminiPaidService={geminiServiceConfiguration().paidService} guidedDemo={guidedDemo} />;
+  return (
+    <MilestoneStudio
+      geminiConfigured={Boolean(process.env.GEMINI_API_KEY)}
+      geminiPaidService={geminiServiceConfiguration().paidService}
+      guidedDemo={guidedDemo}
+    />
+  );
 }
