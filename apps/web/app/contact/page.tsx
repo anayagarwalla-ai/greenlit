@@ -19,6 +19,7 @@ export default function ContactPage() {
         <div className="legal-kicker">Product support</div>
         <h1>Contact Greenlit</h1>
         {(operator || supportEmail || securityEmail) && <p className="legal-lede">{operator && <><strong>{operator}</strong> operates Greenlit. </>} {supportEmail && <>Reach Greenlit at <a href={`mailto:${supportEmail}`}>{supportEmail}</a> for support, privacy, or account questions. </>} {securityEmail && <>Report security vulnerabilities separately to <a href={`mailto:${securityEmail}`}>{securityEmail}</a>; do not include credentials, access codes, or client material.</>}</p>}
+        <p>Report a security concern through the <Link href="/privacy-request?type=security">security report form</Link>. It creates a tracking number in the operator request queue and verifies an email for follow-up. Do not include credentials, access codes, client material, or regulated information.</p>
         <p>Use the <Link href="/privacy-request">privacy request form</Link> for privacy or data questions, or the in-app <strong>Feedback</strong> button for product issues.</p>
         <p>See the <Link href="/terms">Terms</Link>, <Link href="/privacy">Privacy Notice</Link>, and <Link href="/records">recordkeeping notice</Link> for how retained milestone records, evidence, and client decisions are handled.</p>
       </article>

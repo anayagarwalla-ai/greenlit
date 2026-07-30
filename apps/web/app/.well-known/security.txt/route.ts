@@ -17,7 +17,7 @@ export function GET(request: Request) {
   const securityEmail = validEmail(configuredEmail) ? configuredEmail : null;
   const expires = new Date(Date.now() + 180 * 86_400_000).toISOString();
   const body = [
-    `Contact: ${securityEmail ? `mailto:${securityEmail}` : `${origin}/contact`}`,
+    `Contact: ${securityEmail ? `mailto:${securityEmail}` : `${origin}/privacy-request?type=security`}`,
     "Preferred-Languages: en",
     `Canonical: ${origin}/.well-known/security.txt`,
     `Policy: ${origin}/privacy`,

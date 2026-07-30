@@ -15,12 +15,12 @@ describe("security.txt", () => {
     expect(body).not.toContain("anay.agarwalla");
   });
 
-  it("publishes the first-party contact page when no monitored email is configured", async () => {
+  it("publishes the first-party security report form when no monitored email is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_SECURITY_EMAIL", "");
     vi.stubEnv("NEXT_PUBLIC_SUPPORT_EMAIL", "");
     const response = GET(new Request("https://proof.example.test/.well-known/security.txt"));
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Contact: https://proof.example.test/contact");
+    expect(await response.text()).toContain("Contact: https://proof.example.test/privacy-request?type=security");
     expect(response.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=300");
   });
 });

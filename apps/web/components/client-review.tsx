@@ -9,6 +9,7 @@ import { demoCriteria, demoMilestone, seededDemoArtifacts, seededDemoResults } f
 import { DEMO_TIME_ZONE, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
 import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
+import { endSecureReviewSession, secureSessionEndMessage } from "@/lib/secure-review-session";
 
 type ReviewResult = { criterionId: string; status: string; expected: string; observed: string; durationMs: number; timestamp: string };
 type ReviewCriterion = { id: string; title: string; sourceQuote: string; supported?: boolean; checkType?: string };
@@ -86,6 +87,8 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const [pendingToken, setPendingToken] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [accessEmail, setAccessEmail] = useState("");
+  const [endingSession, setEndingSession] = useState(false);
+  const [sessionEndError, setSessionEndError] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const decisionHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -200,8 +203,15 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   };
 
   const endSecureSession = async () => {
-    await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }, 10_000).catch(() => undefined);
-    window.location.assign("/");
+    setEndingSession(true);
+    setSessionEndError("");
+    try {
+      await endSecureReviewSession(packetId);
+      window.location.assign("/");
+    } catch (cause) {
+      setSessionEndError(secureSessionEndMessage(cause));
+      setEndingSession(false);
+    }
   };
 
   const submitDecision = async (event: FormEvent) => {
@@ -304,8 +314,9 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
 
   return (
     <main className="review-shell">
-      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> {demo ? "Synthetic walkthrough · not retained" : `Secure client review · expires ${dateTime(packet.expiresAt)}`}</span>{!demo && <button className="text-action" type="button" onClick={() => void endSecureSession()}>End secure session</button>}</header>
+      <header className="review-header"><Brand /><span className="review-header__secure"><LockKeyhole size={13} /> {demo ? "Synthetic walkthrough · not retained" : `Secure client review · expires ${dateTime(packet.expiresAt)}`}</span>{!demo && <button className="text-action" type="button" onClick={() => void endSecureSession()} disabled={endingSession}>{endingSession ? "Ending secure session…" : "End secure session"}</button>}</header>
       <div className="review-main">
+        {sessionEndError && <div className="analysis-error" role="alert">{sessionEndError} Retry “End secure session” when you are ready.</div>}
         {!packet.decision ? <>
           {demo && <div className="analysis-notice"><ShieldCheck size={15} /><div><strong>Interactive sample. No legal record is created</strong><span>This page uses seeded outcomes to demonstrate the decision experience when free browser capacity is unavailable.</span></div></div>}
           <div className="review-hero"><div><span>{snapshot.agencyName} submitted for approval</span><h1>{snapshot.milestoneTitle}</h1><p>{snapshot.projectName} · {demo ? "Sample outcomes for" : "Evidence captured from"} {snapshot.run.buildLabel}</p></div><div className="review-amount"><span>Milestone value</span><strong>{money(snapshot.amountMinor, snapshot.currency)}</strong></div></div>

@@ -134,7 +134,7 @@ export default function TrustPage() {
           <section id="reporting">
             <span className="resource-section__eyebrow">07</span>
             <h2>Report a privacy or security concern</h2>
-            <p>Use the <Link href={"/privacy-request" as Route}>privacy-request form</Link> for privacy or data questions and the in-product feedback control for product issues. {supportEmail && <>Account questions may also be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>. </>}{securityEmail && <>Report security vulnerabilities to <a href={`mailto:${securityEmail}`}>{securityEmail}</a>. </>}Do not include credentials, access codes, complete SOW text, or regulated information.</p>
+            <p>Use the <Link href={"/privacy-request" as Route}>privacy-request form</Link> for privacy or data questions, the <Link href={"/privacy-request?type=security" as Route}>security report form</Link> for security concerns, and the in-product feedback control for product issues. {supportEmail && <>Account questions may also be sent to <a href={`mailto:${supportEmail}`}>{supportEmail}</a>. </>}{securityEmail && <>Security vulnerabilities may also be reported to <a href={`mailto:${securityEmail}`}>{securityEmail}</a>. </>}Do not include credentials, access codes, complete SOW text, or regulated information.</p>
           </section>
         </div>
       </section>

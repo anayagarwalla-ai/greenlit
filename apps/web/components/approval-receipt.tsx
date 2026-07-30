@@ -7,6 +7,7 @@ import { Brand } from "@/components/brand";
 import { demoCriteria, demoMilestone, seededDemoResults } from "@/lib/demo";
 import { DEMO_TIME_ZONE, formatTimestamp } from "@/lib/format";
 import { clientRequestMessage, fetchWithTimeout } from "@/lib/client-request";
+import { endSecureReviewSession, secureSessionEndMessage } from "@/lib/secure-review-session";
 
 type Result = { criterionId: string; status: string; expected: string; observed: string };
 type Criterion = { id: string; title: string; supported?: boolean; checkType?: string };
@@ -76,6 +77,8 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const [accessCode, setAccessCode] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
+  const [sessionEndError, setSessionEndError] = useState("");
   useEffect(() => {
     if (demo) {
       const timer = window.setTimeout(() => {
@@ -124,6 +127,17 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   };
 
   const savePdf = () => { setToast("Print dialog opened. Choose Save as PDF."); window.print(); window.setTimeout(() => setToast(""), 2800); };
+  const endSecureSession = async () => {
+    setEndingSession(true);
+    setSessionEndError("");
+    try {
+      await endSecureReviewSession(packetId);
+      window.location.assign("/");
+    } catch (cause) {
+      setSessionEndError(secureSessionEndMessage(cause));
+      setEndingSession(false);
+    }
+  };
   if (!packet && pendingToken) return <main className="receipt-shell"><section className="review-state review-unlock"><LockKeyhole size={36} /><h1>Unlock this approval record</h1><p>Enter the authorized recipient email and the separate code the agency shared with you. This receipt link works only once.</p><form className="review-unlock__form" onSubmit={unlockReceipt}><label htmlFor="receipt-access-email">Business email</label><input id="receipt-access-email" type="email" autoComplete="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} required /><label htmlFor="receipt-access-code">Access code</label><input id="receipt-access-code" autoComplete="one-time-code" value={accessCode} onChange={(event) => setAccessCode(event.target.value.toUpperCase())} minLength={8} maxLength={32} required />{error && <div className="analysis-error" role="alert">{error}</div>}<button className="button button--lime" disabled={unlocking || !recipientEmail.trim() || accessCode.trim().length < 8}>{unlocking ? "Unlocking…" : "Open approval record"} <ArrowRight size={15} /></button></form></section></main>;
   if (error) return <main className="receipt-shell"><section className="review-state"><FileWarning size={36} /><h1>Approval record unavailable</h1><p>{error}</p><Link className="button button--outline" href="/">Back to Greenlit</Link></section></main>;
   if (!packet) return <main className="receipt-shell"><section className="review-state"><div className="loader-orbit" /><h1>Opening approval record</h1><p>Verifying the decision and audit-chain head.</p></section></main>;
@@ -132,7 +146,8 @@ export function ApprovalReceipt({ packetId, demo = false }: { packetId: string; 
   const results = Object.fromEntries(snapshot.run.results.map((result) => [result.criterionId, result]));
   return (
     <main className="receipt-shell">
-      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button>{!demo && packet.viewerRole !== "OWNER" && <button className="text-action" onClick={async () => { await fetchWithTimeout(`/api/reviews/${encodeURIComponent(packetId)}/session`, { method: "DELETE" }, 10_000).catch(() => undefined); window.location.assign("/"); }}>End secure session</button>}</div></div>
+      <div className="receipt-toolbar"><Brand /><div className="receipt-toolbar__actions">{(demo || packet.viewerRole === "OWNER") && <Link className="button button--outline button--small" href="/workspace"><ArrowLeft size={13} /> Workspace</Link>}{packet.invoice?.hosted_invoice_url && <a className="button button--outline button--small" href={packet.invoice.hosted_invoice_url} target="_blank" rel="noreferrer"><CreditCard size={14} /> Open Stripe invoice <ExternalLink size={12} /></a>}{!demo && <a className="button button--outline button--small" href={`/api/reviews/${encodeURIComponent(packetId)}/export`}><FileJson2 size={14} /> Export JSON</a>}<button className="button button--ink button--small" onClick={savePdf}><Download size={14} /> Print / Save as PDF</button>{!demo && packet.viewerRole !== "OWNER" && <button className="text-action" onClick={() => void endSecureSession()} disabled={endingSession}>{endingSession ? "Ending secure session…" : "End secure session"}</button>}</div></div>
+      {sessionEndError && <div className="analysis-error" role="alert">{sessionEndError} Retry “End secure session” when you are ready.</div>}
       <article className="receipt-page" aria-label="Milestone approval record">
         {demo && <div className="analysis-notice"><FileWarning size={15} /><div><strong>Synthetic sample. Not a retained approval record</strong><span>This printable page illustrates the final format. It has no evidence hashes, audit chain, server-side decision, or legal-record status.</span></div></div>}
         <ol className="stepper" aria-label="Milestone progress">

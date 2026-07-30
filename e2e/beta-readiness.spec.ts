@@ -143,6 +143,56 @@ test("reviewers never see the owner workspace link on a receipt, owners do", asy
   await expect(page.getByRole("link", { name: "Workspace" })).toBeVisible();
 });
 
+test("a failed review sign-out keeps the secure session open and offers a working retry", async ({ page }) => {
+  let endAttempts = 0;
+  await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot: reviewSnapshot(), snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: null }),
+  }));
+  await page.route("**/api/reviews/REVIEW-BETA1/session", (route) => {
+    endAttempts += 1;
+    return endAttempts === 1
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Please retry." }) })
+      : route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/review/REVIEW-BETA1");
+  await page.getByRole("button", { name: "End secure session" }).click();
+  await expect(page).toHaveURL(/\/review\/REVIEW-BETA1$/);
+  await expect(page.locator(".analysis-error[role='alert']")).toContainText("The secure session could not be ended. You are still signed in.");
+  await expect(page.getByRole("button", { name: "End secure session" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "End secure session" }).click();
+  await expect(page).toHaveURL("/");
+  expect(endAttempts).toBe(2);
+});
+
+test("a failed receipt sign-out keeps the secure session open and offers a working retry", async ({ page }) => {
+  let endAttempts = 0;
+  await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(receiptPacket({ viewerRole: "REVIEWER" })),
+  }));
+  await page.route("**/api/reviews/REVIEW-BETA1/session", (route) => {
+    endAttempts += 1;
+    return endAttempts === 1
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Please retry." }) })
+      : route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/receipt/REVIEW-BETA1");
+  await page.getByRole("button", { name: "End secure session" }).click();
+  await expect(page).toHaveURL(/\/receipt\/REVIEW-BETA1$/);
+  await expect(page.locator(".analysis-error[role='alert']")).toContainText("The secure session could not be ended. You are still signed in.");
+  await expect(page.getByRole("button", { name: "End secure session" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "End secure session" }).click();
+  await expect(page).toHaveURL("/");
+  expect(endAttempts).toBe(2);
+});
+
 test("receipt shows the correction history and truthful draft-invoice wording", async ({ page }) => {
   await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(receiptPacket({
     viewerRole: "OWNER",

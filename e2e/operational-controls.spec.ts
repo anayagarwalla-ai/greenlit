@@ -39,6 +39,34 @@ test("privacy request controls preserve input on failure and reset after success
   await expect(page.getByLabel("Business email")).toHaveValue("");
 });
 
+test("the public security contact opens an actionable tracked report form", async ({ page }) => {
+  let submittedBody: Record<string, unknown> | undefined;
+  await page.route("**/api/privacy-requests", async (route) => {
+    submittedBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ requestId: "PRIV-SECURITY1", identityVerified: false }),
+    });
+  });
+
+  await page.goto("/contact");
+  await page.getByRole("link", { name: "security report form" }).click();
+  await expect(page).toHaveURL(/\/privacy-request\?type=security$/);
+  await expect(page.getByRole("heading", { name: "Report a security concern" })).toBeVisible();
+  await expect(page.getByLabel("Request type")).toHaveValue("OTHER");
+  await page.getByLabel("Business email").fill("reporter@example.test");
+  await page.getByLabel("Details").fill("The review link can be reused after the session ends.");
+  await page.getByRole("button", { name: "Submit security report" }).click();
+
+  await expect(page.locator(".legal-form [role='status']")).toContainText("PRIV-SECURITY1");
+  expect(submittedBody).toMatchObject({
+    requestType: "OTHER",
+    email: "reporter@example.test",
+    details: "Security concern:\nThe review link can be reused after the session ends.",
+  });
+});
+
 test("the fixed staging fixture never claims a failed form submission succeeded", async ({ page }) => {
   await page.goto("/fixture/rc2");
   await page.getByRole("link", { name: "Plan my trip" }).click();
