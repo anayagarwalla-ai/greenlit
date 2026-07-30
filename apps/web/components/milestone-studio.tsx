@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -416,6 +416,19 @@ export function MilestoneStudio({ geminiConfigured, geminiPaidService, guidedDem
     };
 
     const restore = async () => {
+      const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.get("demo") === "guided") {
+        // The walkthrough is a public, synthetic fallback. Launch it before
+        // any account request so an auth outage cannot block the judge path,
+        // and retain the marker so a refresh restores the same experience.
+        setSessionEmail("");
+        setStorageBlocked(!isDraftStorageAvailable());
+        launchDemoRef.current();
+        draftHydrated.current = true;
+        setRestorePending(false);
+        return;
+      }
+
       let email = "";
       try {
         const response = await fetchWithTimeout("/api/account/session", { cache: "no-store" });
@@ -430,16 +443,6 @@ export function MilestoneStudio({ geminiConfigured, geminiPaidService, guidedDem
       setSessionEmail(email);
       setStorageBlocked(!isDraftStorageAvailable());
 
-      const currentUrl = new URL(window.location.href);
-      if (currentUrl.searchParams.get("demo") === "guided") {
-        // The landing-page CTA starts the guided demo directly instead of
-        // landing on the blank intake step.
-        window.history.replaceState({}, "", "/workspace");
-        launchDemoRef.current();
-        draftHydrated.current = true;
-        setRestorePending(false);
-        return;
-      }
       const resumeId = currentUrl.searchParams.get("record");
       const requestedDraftId = currentUrl.searchParams.get("draft");
       if (email && resumeId) {
@@ -783,7 +786,9 @@ export function MilestoneStudio({ geminiConfigured, geminiPaidService, guidedDem
     setToast("Guided demo loaded");
   };
 
-  useEffect(() => { launchDemoRef.current = launchDemo; });
+  // Layout effects run before the restoration effect, so the public demo can
+  // launch synchronously without waiting on the account-session request.
+  useLayoutEffect(() => { launchDemoRef.current = launchDemo; });
 
   const openGuidedDemo = async () => {
     const hasLiveWork = sourceMode === "live" && Boolean(sourceText.trim() || selectedFile || criteria.length || recordId);

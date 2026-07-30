@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import "./globals.css";
-import { LegalFooter } from "@/components/legal-footer";
-import { FeedbackWidget } from "@/components/feedback-widget";
+import { GlobalProductChrome } from "@/components/global-product-chrome";
 import { SkipLink } from "@/components/skip-link";
 
 export const metadata: Metadata = {
@@ -37,7 +36,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
   return (
     <html lang="en" data-scroll-behavior="smooth">
-      <body><SkipLink /><div id="main-content" tabIndex={-1}>{children}</div><LegalFooter /><FeedbackWidget /></body>
+      <body><SkipLink /><div id="main-content" tabIndex={-1}>{children}</div><GlobalProductChrome /></body>
     </html>
   );
 }
