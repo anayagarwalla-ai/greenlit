@@ -21,3 +21,8 @@ export function summarizeRunStatuses(statuses: RunResultStatus[]) {
     return summary;
   }, { PASS: 0, FAIL: 0, ERROR: 0, SKIPPED: 0 } satisfies Record<RunResultStatus, number>);
 }
+
+export function verificationScorePercent(passed: number, total: number) {
+  if (!Number.isFinite(passed) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((passed / total) * 100)));
+}

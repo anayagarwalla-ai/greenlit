@@ -102,6 +102,23 @@ describe("custom staging check mapping", () => {
     expect(ready).toMatchObject({ canRun: true, blockers: [], mappingErrors: {} });
   });
 
+  it("rejects build labels longer than 80 characters", () => {
+    const automated = [criterion("element_state")];
+    const readiness = verificationRunReadiness({
+      signedInEmail: "owner@example.com",
+      busy: false,
+      receipt: "signed-origin-receipt",
+      verifiedOrigin: "https://staging.example.com",
+      evidenceConsent: true,
+      buildLabel: "x".repeat(81),
+      automated,
+      drafts: { "AC-01": { ...initialDraft(), path: "/", elementRef: "button:Search" } },
+    });
+
+    expect(readiness.canRun).toBe(false);
+    expect(readiness.blockers).toContain("Keep the build label to 80 characters or fewer.");
+  });
+
   it("keeps consent in document flow and stacks mapping fields on narrow screens", () => {
     const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.mapping-consent\s*\{[^}]*display:\s*grid;/s);

@@ -28,4 +28,33 @@ describe("responsive workflow CSS", () => {
       /\.receipt-page__foot\s*\{[^}]*position:\s*static;[^}]*overflow-wrap:\s*anywhere;/,
     );
   });
+
+  it("keeps circular proof marks from shrinking into ovals", () => {
+    expect(css).toMatch(
+      /\.score-ring\s*\{[^}]*width:\s*92px;[^}]*height:\s*92px;[^}]*flex:\s*0 0 92px;[^}]*aspect-ratio:\s*1;/,
+    );
+    expect(css).toMatch(
+      /\.receipt-stamp\s*\{[^}]*width:\s*110px;[^}]*height:\s*110px;[^}]*flex:\s*0 0 110px;[^}]*aspect-ratio:\s*1;/,
+    );
+  });
+
+  it("renders the source icon as a centered badge without styling its metadata", () => {
+    expect(css).toMatch(
+      /\.source-title \.source-icon\s*\{[^}]*flex:\s*0 0 36px;[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*border-radius:\s*50%;/,
+    );
+    expect(css).toMatch(/\.source-title > div > span\s*\{/);
+    expect(css).not.toMatch(/\.source-title span\s*\{/);
+  });
+
+  it("only pushes real sidebar counts to the trailing edge", () => {
+    expect(css).toMatch(/\.side-nav__count\s*\{[^}]*margin-left:\s*auto;/);
+    expect(css).not.toMatch(/\.side-nav button span:last-child\s*\{/);
+  });
+
+  it("does not reserve obsolete overlay space in the mobile legal footer", () => {
+    expect(css).toMatch(
+      /\.legal-footer\s*\{[^}]*min-height:\s*0;[^}]*padding:\s*17px 24px 20px;/,
+    );
+    expect(css).not.toMatch(/\.legal-footer\s*\{[^}]*padding(?:-bottom)?:[^;}]*72px/);
+  });
 });

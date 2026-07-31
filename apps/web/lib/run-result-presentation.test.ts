@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runResultPresentation, summarizeRunStatuses } from "./run-result-presentation";
+import { runResultPresentation, summarizeRunStatuses, verificationScorePercent } from "./run-result-presentation";
 
 describe("run result presentation", () => {
   it("does not describe runner errors or skipped checks as assertion failures", () => {
@@ -15,5 +15,12 @@ describe("run result presentation", () => {
       ERROR: 1,
       SKIPPED: 1,
     });
+  });
+
+  it("keeps the score ring percentage finite and bounded", () => {
+    expect(verificationScorePercent(0, 0)).toBe(0);
+    expect(verificationScorePercent(5, 6)).toBe(83);
+    expect(verificationScorePercent(6, 6)).toBe(100);
+    expect(verificationScorePercent(9, 6)).toBe(100);
   });
 });

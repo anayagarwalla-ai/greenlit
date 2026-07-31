@@ -124,6 +124,8 @@ test("a cross-device retained draft requires and accepts the exact pasted SOW be
 
   await page.goto(`/workspace?record=${recordId}`);
   await expect(page.getByText("Complete source required before verification.")).toBeVisible();
+  await expect(page.getByText("Retained criterion quotes", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Processed in memory/)).toHaveCount(0);
   await page.getByLabel("Exact original SOW text").fill(sourceText);
   await page.getByRole("button", { name: "Verify and restore" }).click();
   await expect(page.getByText("Complete source required before verification.")).toBeHidden();
@@ -214,6 +216,37 @@ test("client review explains a test-draft invoice truthfully", async ({ page }) 
   await expect(page.getByText(/test mode: approving creates a \$12,000\.50 draft invoice/)).toBeVisible();
   await page.getByRole("button", { name: "Approve milestone" }).click();
   await expect(page.getByRole("dialog")).toContainText("as a Stripe test draft; no email is sent");
+});
+
+test("client review replaces a failed evidence image without hiding artifact actions", async ({ page }) => {
+  const baseSnapshot = reviewSnapshot();
+  const snapshot = {
+    ...baseSnapshot,
+    run: {
+      ...baseSnapshot.run,
+      artifacts: [{
+        criterionId: "AC-01",
+        kind: "screenshot",
+        sha256: "f".repeat(64),
+        byteSize: 1_024,
+        url: "/missing-evidence.png",
+      }],
+    },
+  };
+  await page.route("**/missing-evidence.png", (route) => route.fulfill({ status: 404, contentType: "text/plain", body: "Missing" }));
+  await page.route("**/api/reviews/REVIEW-BETA1", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ packetId: "REVIEW-BETA1", snapshot, snapshotSha256: "d".repeat(64), expiresAt: futureIso, decision: null }),
+  }));
+
+  await page.goto("/review/REVIEW-BETA1");
+  const evidence = page.locator(".review-evidence");
+  await evidence.getByText("Inspect evidence for AC-01: Hero visible").click();
+  await expect(evidence.locator(".review-evidence__unavailable")).toContainText("The evidence preview could not be loaded");
+  await expect(evidence.getByRole("link", { name: "Open full resolution" })).toHaveAttribute("href", "/missing-evidence.png");
+  await expect(evidence.getByRole("link", { name: "Download evidence" })).toHaveAttribute("href", "/api/reviews/REVIEW-BETA1/evidence/AC-01");
+  await expect(evidence.locator("img")).toHaveCount(0);
 });
 
 test("client review explains live-email and manual invoicing truthfully", async ({ page }) => {
