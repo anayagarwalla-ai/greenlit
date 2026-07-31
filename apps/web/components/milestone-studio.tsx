@@ -47,7 +47,7 @@ import { sameConfirmedCriteriaRevision } from "@/lib/criteria-revision";
 import { demoCriteria, demoSowText, seededDemoArtifacts, seededDemoResults, sowExcerpt } from "@/lib/demo";
 import { DEMO_TIME_ZONE, formatDuration, formatTimestamp } from "@/lib/format";
 import { RECORD_NOTICE_VERSION } from "@/lib/policy";
-import { runResultPresentation, summarizeRunStatuses } from "@/lib/run-result-presentation";
+import { runResultPresentation, summarizeRunStatuses, verificationScorePercent } from "@/lib/run-result-presentation";
 import { AGENCY_BETA_SIGN_IN_VISIBLE } from "../lib/public-features";
 import { isActiveRunStatus, isTerminalRunFailure, terminalRunMessage } from "@/lib/run-status";
 import {
@@ -1227,8 +1227,8 @@ export function MilestoneStudio({ geminiConfigured, geminiPaidService, guidedDem
           </div>
           <div className="side-label">Proof flow</div>
           <nav className="side-nav">
-            <button className={currentStep === 1 ? "is-active" : ""} disabled={criteria.length === 0 && sourceMode !== "demo"} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span>{visibleCount}</span>}</button>
-            <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase && latestRun && <span>{latestPassCount}/{latestRun.results.length}</span>}</button>
+            <button className={currentStep === 1 ? "is-active" : ""} disabled={criteria.length === 0 && sourceMode !== "demo"} onClick={() => setPhase("criteria")}><FileText size={15} /><span>Acceptance criteria</span>{visibleCount > 0 && <span className="side-nav__count">{visibleCount}</span>}</button>
+            <button className={currentStep === 2 ? "is-active" : ""} disabled={!lastVerificationPhase || phase.startsWith("running")} onClick={() => lastVerificationPhase && setPhase(lastVerificationPhase)}><ScanSearch size={15} /><span>Verification run</span>{lastVerificationPhase && latestRun && <span className="side-nav__count">{latestPassCount}/{latestRun.results.length}</span>}</button>
             <button className={currentStep === 3 ? "is-active" : ""} disabled={!reviewCreated} onClick={openClientReview}><Send size={15} /><span>Client review</span></button>
             <button disabled={!reviewPacketId} onClick={() => void openApprovalRecord()}><FileCheck2 size={15} /><span>Approval record</span></button>
           </nav>
@@ -1463,9 +1463,9 @@ function DemoCriteriaReview({ confirmed, setConfirmed, onRun }: {
   const allConfirmed = confirmedCount === demoCriteria.length;
   return (
     <div className="criteria-layout">
-      <section className="panel source-sheet" aria-label="Scrollable source document" tabIndex={0}>
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>Acme × Northstar SOW.pdf</strong><span>Selected page 4 · source hash 3f45b1d8…a209</span></div></div>
-        <div className="document-page">
+      <section className="panel source-sheet" aria-label="Source document">
+        <div className="source-title"><span className="source-icon" aria-hidden="true"><FileText size={18} /></span><div><strong>Acme × Northstar SOW.pdf</strong><span>Selected page 4 · source hash 3f45b1d8…a209</span></div></div>
+        <div className="document-page" tabIndex={0} aria-label="Scrollable synthetic source page">
           <div className="document-page__head"><span>Statement of work</span><span>Page 4 / 7</span></div>
           {sowExcerpt.map((line, index) => <div className={`document-line ${index > 0 ? "is-cited" : ""}`} key={line.line}><span>{line.line}</span><div>{line.text}</div></div>)}
           <div className="source-foot"><span>Acme Outdoors / Northstar Studio</span><span>SYNTHETIC DEMO · NOT CONFIDENTIAL</span></div>
@@ -1602,13 +1602,13 @@ function ExtractedCriteriaReview({ sourceName, sourceText, criteria, setCriteria
   return (
     <div className="criteria-layout live-criteria-layout">
       <section className="panel source-sheet live-source" aria-label="Imported source document">
-        <div className="source-title"><span className="source-icon"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>Processed in memory · {sourceText.length.toLocaleString()} characters</span></div>{recordId && <div className="source-reattach-actions"><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" aria-label="Choose the original SOW file to reattach" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Choose file</button><button type="button" className="mini-action" aria-expanded={showPasteReattach} onClick={() => setShowPasteReattach((current) => !current)}><FileText size={12} /> Paste original</button></div>}</div>
+        <div className="source-title"><span className="source-icon" aria-hidden="true"><FileText size={18} /></span><div><strong>{sourceName}</strong><span>{sourceReattachRequired ? "Original source not attached · retained criterion quotes shown" : `Processed in memory · ${sourceText.length.toLocaleString()} characters`}</span></div>{recordId && <div className="source-reattach-actions"><input ref={reattachInput} className="sr-only" tabIndex={-1} type="file" aria-label="Choose the original SOW file to reattach" accept="application/pdf,text/plain,text/markdown,.pdf,.txt,.md,.markdown" onChange={(event) => void reattachSource(event.target.files?.[0] ?? null)} /><button type="button" className="mini-action" disabled={reattachBusy} onClick={() => reattachInput.current?.click()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <FileUp size={12} />} Choose file</button><button type="button" className="mini-action" aria-expanded={showPasteReattach} onClick={() => setShowPasteReattach((current) => !current)}><FileText size={12} /> Paste original</button></div>}</div>
         {sourceReattachRequired && <div className="analysis-error source-reattach-warning" role="alert"><AlertTriangle size={15} /><span><strong>Complete source required before verification.</strong> This browser restored the retained criteria and exact quotes, but not the rest of the SOW. Paste the original text or choose the exact original file; Greenlit will verify its frozen hash.</span></div>}
         {showPasteReattach && recordId && <div className="source-reattach-panel"><label htmlFor="reattach-pasted-source">Exact original SOW text</label><textarea id="reattach-pasted-source" value={pastedSource} onChange={(event) => { setPastedSource(event.target.value); setReattachError(""); }} placeholder="Paste the same SOW text used for this milestone" /><div><button type="button" className="button button--outline button--small" disabled={reattachBusy || !pastedSource.trim()} onClick={() => void reattachPastedSource()}>{reattachBusy ? <LoaderCircle className="spin" size={12} /> : <ShieldCheck size={12} />} Verify and restore</button><button type="button" className="mini-action" onClick={() => { setShowPasteReattach(false); setPastedSource(""); setReattachError(""); }}>Cancel</button></div></div>}
         {reattachError && <div className="analysis-error" role="alert">{reattachError}</div>}
-        <div className="source-proof-note"><Quote size={14} /><span>Highlighted lines are cited by the draft. Every citation is checked against this extracted source.</span></div>
-        <div className="document-page live-document" tabIndex={0} aria-label="Scrollable extracted source document">
-          <div className="document-page__head"><span>Extracted source</span><span>{sourceLines.length} lines</span></div>
+        <div className="source-proof-note"><Quote size={14} /><span>{sourceReattachRequired ? "Only the exact quotes retained with the confirmed criteria are shown until the original source is reattached." : "Highlighted lines are cited by the draft. Every citation is checked against this extracted source."}</span></div>
+        <div className="document-page live-document" tabIndex={0} aria-label={sourceReattachRequired ? "Scrollable retained criterion quotes" : "Scrollable extracted source document"}>
+          <div className="document-page__head"><span>{sourceReattachRequired ? "Retained criterion quotes" : "Extracted source"}</span><span>{sourceLines.length} lines</span></div>
           {sourceLines.map((line, index) => {
             const cited = lineContainsCitation(line, citations);
             return line.trim() ? <div className={`document-line ${cited ? "is-cited" : ""}`} aria-label={cited ? `Cited source line ${index + 1}` : `Source line ${index + 1}`} key={`${index}-${line.slice(0, 12)}`}><span aria-hidden="true">{index + 1}</span><div>{line}{cited && <span className="sr-only"> Cited by an acceptance criterion.</span>}</div></div> : <div className="document-spacer" key={index} />;
@@ -1700,6 +1700,7 @@ function VerificationReport({ run, criteria, draftCriteriaChanged = false, onRet
     counts.ERROR ? `${counts.ERROR} runner ${counts.ERROR === 1 ? "error" : "errors"}` : "",
     counts.SKIPPED ? `${counts.SKIPPED} not run` : "",
   ].filter(Boolean).join(" · ");
+  const scorePercent = verificationScorePercent(passed, run.results.length);
   const actionBanner = (
     <div className="action-banner">
       <div><h3>{draftCriteriaChanged ? "The draft changed after this evidence was captured." : run.seededDemo ? isPass ? "Continue to the client decision." : "Next: verify the fixed sample build." : isPass ? "Give the client proof, not a test report." : incomplete ? "Retry the incomplete verification." : caughtFalseSuccess ? "Next: verify the fixed build." : "Next: verify another build."}</h3><p>{draftCriteriaChanged ? "This report still shows the frozen criterion revision it actually verified. Confirm and rerun the revised draft before creating a client review." : run.seededDemo ? isPass ? "Open a local-only client review and try the decision flow." : "Run the same six checks against rc2; no re-analysis is needed." : isPass ? "Create a focused review page with the latest passing evidence." : incomplete ? "Runner errors and skipped checks are not assertion failures, but they also are not passing evidence." : "Rerun the same frozen checks after the build is corrected."}</p></div>
@@ -1716,7 +1717,7 @@ function VerificationReport({ run, criteria, draftCriteriaChanged = false, onRet
           <div className="panel report-summary">
             {run.seededDemo && <div className="analysis-notice"><AlertTriangle size={15} /><div><strong>Synthetic walkthrough. Not retained evidence</strong><span>The displayed frames were captured from Greenlit&apos;s included local fixture for presentation. The outcomes are seeded; no runner session, retained artifact, audit event, or legal transaction record was created.</span></div></div>}
             <div className="score-line">
-              <div className="score-ring" style={{ "--score": `${Math.round((passed / run.results.length) * 100)}%` } as React.CSSProperties}><strong>{passed}/{run.results.length}</strong></div>
+              <div className="score-ring" role="img" aria-label={`${passed} of ${run.results.length} automated checks passed`} style={{ "--score": `${scorePercent}%` } as React.CSSProperties}><strong aria-hidden="true">{passed}/{run.results.length}</strong></div>
               <div className="score-copy"><h2>{run.seededDemo ? isPass ? "Sample: every automated check passes." : counts.FAIL === 1 ? "Sample: one automated check needs work." : `Sample: ${counts.FAIL} automated checks need work.` : isPass ? manualCount ? "Automated checks pass; client judgment remains." : "Every promise has browser evidence." : incomplete ? "Verification did not complete every check." : counts.FAIL === 1 ? "One automated check needs work." : `${counts.FAIL} automated checks need work.`}</h2><p>{run.seededDemo ? isPass ? "This seeded outcome opens the client-decision walkthrough without claiming real evidence." : caughtFalseSuccess ? "The sample illustrates a polished success message contradicting an HTTP 500 response." : "The sample illustrates how unmet criteria appear." : isPass ? manualCount ? `${run.results.length} automated checks passed; ${manualCount} manual ${manualCount === 1 ? "promise awaits" : "promises await"} the client’s judgment.` : "This milestone has a passing browser-evidence run and is ready for client review." : incomplete ? statusSummary : caughtFalseSuccess ? "The interface says success, but the underlying lead request failed." : "The browser evidence found checks that did not meet the frozen scope."}</p></div>
             </div>
             <div className="run-meta"><div><span>Build</span><strong>{run.buildLabel}</strong></div><div><span>Verified</span><strong>{completedAt}</strong></div><div><span>Runtime</span><strong>{formatDuration(totalDuration)}</strong></div></div>

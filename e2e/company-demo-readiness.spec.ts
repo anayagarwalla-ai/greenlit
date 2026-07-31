@@ -117,6 +117,62 @@ test("the public walkthrough is meaningful from a cold session", async ({ page }
   await expect(page).toHaveURL(/\/workspace\?demo=guided$/);
 });
 
+test("guided proof badges stay centered and circular through the sample result flow", async ({ page }) => {
+  await page.goto("/workspace?demo=guided");
+  await expect(page.getByRole("heading", { name: "Confirm what “done” means" })).toBeVisible();
+
+  const sourceIcon = page.locator(".source-title .source-icon");
+  await expect(sourceIcon).toBeVisible();
+  const sourceIconGeometry = await sourceIcon.evaluate((element) => {
+    const icon = element.getBoundingClientRect();
+    const glyph = element.querySelector("svg")?.getBoundingClientRect();
+    return {
+      width: icon.width,
+      height: icon.height,
+      glyphOffsetX: glyph ? Math.abs((glyph.left + glyph.width / 2) - (icon.left + icon.width / 2)) : Number.POSITIVE_INFINITY,
+      glyphOffsetY: glyph ? Math.abs((glyph.top + glyph.height / 2) - (icon.top + icon.height / 2)) : Number.POSITIVE_INFINITY,
+    };
+  });
+  expect(Math.abs(sourceIconGeometry.width - sourceIconGeometry.height)).toBeLessThanOrEqual(1);
+  expect(sourceIconGeometry.glyphOffsetX).toBeLessThanOrEqual(1);
+  expect(sourceIconGeometry.glyphOffsetY).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: /verify sample/i }).click();
+  const scoreRing = page.locator(".score-ring");
+  await expect(scoreRing).toHaveAttribute("aria-label", "5 of 6 automated checks passed");
+  const failedScoreGeometry = await scoreRing.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      score: window.getComputedStyle(element).getPropertyValue("--score").trim(),
+    };
+  });
+  expect(Math.abs(failedScoreGeometry.width - failedScoreGeometry.height)).toBeLessThanOrEqual(1);
+  expect(failedScoreGeometry.score).toBe("83%");
+
+  await page.getByRole("button", { name: "Verify fixed build" }).click();
+  await expect(scoreRing).toHaveAttribute("aria-label", "6 of 6 automated checks passed");
+  const passingScoreGeometry = await scoreRing.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      score: window.getComputedStyle(element).getPropertyValue("--score").trim(),
+    };
+  });
+  expect(Math.abs(passingScoreGeometry.width - passingScoreGeometry.height)).toBeLessThanOrEqual(1);
+  expect(passingScoreGeometry.score).toBe("100%");
+
+  await page.goto("/receipt/demo");
+  await expect(page.getByRole("heading", { name: "Milestone approval record" })).toBeVisible();
+  const receiptStampGeometry = await page.locator(".receipt-stamp").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(Math.abs(receiptStampGeometry.width - receiptStampGeometry.height)).toBeLessThanOrEqual(1);
+});
+
 test("the public walkthrough does not depend on the account-session service", async ({ page }) => {
   let sessionRequests = 0;
   await page.route("**/api/account/session", (route) => {

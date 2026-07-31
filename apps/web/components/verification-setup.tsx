@@ -245,6 +245,7 @@ export function verificationRunReadiness({
   if (busy) blockers.push("Wait for origin verification to finish.");
   if (!receipt || !verifiedOrigin) blockers.push("Verify the public staging origin.");
   if (!buildLabel.trim()) blockers.push("Add a build label.");
+  if (buildLabel.trim().length > 80) blockers.push("Keep the build label to 80 characters or fewer.");
   if (!evidenceConsent) blockers.push("Confirm the evidence and retention notice.");
   if (automated.length === 0) blockers.push("Add at least one browser-verifiable criterion.");
   if (automated.length > 6) blockers.push("Keep this run to six browser checks or fewer.");
@@ -574,8 +575,8 @@ export function VerificationSetup({ criteria, sourceName, signedInEmail, initial
             </label>
             <label>
               Build label
-              <input value={buildLabel} onChange={(event) => setBuildLabel(event.target.value)} placeholder="client-launch-rc3" aria-describedby="build-label-help" />
-              <small id="build-label-help">Use the release, commit, or milestone name reviewers will recognize.</small>
+              <input value={buildLabel} maxLength={80} onChange={(event) => setBuildLabel(event.target.value)} placeholder="client-launch-rc3" aria-describedby="build-label-help" />
+              <small id="build-label-help">Use the release, commit, or milestone name reviewers will recognize. Maximum 80 characters.</small>
             </label>
           </div>
           <div className="token-instruction"><div><strong>Serve this exact text at</strong><code>/.well-known/greenlit.txt</code></div><code>{token || "Generating one-time token…"}</code><button type="button" className="mini-action" disabled={!token} onClick={async () => { if (!token) return; try { await navigator.clipboard.writeText(token); setCopied(true); } catch { setCopied(false); setError("Clipboard access is unavailable. Select the token text and copy it manually."); } }}>{copied ? <Check size={12} /> : <Clipboard size={12} />}{copied ? "Copied" : "Copy token"}</button></div>

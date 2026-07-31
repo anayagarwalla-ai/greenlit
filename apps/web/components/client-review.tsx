@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, CheckCircle2, CreditCard, Download, ExternalLink, FileCheck2, LockKeyhole, MessageSquareText, ShieldCheck, X } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, CreditCard, Download, ExternalLink, FileCheck2, ImageOff, LockKeyhole, MessageSquareText, ShieldCheck, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { demoCriteria, demoMilestone, seededDemoArtifacts, seededDemoResults } from "@/lib/demo";
 import { DEMO_TIME_ZONE, formatTimestamp } from "@/lib/format";
@@ -89,6 +89,7 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
   const [accessEmail, setAccessEmail] = useState("");
   const [endingSession, setEndingSession] = useState(false);
   const [sessionEndError, setSessionEndError] = useState("");
+  const [failedEvidenceUrls, setFailedEvidenceUrls] = useState<ReadonlySet<string>>(() => new Set());
   const dialogRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const decisionHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -333,9 +334,11 @@ export function ClientReview({ packetId, demo = false }: { packetId: string; dem
             <div className="review-list">{snapshot.criteria.map((criterion) => {
               const result = results[criterion.id]; const manual = !result;
               const artifact = snapshot.run.artifacts?.find((item) => item.criterionId === criterion.id);
+              const artifactUrl = artifact?.url ?? "";
+              const evidenceImageFailed = artifactUrl ? failedEvidenceUrls.has(artifactUrl) : false;
               return <article className={`review-row ${manual ? "is-manual" : ""}`} key={criterion.id}>
                 <span className="criterion-id">{criterion.id}</span>
-                <div><h3 aria-describedby={`${criterion.id}-source`}>{criterion.title}</h3><blockquote id={`${criterion.id}-source`} className="review-source-quote" aria-label={`Exact cited source for ${criterion.id}`}><span className="sr-only">Exact cited source: </span>“{criterion.sourceQuote}”</blockquote><p>{manual ? "Client judgment is required; no automated result is claimed." : <><strong>Expected:</strong> {result.expected}<br /><strong>Observed:</strong> {result.observed}</>}</p>{!manual && <details className="review-evidence"><summary>Inspect evidence for {criterion.id}: {criterion.title}</summary>{artifact?.url ? <><a className="evidence-image-link" href={artifact.url} target="_blank" rel="noreferrer" aria-label={`Open full-resolution evidence for ${criterion.id}: ${criterion.title}`}><Image unoptimized width={1280} height={720} src={artifact.url} alt={`Captured evidence for ${criterion.id}: ${criterion.title}`} /></a><div className="evidence-actions"><a className="text-action evidence-download" href={artifact.url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Open full resolution</a><a className="text-action evidence-download" href={demo ? artifact.url : `/api/reviews/${encodeURIComponent(packetId)}/evidence/${encodeURIComponent(criterion.id)}`} download={`${criterion.id}-evidence`}><Download size={13} /> Download evidence</a></div></> : <p>Evidence unavailable. No screenshot can be displayed.</p>}<code>Artifact SHA-256: {artifact?.sha256 ?? "Unavailable"}</code><code>Run manifest SHA-256: {snapshot.run.manifestSha256}</code></details>}</div>
+                <div><h3 aria-describedby={`${criterion.id}-source`}>{criterion.title}</h3><blockquote id={`${criterion.id}-source`} className="review-source-quote" aria-label={`Exact cited source for ${criterion.id}`}><span className="sr-only">Exact cited source: </span>“{criterion.sourceQuote}”</blockquote><p>{manual ? "Client judgment is required; no automated result is claimed." : <><strong>Expected:</strong> {result.expected}<br /><strong>Observed:</strong> {result.observed}</>}</p>{!manual && <details className="review-evidence"><summary>Inspect evidence for {criterion.id}: {criterion.title}</summary>{artifactUrl ? <>{!evidenceImageFailed && <a className="evidence-image-link" href={artifactUrl} target="_blank" rel="noreferrer" aria-label={`Open full-resolution evidence for ${criterion.id}: ${criterion.title}`}><Image unoptimized width={1280} height={720} src={artifactUrl} alt={`Captured evidence for ${criterion.id}: ${criterion.title}`} onError={() => setFailedEvidenceUrls((current) => current.has(artifactUrl) ? current : new Set(current).add(artifactUrl))} /></a>}{evidenceImageFailed && <div className="review-evidence__unavailable" role="status"><ImageOff size={20} aria-hidden="true" /><span>The evidence preview could not be loaded. Use the retained artifact actions below to retry.</span></div>}<div className="evidence-actions"><a className="text-action evidence-download" href={artifactUrl} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Open full resolution</a><a className="text-action evidence-download" href={demo ? artifactUrl : `/api/reviews/${encodeURIComponent(packetId)}/evidence/${encodeURIComponent(criterion.id)}`} download={`${criterion.id}-evidence`}><Download size={13} /> Download evidence</a></div></> : <p>Evidence unavailable. No screenshot can be displayed.</p>}<code>Artifact SHA-256: {artifact?.sha256 ?? "Unavailable"}</code><code>Run manifest SHA-256: {snapshot.run.manifestSha256}</code></details>}</div>
                 <span className={`status-badge ${manual ? "status-badge--neutral" : "status-badge--pass"}`}>{manual ? <MessageSquareText size={11} aria-hidden="true" /> : <CheckCircle2 size={11} aria-hidden="true" />}{manual ? "Manual review" : "Pass: verified"}</span>
               </article>;
             })}</div>
